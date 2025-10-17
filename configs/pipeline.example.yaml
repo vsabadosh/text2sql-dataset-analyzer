@@ -1,0 +1,41 @@
+sourceDb:
+  dialect: sqlite           # or: postgresql
+  kind: file                # or: server
+  endpoint: "./data_examples/databases"    # sqlite root folder
+  # postgresql example:
+  # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
+
+load:
+  name: jsonl
+  params:
+    path: data_examples/train-all.jsonl
+
+normalize:
+  - name: alias_mapper
+    params:
+      mapping:
+        question: question
+        sql: sql
+        schema: schema
+        dbId: db
+
+  - name: id_assign        
+    params:
+      mode: incremental
+
+  - name: db_identity_assign
+    params: {}             
+
+analyze:
+  - name: schema_analysis_annot
+    params: {}             
+
+  - name: query_syntax_annot
+    params: {}            
+
+  - name: query_execution_annot
+    params:
+      mode: select_only      
+
+output:
+  dataset_name: analyses_spider_dataset

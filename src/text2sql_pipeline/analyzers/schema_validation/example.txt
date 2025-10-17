@@ -1,0 +1,162 @@
+
+A) Example: DDL does not parse (syntax/parse error)
+{
+  "ts": "2025-10-16T14:02:11Z",
+  "run_id": "run_2025_10_16",
+  "dataset_id": "spiderNew",
+  "item_id": null,
+  "db_id": "sqlite_badddl_001",
+  "event_type": "schema_analysis",
+  "name": "schema_validation",
+  "status": failed,
+  "duration_ms": 3.9,
+  "err": "parse_error: unexpected EOF near ')' at line 3 col 1",
+  "features": {
+    "parsed": false,
+    "error_kind": "parse_error"
+  },
+  "stats": {
+    "collect_ms": 3.9,
+    "errors": [
+      {
+        "kind": "parse_error",
+        "message": "unexpected EOF near ')' at line 3 col 1",
+        "snippet": "CREATE TABLE bad_table(\n  id INTEGER PRIMARY KEY\n"
+      }
+    ],
+    "warnings": []
+  },
+  "tags": { "dialect": "sqlite", "source": "ddl" }
+}
+B) Example: DDL parses but has all blocking cases
+//Invalid
+{
+  "ts": "2025-10-16T14:03:27Z",
+  "run_id": "run_2025_10_16",
+  "dataset_id": "spiderNew",
+  "item_id": null,
+  "db_id": "sqlite_demo_all_blocks",
+  "event_type": "schema_analysis",
+  "name": "schema_validation",
+  "status": failed,
+  "duration_ms": 22.6,
+  "err": "7 error(s)",
+  "features": {
+    "parsed": true,
+    "tables": 6,
+    "columns": 20,
+
+    "fk_total": 5,
+    "fk_valid": 1,
+
+    "fk_invalid": 4,
+    "duplicate_columns_count": 1,
+    "unknown_types_count": 1,
+    "multiple_pks_count": 1,
+    "blocking_errors_total": 7,
+
+    "evidence": {
+      "fk_missing_table": [
+        { "table": "orders", "local": ["customer_id"], "parent_table": "customers" }
+      ],
+      "fk_missing_column": [
+        { "table": "posts", "local": ["author_id"], "parent_table": "users", "parent_columns": ["username"] }
+      ],
+      "fk_arity_mismatch": [
+        { "table": "child", "local": ["x","y"], "parent_table": "parent", "parent_columns": ["a"] }
+      ],
+      "fk_target_not_key": [
+        { "table": "order_items", "local": ["product_sku"], "parent_table": "products", "parent_columns": ["sku"] }
+      ],
+      "duplicate_columns": [
+        { "table": "teams", "columns": ["name","name"] }
+      ],
+      "unknown_types": [
+        { "table": "users", "column": "username", "type": "STRING", "dialect": "postgres" }
+      ],
+      "multiple_pks": [
+        { "table": "t", "defined_as": ["PRIMARY KEY(id)", "PRIMARY KEY(code)"] }
+      ]
+    }
+  },
+  "stats": {
+    "collect_ms": 22.6,
+    "errors": [
+      {
+        "kind": "fk_missing_table",
+        "message": "Table orders has FK referencing non-existing table 'customers'.",
+      },
+      {
+        "kind": "fk_missing_column",
+        "message": "Table posts has FK referencing non-existing column 'username' on parent 'users'.",
+      },
+      {
+        "kind": "fk_arity_mismatch",
+        "message": "Table child FK columns ('x','y') mismatch parent parent columns ('a').",
+      },
+      {
+        "kind": "fk_target_not_key",
+        "message": "Table order_items FK ('product_sku') references products('sku') which is not PK/UNIQUE.",
+      },
+      {
+        "kind": "duplicate_columns",
+        "message": "Table teams has duplicate column names.",
+      },
+      {
+        "kind": "unknown_type",
+        "message": "Unknown/invalid type for dialect 'postgres': STRING",
+      },
+      {
+        "kind": "multiple_pks",
+        "message": "Table t defines multiple PRIMARY KEY constraints.",
+      }
+    ],
+    "warnings": []
+  },
+  "tags": { "dialect": "sqlite", "source": "ddl" }
+}
+
+C) Everything is correct
+{
+  "ts": "2025-10-16T14:31:05Z",
+  "run_id": "run_2025_10_16",
+  "dataset_id": "spiderNew",
+  "item_id": null,
+  "db_id": "sqlite_shop_clean_a1b2c3",
+  "event_type": "schema_analysis",
+  "name": "schema_validation",
+  "status": "ok",
+  "duration_ms": 9.8,
+  "err": null,
+  "features": {
+    "parsed": true,
+    "tables": 3,
+    "columns": 14,
+
+    "fk_total": 2,
+    "fk_invalid": 0,
+    "fk_valid": 2,
+
+    "duplicate_columns_count": 0,
+    "unknown_types_count": 0,
+    "multiple_pks_count": 0,
+
+    "blocking_errors_total": 0,
+
+    "evidence": {
+      "fk_missing_table": [],
+      "fk_missing_column": [],
+      "fk_arity_mismatch": [],
+      "fk_target_not_key": [],
+      "duplicate_columns": [],
+      "unknown_types": [],
+      "multiple_pks": []
+    }
+  },
+  "stats": {
+    "collect_ms": 9.8,
+    "errors": [],
+    "warnings": []
+  },
+  "tags": { "dialect": "sqlite", "source": "ddl" }
+}

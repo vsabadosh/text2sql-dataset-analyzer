@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "text2sql-pipeline"
+version = "0.1.0"
+description = "Streaming Text-to-SQL dataset processing pipeline with analyzers and SQLite-first execution"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+  "pydantic>=2.0,<3.0",
+  "sqlglot>=23.0.0",
+  "click>=8.1",
+  "PyYAML>=6.0",
+  "SQLAlchemy>=2.0",
+  "datasets>=2.20,<3",
+  "huggingface-hub>=0.24,<1",
+  "pyarrow>=14,<19",
+  "dependency-injector>=4.41,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "black>=24.0",
+  "isort>=5.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+text2sql = "text2sql_pipeline.cli.main:main"
+
+[tool.pytest.ini_options]
+# Register your custom mark so `pytest -m run` selects these tests
+markers = [
+  "run: tests included when running `-m run`",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]

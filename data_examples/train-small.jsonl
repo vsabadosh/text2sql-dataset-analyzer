@@ -1,0 +1,2 @@
+{"question": "Count users from DDL-only", "sql": "SELECT COUNT(*) FROM user1;", "schema": "CREATE TABLE user1(id INTEGER PRIMARY KEY, name TEXT);"}
+{"question": "Count users from DDL-only", "sql": "SELECT COUNT(*) FROM user2;", "schema": "CREATE TABLE user2(id INTEGER PRIMARY KEY, name TEXT);"}
