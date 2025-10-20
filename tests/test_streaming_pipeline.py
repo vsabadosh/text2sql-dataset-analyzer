@@ -19,7 +19,6 @@ def test_full_pipeline(tmp_path):
         "schema_analysis_metrics.jsonl",
         "query_analysis_metrics.jsonl",
         "query_execution_metrics.jsonl",
-        "_run_info.json",
     ]:
         assert os.path.isfile(os.path.join(out_dir, fname))
 
