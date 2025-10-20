@@ -1,0 +1,109 @@
+from __future__ import annotations
+from typing import Iterable, Iterator
+import time
+
+from text2sql_pipeline.analyzers.query_antipattern.antipattern_detector import detect_antipatterns
+from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.db.manager import DbManager
+from text2sql_pipeline.pipeline.registry import register_analyzer
+from ...core.models import DataItem
+
+from .metrics import (
+    QueryAntipatternMetricEvent,
+    QueryAntipatternFeatures,
+    QueryAntipatternStats,
+    QueryAntipatternTags
+)
+
+
+@register_analyzer("query_antipattern_annot")
+class QueryAntipatternAnnot(AnnotatingAnalyzer):
+    """
+    SQL antipattern detector and code quality analyzer.
+    
+    Detects common SQL antipatterns and code smells:
+    - SELECT * usage
+    - Implicit JOINs (comma-separated tables)
+    - Functions in WHERE clause (index prevention)
+    - Leading wildcard LIKE patterns (index prevention)
+    - NOT IN with nullable subqueries (correctness)
+    - Correlated subqueries (performance)
+    - Unbounded SELECT queries (no LIMIT)
+    - UPDATE/DELETE without WHERE (safety)
+    - Too many JOINs (complexity)
+    - DISTINCT overuse (performance)
+    - Other SQL code smells
+    
+    Provides:
+    - Individual antipattern detection with severity levels
+    - Quality score (0-100)
+    - Quality classification (excellent/good/fair/poor)
+    """
+    
+    name = "query_antipattern_annot"
+    INJECT = ["db_manager"]  # Declare dependency injection requirements
+    
+    def __init__(self, db_manager: DbManager) -> None:
+        self.db_dialect = db_manager.get_sqlglot_dialect()
+    
+    # --------------------------- public API ---------------------------
+    
+    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+        """Process items and emit antipattern detection metrics."""
+        for item in items:
+            start = time.perf_counter()
+            
+            features, stats, tags, ok, err = self._analyze_query(item)
+            
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            stats.collect_ms = duration_ms
+            
+            metric = QueryAntipatternMetricEvent(
+                dataset_id=dataset_id,
+                item_id=item.id,
+                db_id=item.dbId,
+                status="ok" if ok else "failed",
+                success=ok,
+                duration_ms=duration_ms,
+                err=err,
+                features=features,
+                stats=stats,
+                tags=tags
+            )
+            sink.write(metric.model_dump())
+            
+            # annotate item
+            item.metadata = item.metadata or {}
+            item.metadata.setdefault("analysisSteps", [])
+            item.metadata["analysisSteps"].append({
+                "name": "query_antipattern",
+                "status": "ok" if ok else "failed",
+                "quality_score": features.quality_score if ok else None,
+                "quality_level": features.quality_level if ok else "unknown",
+                "antipattern_count": features.total_antipatterns if ok else None
+            })
+            
+            yield item
+    
+    def _analyze_query(self, item: DataItem):
+        """
+        Detect antipatterns in SQL query.
+        
+        Returns: (features, stats, tags, ok, error_message)
+        """
+        stats = QueryAntipatternStats(dialect=self.db_dialect or "sqlite")
+        tags = QueryAntipatternTags(dialect=self.db_dialect or "sqlite")
+        
+        if not item.sql or not item.sql.strip():
+            features = QueryAntipatternFeatures(parseable=False, quality_score=0, quality_level="poor")
+            return features, stats, tags, False, "Empty or null SQL"
+        
+        try:
+            features = detect_antipatterns(item.sql, self.db_dialect)
+            ok = features.parseable
+            return features, stats, tags, ok, None if ok else "Unparseable SQL"
+        except Exception as e:
+            features = QueryAntipatternFeatures(parseable=False, quality_score=0, quality_level="poor")
+            stats.errors.append({"kind": "detection_error", "message": str(e)})
+            return features, stats, tags, False, f"Detection error: {e}"
+

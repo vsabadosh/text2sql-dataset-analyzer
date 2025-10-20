@@ -26,6 +26,7 @@ class RunOutputManager:
         self.schema_metrics_path = os.path.join(self.root_dir, "schema_analysis_metrics.jsonl")
         self.query_syntax_metrics_path = os.path.join(self.root_dir, "query_analysis_metrics.jsonl")
         self.query_exec_metrics_path = os.path.join(self.root_dir, "query_execution_metrics.jsonl")
+        self.query_antipattern_path = os.path.join(self.root_dir, "query_antipattern_metrics.jsonl")
         self.base_items_path = os.path.join(self.root_dir, "base_items.jsonl")
         self.run_info_path = os.path.join(self.root_dir, "_run_info.json")
 
@@ -38,6 +39,7 @@ class RunOutputManager:
             "schema_analysis_annot": self.schema_metrics_path,
             "query_syntax_annot": self.query_syntax_metrics_path,
             "query_execution_annot": self.query_exec_metrics_path,
+            "query_antipattern_annot": self.query_antipattern_path
         }
         path = mapping.get(analyzer_name)
         if path is None:

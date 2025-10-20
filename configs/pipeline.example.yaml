@@ -35,7 +35,10 @@ analyze:
 
   - name: query_execution_annot
     params:
-      mode: select_only      
+      mode: select_only  
+          
+  - name: query_antipattern_annot
+    params: {}    
 
 output:
   dataset_name: analyses_spider_dataset
