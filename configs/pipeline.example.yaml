@@ -10,6 +10,11 @@ load:
   params:
     path: data_examples/train-comprehensive.jsonl
 
+# Progress tracking configuration
+progress:
+  expected_items: 20       # Optional: Expected number of items for percentage tracking
+  show_progress: true       # Optional: Show real-time progress bar (default: true)
+
 normalize:
   - name: alias_mapper
     params:
@@ -28,14 +33,14 @@ normalize:
 
 analyze:
   - name: schema_analysis_annot
-    params: {}             
+    params: {}
 
   - name: query_syntax_annot
-    params: {}            
+    params: {}
 
   - name: query_execution_annot
     params:
-      mode: select_only  
+      mode: select_only
           
   - name: query_antipattern_annot
     params: {}    
@@ -46,3 +51,10 @@ output:
   # Enable DuckDB metrics storage for advanced querying and reporting
   duckdb_enabled: true  # Set to true to enable DuckDB + auto-report generation
   # duckdb_path: "./custom_path/metrics.duckdb"  # Optional: custom path (default: <output_dir>/metrics.duckdb)
+
+# Output files created:
+# - annotatedOutputDataset.jsonl - Annotated dataset with analysis results
+# - *_metrics.jsonl - Per-analyzer metrics files
+# - metrics.duckdb - DuckDB database (if duckdb_enabled: true)
+# - analysis_report.md - Comprehensive report (if duckdb_enabled: true)
+# - _run_info.json - Configuration and run metadata

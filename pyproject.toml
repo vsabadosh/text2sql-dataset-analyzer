@@ -29,6 +29,10 @@ dev = [
   "black>=24.0",
   "isort>=5.12",
 ]
+progress = [
+  "rich>=13.0",  # For enhanced progress display
+  "tqdm>=4.65",  # Fallback progress bars
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

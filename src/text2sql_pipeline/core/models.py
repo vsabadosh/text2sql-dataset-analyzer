@@ -16,6 +16,8 @@ class SchemaDef(BaseModel):
 
 
 class DataItem(BaseModel):
+    model_config = {"protected_namespaces": ()}  # Allow 'schema' field name
+    
     id: Optional[str] = None
     dbId: Optional[str] = None
     question: Optional[str] = None

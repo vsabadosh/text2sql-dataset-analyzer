@@ -6,6 +6,7 @@ from ..core.io import yaml_load
 from ..core.utils import get_logger
 from ..core.output import RunOutputManager
 from ..core.models import DataItem
+from ..core.progress import SimpleProgress
 from ..di_container import PipelineContainer
 
 
@@ -27,6 +28,11 @@ def run_pipeline(config_path: str) -> str:
     # Build container and wire per-run providers from config
     container = PipelineContainer()
     PipelineContainer.wire_from_config(container, cfg)
+
+    # Initialize simple progress tracking
+    progress_cfg = cfg.get("progress", {})
+    expected_items = progress_cfg.get("expected_items")
+    show_progress = progress_cfg.get("show_progress", True)
 
     # Loader (new API: ctor took params; .load() takes no args)
     loader = container.loader()
@@ -55,14 +61,14 @@ def run_pipeline(config_path: str) -> str:
     for analyzer in container.analyzers_chain():
         data_items = _apply(analyzer, data_items)
 
-    # Write annotated results
+    # Write annotated results with simple progress display
     count = 0
-    with output.annotated_writer() as writer:
-        for item in data_items:
-            writer.write_record(item.model_dump())
-            count += 1
-            if count % 100 == 0:
-                logger.info("wrote items", extra={"count": count})
+    with SimpleProgress(expected_total=expected_items, enabled=show_progress) as progress:
+        with output.annotated_writer() as writer:
+            for item in data_items:
+                writer.write_record(item.model_dump())
+                count += 1
+                progress.update(1)
 
     logger.info("done", extra={"total_items": count, "output_dir": output.root_dir})
     
