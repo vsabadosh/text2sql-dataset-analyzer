@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from contextlib import contextmanager, AbstractContextManager
 
 from .io import open_jsonl_writer, JsonlWriter
 from .utils import ensure_dir, now_ts
 from .contracts import MetricsSink
-from .metric import MetricEvent
 
 class RunOutputManager:
     def __init__(self, dataset_name: str, config: Dict[str, Any]):
@@ -18,8 +16,6 @@ class RunOutputManager:
         
         # prepare fixed file paths
         self.annotated_path = os.path.join(self.root_dir, "annotatedOutputDataset.jsonl")
-        self.base_items_path = os.path.join(self.root_dir, "base_items.jsonl")
-        self.run_info_path = os.path.join(self.root_dir, "_run_info.json")
         
         # DuckDB configuration
         output_cfg = config.get("output", {})
@@ -30,11 +26,15 @@ class RunOutputManager:
         return open_jsonl_writer(self.annotated_path)
 
     @contextmanager
-    def metric_writer(self) -> AbstractContextManager[MetricsSink]:
+    def metric_sink_context(self) -> AbstractContextManager[MetricsSink]:
         """
-        Create a composite sink that writes to JSONL and optionally DuckDB.
+        Create a single metric sink for the entire pipeline with proper cleanup.
         
-        Files are auto-routed based on event.name - no analyzer name needed!
+        Both JSONL and DuckDB sinks route internally based on event.name,
+        so we only need ONE sink instance shared across all analyzers.
+        
+        This context manager ensures the sink is properly closed even if
+        an exception occurs during pipeline execution.
         
         Yields:
             CompositeMetricsSink that writes to multiple backends
@@ -58,8 +58,5 @@ class RunOutputManager:
         try:
             yield composite
         finally:
-            # Python's finally guarantees cleanup even on exceptions
+            # Guaranteed cleanup even on exceptions
             composite.close()
-
-    def base_items_writer(self) -> AbstractContextManager[JsonlWriter]:
-        return open_jsonl_writer(self.base_items_path)

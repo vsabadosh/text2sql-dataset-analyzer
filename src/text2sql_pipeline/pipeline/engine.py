@@ -50,25 +50,29 @@ def run_pipeline(config_path: str) -> str:
         items = n.normalize_stream(items)
     data_items: Iterable[DataItem] = items  # type: ignore[assignment]
 
-    # Analyze (stream with metrics sink)
-    def _apply(an, upstream: Iterable[DataItem]) -> Iterable[DataItem]:
-        def gen() -> Iterator[DataItem]:
-            with output.metric_writer() as sink:
-                for it in an.transform(upstream, sink, dataset_name):
+    # Create single metric sink for all analyzers with proper cleanup
+    # Both JSONL and DuckDB sinks route internally by event.name,
+    # so we only need ONE sink instance for the entire pipeline
+    # Context manager ensures cleanup even on exceptions
+    with output.metric_sink_context() as metric_sink:
+        # Analyze (stream with shared metrics sink)
+        def _apply(an, upstream: Iterable[DataItem]) -> Iterable[DataItem]:
+            def gen() -> Iterator[DataItem]:
+                for it in an.transform(upstream, metric_sink, dataset_name):
                     yield it
-        return gen()
+            return gen()
 
-    for analyzer in container.analyzers_chain():
-        data_items = _apply(analyzer, data_items)
+        for analyzer in container.analyzers_chain():
+            data_items = _apply(analyzer, data_items)
 
-    # Write annotated results with simple progress display
-    count = 0
-    with SimpleProgress(expected_total=expected_items, enabled=show_progress) as progress:
-        with output.annotated_writer() as writer:
-            for item in data_items:
-                writer.write_record(item.model_dump())
-                count += 1
-                progress.update(1)
+        # Write annotated results with simple progress display
+        count = 0
+        with SimpleProgress(expected_total=expected_items, enabled=show_progress) as progress:
+            with output.annotated_writer() as writer:
+                for item in data_items:
+                    writer.write_record(item.model_dump())
+                    count += 1
+                    progress.update(1)
 
     logger.info("done", extra={"total_items": count, "output_dir": output.root_dir})
     

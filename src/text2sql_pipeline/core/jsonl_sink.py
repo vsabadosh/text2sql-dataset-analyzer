@@ -7,7 +7,6 @@ Writes metrics to JSONL files, automatically routing by event.name.
 from __future__ import annotations
 import os
 from typing import Dict
-from contextlib import contextmanager
 
 from .metric import MetricEvent
 from .contracts import MetricsSink
