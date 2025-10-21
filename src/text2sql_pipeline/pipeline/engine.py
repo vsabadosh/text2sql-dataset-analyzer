@@ -47,8 +47,7 @@ def run_pipeline(config_path: str) -> str:
     # Analyze (stream with metrics sink)
     def _apply(an, upstream: Iterable[DataItem]) -> Iterable[DataItem]:
         def gen() -> Iterator[DataItem]:
-            name = getattr(an, "name", an.__class__.__name__)
-            with output.metric_writer(name) as sink:
+            with output.metric_writer() as sink:
                 for it in an.transform(upstream, sink, dataset_name):
                     yield it
         return gen()
@@ -66,4 +65,19 @@ def run_pipeline(config_path: str) -> str:
                 logger.info("wrote items", extra={"count": count})
 
     logger.info("done", extra={"total_items": count, "output_dir": output.root_dir})
+    
+    # Generate report if DuckDB is enabled
+    if output.use_duckdb and os.path.exists(output.duckdb_path):
+        try:
+            # Import here to make DuckDB optional
+            from ..report.md_report_generator import generate_report_from_db
+            report_path = os.path.join(output.root_dir, "analysis_report.md")
+            logger.info("generating report", extra={"report_path": report_path})
+            generate_report_from_db(output.duckdb_path, report_path)
+            logger.info("report generated", extra={"report_path": report_path})
+        except ImportError:
+            logger.warning("report generation skipped - duckdb not installed")
+        except Exception as e:
+            logger.warning("report generation failed", extra={"error": str(e)})
+    
     return output.root_dir

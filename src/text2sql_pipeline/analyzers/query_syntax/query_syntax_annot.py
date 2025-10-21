@@ -61,7 +61,7 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
                 stats=stats,
                 tags=tags
             )
-            sink.write(metric.model_dump())
+            sink.write(metric)
 
             # annotate item
             item.metadata = item.metadata or {}

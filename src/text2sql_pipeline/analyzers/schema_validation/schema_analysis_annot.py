@@ -85,7 +85,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             )
             
             # Emit metric (only once per db_id)
-            sink.write(metric.model_dump())
+            sink.write(metric)
             
             # Cache result
             self._analyzed_dbs[item.dbId] = (ok, error or "")

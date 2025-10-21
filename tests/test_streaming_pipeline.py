@@ -16,8 +16,8 @@ def test_full_pipeline(tmp_path):
     # check expected files
     for fname in [
         "annotatedOutputDataset.jsonl",
-        "schema_analysis_metrics.jsonl",
-        "query_analysis_metrics.jsonl",
+        "schema_validation_metrics.jsonl",
+        "query_syntax_metrics.jsonl",
         "query_execution_metrics.jsonl",
         "query_antipattern_metrics.jsonl",
     ]:

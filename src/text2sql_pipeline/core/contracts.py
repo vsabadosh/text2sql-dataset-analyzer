@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from typing import Protocol, Iterator, Iterable, Dict, Any, Union, runtime_checkable
+from typing import Protocol, Iterator, Iterable, Dict, Any, Union, runtime_checkable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .metric import MetricEvent
+
 from .models import DataItem
 
 @runtime_checkable
@@ -21,7 +25,20 @@ class Normalizer(Protocol):
 
 @runtime_checkable
 class MetricsSink(Protocol):
-    def write(self, record: Dict[str, Any]) -> None:
+    """
+    Protocol for metric sinks.
+    
+    Sinks receive MetricEvent objects and persist them to storage.
+    """
+    def write(self, event: MetricEvent) -> None:
+        ...
+    
+    def flush(self) -> None:
+        """Flush any buffered data to storage."""
+        ...
+    
+    def close(self) -> None:
+        """Close connections and clean up resources."""
         ...
 
 @runtime_checkable

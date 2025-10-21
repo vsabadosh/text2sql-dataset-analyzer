@@ -79,7 +79,7 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
             )
             
             # Emit metric
-            sink.write(metric.model_dump())
+            sink.write(metric)
             
             # Annotate item
             item.metadata = item.metadata or {}

@@ -19,6 +19,7 @@ dependencies = [
   "huggingface-hub>=0.24,<1",
   "pyarrow>=14,<19",
   "dependency-injector>=4.41,<5",
+  "duckdb>=0.9.0,<2.0",
 ]
 
 [project.optional-dependencies]

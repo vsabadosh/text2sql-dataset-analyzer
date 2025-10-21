@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
-from typing import Iterator, Dict, Any, IO
+from contextlib import contextmanager, AbstractContextManager
+from typing import Dict, Any, IO
 import yaml
 
 
@@ -22,7 +22,7 @@ class JsonlWriter:
 
 
 @contextmanager
-def open_jsonl_writer(path: str) -> Iterator[JsonlWriter]:
+def open_jsonl_writer(path: str) -> AbstractContextManager[JsonlWriter]:
     fp = open(path, "w", encoding="utf-8")
     writer = JsonlWriter(fp)
     try:

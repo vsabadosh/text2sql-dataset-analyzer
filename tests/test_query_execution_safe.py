@@ -2,11 +2,31 @@
 Test QueryExecutionAnnot with safety features and rollback support.
 """
 from text2sql_pipeline.core.models import DataItem
+from text2sql_pipeline.core.contracts import MetricsSink
+from text2sql_pipeline.core.metric import MetricEvent
 from text2sql_pipeline.analyzers.query_execution.query_execution_annot import QueryExecutionAnnot
 from text2sql_pipeline.analyzers.query_execution.metrics import QueryExecutionMetricEvent
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.db.adapters.factory import make_adapter
 from text2sql_pipeline.db.adapters.base.schema_identity import SchemaIdentity
+
+
+class MockSink(MetricsSink):
+    """Mock metrics sink for testing."""
+    def __init__(self):
+        self.metrics = []
+    
+    def write(self, event: MetricEvent) -> None:
+        """Store the metric event."""
+        self.metrics.append(event)
+    
+    def flush(self) -> None:
+        """No-op for mock."""
+        pass
+    
+    def close(self) -> None:
+        """No-op for mock."""
+        pass
 
 
 def test_select_with_limit_added():
@@ -15,7 +35,7 @@ def test_select_with_limit_added():
     db_manager = DbManager(adapter=adapter)
     analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="select_only", safety_limit=1)
     
-    metrics = []
+    sink = MockSink()
     
     item = DataItem(
         id="test_1",
@@ -23,12 +43,12 @@ def test_select_with_limit_added():
         sql="SELECT * FROM users"
     )
     
-    result = list(analyzer.transform([item], sink=lambda m: metrics.append(m), dataset_id="test"))
+    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
-    assert len(metrics) == 1
+    assert len(sink.metrics) == 1
     
-    metric = metrics[0]
+    metric = sink.metrics[0].model_dump()
     # Validate structured metric format
     assert metric["success"] is True
     assert metric["status"] == "ok"
@@ -44,7 +64,7 @@ def test_update_with_rollback():
     db_manager = DbManager(adapter=adapter)
     analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="all")
     
-    metrics = []
+    sink = MockSink()
     
     item = DataItem(
         id="test_2",
@@ -53,12 +73,12 @@ def test_update_with_rollback():
     )
     
     # Execute analyzer
-    result = list(analyzer.transform([item], sink=lambda m: metrics.append(m), dataset_id="test"))
+    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
-    assert len(metrics) == 1
+    assert len(sink.metrics) == 1
     
-    metric = metrics[0]
+    metric = sink.metrics[0].model_dump()
     assert metric["success"] is True
     assert metric["status"] == "ok"
     assert metric["err"] is None
@@ -78,7 +98,7 @@ def test_destructive_blocked():
     db_manager = DbManager(adapter=adapter)
     analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="all")
     
-    metrics = []
+    sink = MockSink()
     
     destructive_queries = [
         "DROP TABLE users",
@@ -88,10 +108,11 @@ def test_destructive_blocked():
     
     for i, sql in enumerate(destructive_queries):
         item = DataItem(id=f"test_{i}", dbId="toydb", sql=sql)
-        list(analyzer.transform([item], sink=lambda m: metrics.append(m)))
+        list(analyzer.transform([item], sink=sink))
     
-    assert len(metrics) == 3
-    for metric in metrics:
+    assert len(sink.metrics) == 3
+    for event in sink.metrics:
+        metric = event.model_dump()
         assert metric["success"] is False
         assert metric["status"] == "failed"
         assert "Blocked destructive" in metric["err"]
@@ -103,7 +124,7 @@ def test_select_only_mode():
     db_manager = DbManager(adapter=adapter)
     analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="select_only")
     
-    metrics = []
+    sink = MockSink()
     
     item = DataItem(
         id="test_3",
@@ -111,12 +132,12 @@ def test_select_only_mode():
         sql="DELETE FROM users WHERE id = 999"
     )
     
-    result = list(analyzer.transform([item], sink=lambda m: metrics.append(m), dataset_id="test"))
+    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
-    assert len(metrics) == 1
+    assert len(sink.metrics) == 1
     
-    metric = metrics[0]
+    metric = sink.metrics[0].model_dump()
     assert metric["success"] is False
     assert metric["status"] == "failed"
     assert "Only SELECT allowed" in metric["err"]
@@ -128,7 +149,7 @@ def test_metadata_annotation():
     db_manager = DbManager(adapter=adapter)
     analyzer = QueryExecutionAnnot(db_manager=db_manager)
     
-    metrics = []
+    sink = MockSink()
     
     item = DataItem(
         id="test_4",
@@ -136,7 +157,7 @@ def test_metadata_annotation():
         sql="SELECT * FROM users LIMIT 1"
     )
     
-    result = list(analyzer.transform([item], sink=lambda m: metrics.append(m), dataset_id="test"))
+    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     item = result[0]
@@ -160,7 +181,7 @@ def test_dialect_agnostic():
     assert dialect == "sqlite"
     
     analyzer = QueryExecutionAnnot(db_manager=db_manager)
-    metrics = []
+    sink = MockSink()
     
     item = DataItem(
         id="test_5",
@@ -168,10 +189,10 @@ def test_dialect_agnostic():
         sql="SELECT * FROM users"
     )
     
-    result = list(analyzer.transform([item], sink=lambda m: metrics.append(m), dataset_id="test"))
+    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
-    metric = metrics[0]
+    metric = sink.metrics[0].model_dump()
     assert metric["success"] is True
     assert metric["status"] == "ok"
     

@@ -2,51 +2,64 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict, Any, Iterator
-from contextlib import contextmanager
+from typing import Dict, Any, Optional
+from contextlib import contextmanager, AbstractContextManager
 
 from .io import open_jsonl_writer, JsonlWriter
 from .utils import ensure_dir, now_ts
-
-
-class MetricsSink:
-    def __init__(self, writer: JsonlWriter):
-        self._writer = writer
-
-    def write(self, record: Dict[str, Any]) -> None:
-        self._writer.write_record(record)
+from .contracts import MetricsSink
+from .metric import MetricEvent
 
 class RunOutputManager:
     def __init__(self, dataset_name: str, config: Dict[str, Any]):
         ts = now_ts()
         self.root_dir = f"{dataset_name}_{ts}"
         ensure_dir(self.root_dir)
+        
         # prepare fixed file paths
         self.annotated_path = os.path.join(self.root_dir, "annotatedOutputDataset.jsonl")
-        self.schema_metrics_path = os.path.join(self.root_dir, "schema_analysis_metrics.jsonl")
-        self.query_syntax_metrics_path = os.path.join(self.root_dir, "query_analysis_metrics.jsonl")
-        self.query_exec_metrics_path = os.path.join(self.root_dir, "query_execution_metrics.jsonl")
-        self.query_antipattern_path = os.path.join(self.root_dir, "query_antipattern_metrics.jsonl")
         self.base_items_path = os.path.join(self.root_dir, "base_items.jsonl")
         self.run_info_path = os.path.join(self.root_dir, "_run_info.json")
+        
+        # DuckDB configuration
+        output_cfg = config.get("output", {})
+        self.use_duckdb = output_cfg.get("duckdb_enabled", False)
+        self.duckdb_path = output_cfg.get("duckdb_path") or os.path.join(self.root_dir, "metrics.duckdb")
 
-    def annotated_writer(self) -> Iterator[JsonlWriter]:
+    def annotated_writer(self) -> AbstractContextManager[JsonlWriter]:
         return open_jsonl_writer(self.annotated_path)
 
     @contextmanager
-    def metric_writer(self, analyzer_name: str) -> Iterator[MetricsSink]:
-        mapping = {
-            "schema_analysis_annot": self.schema_metrics_path,
-            "query_syntax_annot": self.query_syntax_metrics_path,
-            "query_execution_annot": self.query_exec_metrics_path,
-            "query_antipattern_annot": self.query_antipattern_path
-        }
-        path = mapping.get(analyzer_name)
-        if path is None:
-            # default to analyzer-named file in root
-            path = os.path.join(self.root_dir, f"{analyzer_name}.jsonl")
-        with open_jsonl_writer(path) as writer:
-            yield MetricsSink(writer)
+    def metric_writer(self) -> AbstractContextManager[MetricsSink]:
+        """
+        Create a composite sink that writes to JSONL and optionally DuckDB.
+        
+        Files are auto-routed based on event.name - no analyzer name needed!
+        
+        Yields:
+            CompositeMetricsSink that writes to multiple backends
+        """
+        from .jsonl_sink import JsonlMetricsSink
+        from .composite_sink import CompositeMetricsSink
+        
+        # Create JSONL sink
+        jsonl_sink = JsonlMetricsSink(self.root_dir)
+        sinks = [jsonl_sink]
+        
+        # Create DuckDB sink if enabled
+        if self.use_duckdb:
+            from .duckdb_sink import DuckDBMetricsSink
+            duckdb_sink = DuckDBMetricsSink(self.duckdb_path)
+            sinks.append(duckdb_sink)
+        
+        # Create composite sink
+        composite = CompositeMetricsSink(sinks)
+        
+        try:
+            yield composite
+        finally:
+            # Python's finally guarantees cleanup even on exceptions
+            composite.close()
 
-    def base_items_writer(self) -> Iterator[JsonlWriter]:
+    def base_items_writer(self) -> AbstractContextManager[JsonlWriter]:
         return open_jsonl_writer(self.base_items_path)

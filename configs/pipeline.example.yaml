@@ -8,7 +8,7 @@ sourceDb:
 load:
   name: jsonl
   params:
-    path: data_examples/train-all.jsonl
+    path: data_examples/train-comprehensive.jsonl
 
 normalize:
   - name: alias_mapper
@@ -42,3 +42,7 @@ analyze:
 
 output:
   dataset_name: analyses_spider_dataset
+  # DuckDB Configuration (optional)
+  # Enable DuckDB metrics storage for advanced querying and reporting
+  duckdb_enabled: true  # Set to true to enable DuckDB + auto-report generation
+  # duckdb_path: "./custom_path/metrics.duckdb"  # Optional: custom path (default: <output_dir>/metrics.duckdb)

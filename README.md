@@ -21,17 +21,46 @@ pytest tests/test_streaming_pipeline.py::test_full_pipeline
 
 ## Run
 ```bash
+# Run analysis pipeline
 text2sql run --config configs/pipeline.example.yaml
+
+# Generate markdown report from metrics
+text2sql report --database path/to/metrics.duckdb --output report.md
 ```
 
 ## Structure of output directory
 A run creates a directory named like `analyses_<dataset>_<timestamp>/` that contains:
-- `annotatedOutputDataset.jsonl`
-- `schema_analysis_metrics.jsonl`
-- `query_analysis_metrics.jsonl`
-- `query_execution_metrics.jsonl`
+- `annotatedOutputDataset.jsonl` - Annotated dataset with analysis results
+- `schema_analysis_metrics.jsonl` - Schema validation metrics
+- `query_analysis_metrics.jsonl` - Query syntax metrics
+- `query_execution_metrics.jsonl` - Query execution metrics
+- `query_antipattern_metrics.jsonl` - Query antipattern metrics
+- `metrics.duckdb` - DuckDB database with all metrics (if enabled)
+- `analysis_report.md` - Comprehensive markdown report (if DuckDB enabled)
+- `_run_info.json` - Config and run metadata
 - optional: `base_items.jsonl`
-- `_run_info.json` (config and run metadata)
+
+## DuckDB Metrics & Reporting
+Enable DuckDB metrics storage for advanced analysis and reporting:
+
+```yaml
+output:
+  dataset_name: my_dataset
+  duckdb_enabled: true  # Enable DuckDB storage
+```
+
+**Features:**
+- 📊 Store all metrics in queryable DuckDB tables
+- 📈 Generate comprehensive Markdown reports (auto-generated after pipeline runs)
+- 🔍 Run custom SQL queries on metrics
+- 📉 Track trends across multiple runs
+
+**Manual Report Generation:**
+```bash
+text2sql report \
+  --database analyses_dataset_20251020/metrics.duckdb \
+  --output custom_report.md
+```
 
 ## Notes on scaling
 - DB sharding by `dbId` is supported by design (each item carries its `dbId` and resolves to a SQLite path). Future backends can use the `dialect` field to route to Postgres/BigQuery.
