@@ -4,9 +4,9 @@ import os
 
 from ..core.io import yaml_load
 from ..core.utils import get_logger
-from ..core.output import RunOutputManager
+from ..output import RunOutputManager
 from ..core.models import DataItem
-from ..core.progress import SimpleProgress
+from ..ui import SimpleProgress
 from ..di_container import PipelineContainer
 
 
@@ -83,7 +83,7 @@ def run_pipeline(config_path: str) -> str:
     if auto_generate_report and output.use_duckdb and os.path.exists(output.duckdb_path):
         try:
             # Import here to make DuckDB optional
-            from ..report.md_report_generator import generate_report_from_db
+            from ..output.report import generate_report_from_db
             report_path = os.path.join(output.root_dir, "analysis_report.md")
             logger.info("generating report", extra={"report_path": report_path})
             generate_report_from_db(output.duckdb_path, report_path)

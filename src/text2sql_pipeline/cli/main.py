@@ -50,7 +50,7 @@ def main():
     
     elif args.command == "report":
         try:
-            from text2sql_pipeline.report.md_report_generator import generate_report_from_db
+            from text2sql_pipeline.output.report import generate_report_from_db
             generate_report_from_db(args.database, args.output)
             print(f"✅ Report generated: {args.output}")
             return 0

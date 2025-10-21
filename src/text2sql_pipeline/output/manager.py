@@ -4,9 +4,9 @@ import os
 from typing import Dict, Any
 from contextlib import contextmanager, AbstractContextManager
 
-from .io import open_jsonl_writer, JsonlWriter
-from .utils import ensure_dir, now_ts
-from .contracts import MetricsSink
+from ..core.io import open_jsonl_writer, JsonlWriter
+from ..core.utils import ensure_dir, now_ts
+from ..core.contracts import MetricsSink
 
 class RunOutputManager:
     def __init__(self, dataset_name: str, config: Dict[str, Any]):
@@ -39,8 +39,8 @@ class RunOutputManager:
         Yields:
             CompositeMetricsSink that writes to multiple backends
         """
-        from .jsonl_sink import JsonlMetricsSink
-        from .composite_sink import CompositeMetricsSink
+        from .sinks.jsonl import JsonlMetricsSink
+        from .sinks.composite import CompositeMetricsSink
         
         # Create JSONL sink
         jsonl_sink = JsonlMetricsSink(self.root_dir)
@@ -48,7 +48,7 @@ class RunOutputManager:
         
         # Create DuckDB sink if enabled
         if self.use_duckdb:
-            from .duckdb_sink import DuckDBMetricsSink
+            from .sinks.duckdb import DuckDBMetricsSink
             duckdb_sink = DuckDBMetricsSink(self.duckdb_path)
             sinks.append(duckdb_sink)
         

@@ -7,8 +7,8 @@ Allows writing to multiple sinks simultaneously.
 from __future__ import annotations
 from typing import List
 
-from .metric import MetricEvent
-from .contracts import MetricsSink
+from ...core.metric import MetricEvent
+from ...core.contracts import MetricsSink
 
 
 class CompositeMetricsSink(MetricsSink):

@@ -8,9 +8,9 @@ from __future__ import annotations
 import os
 from typing import Dict
 
-from .metric import MetricEvent
-from .contracts import MetricsSink
-from .io import JsonlWriter
+from ...core.metric import MetricEvent
+from ...core.contracts import MetricsSink
+from ...core.io import JsonlWriter
 
 
 class JsonlMetricsSink(MetricsSink):

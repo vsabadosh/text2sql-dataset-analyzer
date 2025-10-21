@@ -11,8 +11,8 @@ from typing import Dict, Any, Set
 from pathlib import Path
 from datetime import datetime
 
-from .metric import MetricEvent
-from .contracts import MetricsSink
+from ...core.metric import MetricEvent
+from ...core.contracts import MetricsSink
 
 
 class DuckDBMetricsSink(MetricsSink):

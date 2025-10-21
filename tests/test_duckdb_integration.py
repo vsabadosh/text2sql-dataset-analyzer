@@ -7,8 +7,8 @@ import tempfile
 import os
 from pathlib import Path
 
-from text2sql_pipeline.core.duckdb_sink import DuckDBMetricsSink
-from text2sql_pipeline.report.md_report_generator import MarkdownReportGenerator
+from text2sql_pipeline.output.sinks.duckdb import DuckDBMetricsSink
+from text2sql_pipeline.output.report import MarkdownReportGenerator
 from text2sql_pipeline.analyzers.query_syntax.query_metrics import (
     QuerySyntaxMetricEvent,
     QuerySyntaxFeatures,
