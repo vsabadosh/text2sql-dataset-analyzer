@@ -72,8 +72,11 @@ def run_pipeline(config_path: str) -> str:
 
     logger.info("done", extra={"total_items": count, "output_dir": output.root_dir})
     
-    # Generate report if DuckDB is enabled
-    if output.use_duckdb and os.path.exists(output.duckdb_path):
+    # Generate report if enabled
+    output_cfg = cfg.get("output", {})
+    auto_generate_report = output_cfg.get("auto_generate_report", False)
+    
+    if auto_generate_report and output.use_duckdb and os.path.exists(output.duckdb_path):
         try:
             # Import here to make DuckDB optional
             from ..report.md_report_generator import generate_report_from_db

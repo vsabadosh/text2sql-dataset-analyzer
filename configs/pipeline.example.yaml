@@ -47,14 +47,17 @@ analyze:
 
 output:
   dataset_name: analyses_spider_dataset
+  
   # DuckDB Configuration (optional)
-  # Enable DuckDB metrics storage for advanced querying and reporting
-  duckdb_enabled: true  # Set to true to enable DuckDB + auto-report generation
-  # duckdb_path: "./custom_path/metrics.duckdb"  # Optional: custom path (default: <output_dir>/metrics.duckdb)
-
+  duckdb_enabled: true                 # Enable DuckDB metrics storage
+  # duckdb_path: "./custom/metrics.duckdb"  # Optional: custom path
+  
+  # Report Generation (optional, requires duckdb_enabled: true)
+  auto_generate_report: true           # Auto-generate markdown report after pipeline completes
+  
 # Output files created:
 # - annotatedOutputDataset.jsonl - Annotated dataset with analysis results
 # - *_metrics.jsonl - Per-analyzer metrics files
 # - metrics.duckdb - DuckDB database (if duckdb_enabled: true)
-# - analysis_report.md - Comprehensive report (if duckdb_enabled: true)
+# - analysis_report.md - Comprehensive report (if auto_generate_report: true)
 # - _run_info.json - Configuration and run metadata

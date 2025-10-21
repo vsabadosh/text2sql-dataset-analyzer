@@ -170,7 +170,8 @@ analyze:
 # Output configuration
 output:
   dataset_name: my_analysis
-  duckdb_enabled: true         # Enable DuckDB + reports
+  duckdb_enabled: true           # Enable DuckDB metrics storage
+  auto_generate_report: true     # Auto-generate report after pipeline
   # duckdb_path: "./custom.duckdb"  # Optional custom path
 ```
 
@@ -268,16 +269,36 @@ OUTPUT=$(text2sql run --config config.yaml | grep "Output directory" | awk '{pri
 text2sql report --database "$OUTPUT/metrics.duckdb" --output report.md
 ```
 
+### DuckDB with Auto-Reports
+```yaml
+output:
+  duckdb_enabled: true
+  auto_generate_report: true    # Report auto-generated after pipeline
+```
+
+### DuckDB Without Auto-Reports (Manual Only)
+```yaml
+output:
+  duckdb_enabled: true
+  auto_generate_report: false   # Store metrics, skip auto-report
+```
+
+Then generate report manually when needed:
+```bash
+text2sql report --database path/to/metrics.duckdb --output report.md
+```
+
 ---
 
 ## Tips & Best Practices
 
 1. **Set `expected_items`** for accurate progress percentages
-2. **Enable DuckDB** (`duckdb_enabled: true`) for reports and querying
-3. **Use `select_only` mode** for query execution to avoid data modification
-4. **Keep configs in version control** for reproducibility
-5. **Use absolute paths** for production runs
-6. **Check output directory** after each run for metrics and reports
+2. **Enable DuckDB** (`duckdb_enabled: true`) for queryable metrics storage
+3. **Use `auto_generate_report`** for automatic reports (or `false` for manual generation)
+4. **Use `select_only` mode** for query execution to avoid data modification
+5. **Keep configs in version control** for reproducibility
+6. **Use absolute paths** for production runs
+7. **Check output directory** after each run for metrics and reports
 
 ---
 

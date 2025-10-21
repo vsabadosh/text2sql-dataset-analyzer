@@ -230,14 +230,27 @@ Enable DuckDB for queryable metrics storage:
 
 ```yaml
 output:
-  duckdb_enabled: true
+  duckdb_enabled: true           # Store metrics in DuckDB
+  auto_generate_report: true     # Auto-generate markdown report (optional)
 ```
+
+**Configuration Options:**
+- **`duckdb_enabled`** - Store all metrics in queryable DuckDB database
+- **`auto_generate_report`** - Automatically generate markdown report after pipeline completes (requires `duckdb_enabled: true`)
 
 **Benefits:**
 - 📊 Query metrics with SQL
-- 📈 Auto-generated markdown reports
+- 📈 Generate markdown reports (manual or automatic)
 - 📉 Aggregate statistics across runs
 - 🔍 Custom analysis queries
+
+**Manual report generation:**
+```bash
+# Generate report from existing metrics
+text2sql report \
+  --database analyses_*/metrics.duckdb \
+  --output custom_report.md
+```
 
 **Query example:**
 ```python
