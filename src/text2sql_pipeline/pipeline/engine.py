@@ -6,7 +6,7 @@ from ..core.io import yaml_load
 from ..core.utils import get_logger
 from ..output import RunOutputManager
 from ..core.models import DataItem
-from ..ui import SimpleProgress
+from .progress import SimpleProgress
 from ..di_container import PipelineContainer
 
 
