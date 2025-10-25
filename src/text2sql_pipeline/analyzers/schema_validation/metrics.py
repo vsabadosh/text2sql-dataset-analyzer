@@ -1,7 +1,7 @@
 # src/text2sql_pipeline/analyzers/schema_validation/metrics.py
 
 from __future__ import annotations
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 
 from text2sql_pipeline.core.metric import MetricEvent
@@ -102,6 +102,10 @@ class SchemaAnalysisFeatures(BaseModel):
     # Overall status
     blocking_errors_total: int = 0
     
+    # Additional dataset health signals
+    tables_non_empty: int = 0
+    fk_data_violations_count: int = 0
+    
     # Evidence - detailed examples of each error type
     evidence: SchemaEvidence = Field(default_factory=SchemaEvidence)
 
@@ -132,6 +136,7 @@ class SchemaAnalysisTags(BaseModel):
     """Context metadata for schema analysis."""
     dialect: str = "sqlite"
     source: str = "ddl"  # "ddl" | "reflection" | "generated"
+    fk_enforcement: str | None = None  # "enabled" | "disabled" | None
 
 
 # --- Main Event Model ---
@@ -140,10 +145,17 @@ class SchemaAnalysisMetricEvent(MetricEvent):
     """
     Typed metric event for schema analysis.
     
-    Matches the structure from example1.txt.
+    Status values:
+    - "ok": No errors or warnings
+    - "warns": Only warnings present (e.g., FK enforcement disabled)
+    - "errors": Schema errors present (e.g., invalid FKs, duplicate columns)
+    - "failed": Fatal error (e.g., database connection failed)
     """
     event_type: str = "schema_analysis"
     name: str = "schema_validation"
+    
+    # Override status to be more specific
+    status: Literal["ok", "failed", "errors", "warns", "skipped"]
     
     # Override with typed models
     features: SchemaAnalysisFeatures

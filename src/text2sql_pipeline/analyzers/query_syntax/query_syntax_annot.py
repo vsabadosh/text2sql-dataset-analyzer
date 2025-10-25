@@ -44,17 +44,20 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
         for item in items:
             start = time.perf_counter()
 
-            features, stats, tags, ok, err = self._analyze_query(item)
+            features, stats, tags, parseable, err = self._analyze_query(item)
 
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             stats.collect_ms = duration_ms
+
+            # Determine status: failed if not parseable, ok otherwise
+            status = "ok" if parseable else "failed"
 
             metric = QuerySyntaxMetricEvent(
                 dataset_id=dataset_id,
                 item_id=item.id,
                 db_id=item.dbId,
-                status="ok" if ok else "failed",
-                success=ok,
+                status=status,
+                success=(status == "ok"),
                 duration_ms=duration_ms,
                 err=err,
                 features=features,
@@ -68,9 +71,9 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
             item.metadata.setdefault("analysisSteps", [])
             item.metadata["analysisSteps"].append({
                 "name": "query_syntax",
-                "status": "ok" if ok else "failed",
-                "complexity_score": features.complexity_score if ok else None,
-                "difficulty_level": features.difficulty_level if ok else "unknown"
+                "status": status,
+                "complexity_score": features.complexity_score if parseable else None,
+                "difficulty_level": features.difficulty_level if parseable else "unknown"
             })
 
             yield item

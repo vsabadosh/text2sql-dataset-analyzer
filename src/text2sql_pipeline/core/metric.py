@@ -26,8 +26,8 @@ class MetricEvent(BaseModel):
     name: str  # analyzer name: "schema_validation" | "syntax_check" | "exec_probe"
     
     # Status
-    status: Literal["ok", "failed", "skipped"]
-    success: bool  # boolean mirror for quick filters
+    status: Literal["ok", "failed", "errors", "warns", "skipped"]
+    success: bool  # boolean mirror for quick filters (True only for "ok")
     duration_ms: float
     err: Optional[str] = None
     
@@ -107,6 +107,53 @@ class MetricEventBuilder:
             name=self.name,
             status="ok" if success else "failed",
             success=success,
+            duration_ms=round(duration_ms, 2),
+            err=error,
+            features=features,
+            stats=stats or {},
+            tags=tags or {}
+        )
+        
+        return event.model_dump(exclude_none=False)
+    
+    def build_with_status(
+        self,
+        item_id: Optional[str],
+        db_id: Optional[str],
+        status: Literal["ok", "failed", "errors", "warns", "skipped"],
+        features: Dict[str, Any],
+        stats: Optional[Dict[str, Any]] = None,
+        tags: Optional[Dict[str, str]] = None,
+        error: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Build and return the metric event with explicit status.
+        
+        Args:
+            item_id: Item identifier
+            db_id: Database identifier
+            status: Explicit status (ok/failed/errors/warns/skipped)
+            features: Aggregatable metrics
+            stats: Detailed data
+            tags: Context metadata
+            error: Error message if applicable
+        
+        Returns:
+            Dict ready for JSON serialization
+        """
+        duration_ms = 0.0
+        if self._start_time is not None:
+            duration_ms = (time.perf_counter() - self._start_time) * 1000
+        
+        event = MetricEvent(
+            ts=datetime.utcnow().isoformat() + "Z",
+            dataset_id=self.dataset_id,
+            item_id=item_id,
+            db_id=db_id,
+            event_type=self.event_type,
+            name=self.name,
+            status=status,
+            success=(status == "ok"),  # Only "ok" is considered success
             duration_ms=round(duration_ms, 2),
             err=error,
             features=features,

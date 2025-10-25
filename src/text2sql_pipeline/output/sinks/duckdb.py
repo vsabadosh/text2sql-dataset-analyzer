@@ -105,14 +105,18 @@ class DuckDBMetricsSink(MetricsSink):
             unknown_types_count INTEGER,
             multiple_pks_count INTEGER,
             blocking_errors_total INTEGER,
+            tables_non_empty INTEGER,
+            fk_data_violations_count INTEGER,
             
             -- Stats
             collect_ms DOUBLE,
             errors JSON,
+            warnings JSON,
             
             -- Tags
             dialect VARCHAR,
             source VARCHAR,
+            fk_enforcement VARCHAR,
             
             -- Evidence (stored as JSON for flexibility)
             evidence JSON,
@@ -368,9 +372,9 @@ class DuckDBMetricsSink(MetricsSink):
                 INSERT INTO {table_name} VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?
+                    ?, ?, ?, ?, ?
                 )
             """, [
                 rec.get("ts"),
@@ -394,10 +398,14 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("unknown_types_count"),
                 features.get("multiple_pks_count"),
                 features.get("blocking_errors_total"),
+                features.get("tables_non_empty"),
+                features.get("fk_data_violations_count"),
                 stats.get("collect_ms"),
                 json.dumps(stats.get("errors", [])),
+                json.dumps(stats.get("warnings", [])),
                 tags.get("dialect"),
                 tags.get("source"),
+                tags.get("fk_enforcement"),
                 json.dumps(features.get("evidence", {}))
             ])
     

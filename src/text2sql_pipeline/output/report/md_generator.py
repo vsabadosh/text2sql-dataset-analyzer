@@ -50,6 +50,274 @@ class MarkdownReportGenerator:
         
         report_content = "\n\n".join(sections)
         Path(output_path).write_text(report_content, encoding="utf-8")
+
+    def generate_schema_details_report(self, output_path: str) -> None:
+        """Generate schema-only detailed markdown report with per-DB breakdown."""
+        table = self.available_tables.get("schema_validation")
+        if not table:
+            Path(output_path).write_text("# Schema Validation Report\n\nNo schema metrics available.", encoding="utf-8")
+            return
+
+        sections: list[str] = []
+        
+        # Header
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sections.append(f"# Schema Validation Report\n\n**Generated:** {now}")
+        sections.append("")
+
+        # Executive summary - compact format like in 1111.txt
+        try:
+            status_counts = self.conn.execute(f"""
+                SELECT 
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS clean,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                    SUM(CASE WHEN status = 'errors' THEN 1 ELSE 0 END) AS errors,
+                    SUM(CASE WHEN status = 'warns' THEN 1 ELSE 0 END) AS warns
+                FROM {table}
+            """).fetchone()
+            totals = self.conn.execute(f"""
+                SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_invalid),0)
+                FROM {table}
+            """).fetchone()
+            total, clean, failed, errors, warns = status_counts if status_counts else (0, 0, 0, 0, 0)
+            total_tables, invalid_fks = totals if totals else (0, 0)
+            
+            clean_pct = (clean / total * 100) if total > 0 else 0
+            
+            sections.append("## Executive Summary")
+            sections.append("")
+            sections.append(f"**Databases:** {total} · **Clean:** {clean} ({clean_pct:.1f}%) · **Fatal Errors:** {failed} · **Errors:** {errors} · **Warnings:** {warns}")
+            sections.append("")
+            sections.append(f"**Tables scanned:** {total_tables:,} · **Invalid FKs:** {invalid_fks}")
+
+            # Top issue (sum evidence arrays)
+            top_issue = self.conn.execute(f"""
+                WITH counts AS (
+                  SELECT 
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_missing_table'), '[]'))) AS fk_missing_table,
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_missing_column'), '[]'))) AS fk_missing_column,
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_arity_mismatch'), '[]'))) AS fk_arity_mismatch,
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_target_not_key'), '[]'))) AS fk_target_not_key,
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.duplicate_columns'), '[]'))) AS duplicate_columns
+                  FROM {table}
+                )
+                SELECT kind, cnt FROM (
+                  SELECT 'fk_missing_table' AS kind, fk_missing_table AS cnt FROM counts UNION ALL
+                  SELECT 'fk_missing_column', fk_missing_column FROM counts UNION ALL
+                  SELECT 'fk_arity_mismatch', fk_arity_mismatch FROM counts UNION ALL
+                  SELECT 'fk_target_not_key', fk_target_not_key FROM counts UNION ALL
+                  SELECT 'duplicate_columns', duplicate_columns FROM counts
+                ) ORDER BY cnt DESC LIMIT 1
+            """).fetchone()
+            if top_issue and top_issue[1] and top_issue[1] > 0:
+                sections.append("")
+                sections.append(f"**Top issue:** {top_issue[0]} ({top_issue[1]})")
+        except Exception as e:
+            sections.append(f"*Error building summary: {e}*")
+
+        sections.append("")
+
+        # Databases with Fatal Errors (status = 'failed')
+        try:
+            rows = self.conn.execute(f"""
+                SELECT db_id,
+                       COALESCE(tables,0) AS tables,
+                       COALESCE(tables_non_empty,0) AS non_empty,
+                       err
+                FROM {table}
+                WHERE status = 'failed'
+                ORDER BY db_id
+            """).fetchall()
+            if rows:
+                sections.append("## 🚫 Databases with Fatal Errors ({})".format(len(rows)))
+                sections.append("")
+                sections.append("| Database | Tables | Non-empty | Error |")
+                sections.append("|----------|--------|-----------|-------|")
+                for db_id, tables_count, non_empty, error_msg in rows:
+                    pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
+                    ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)" if tables_count > 0 else "N/A"
+                    err_short = (error_msg[:40] + "...") if error_msg and len(error_msg) > 40 else (error_msg or "")
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {err_short} |")
+                sections.append("")
+        except Exception:
+            pass
+
+        # Databases with Schema Errors (status = 'errors')
+        try:
+            rows = self.conn.execute(f"""
+                SELECT db_id,
+                       COALESCE(tables,0) AS tables,
+                       COALESCE(tables_non_empty,0) AS non_empty,
+                       COALESCE(blocking_errors_total,0) AS error_count
+                FROM {table}
+                WHERE status = 'errors'
+                ORDER BY db_id
+            """).fetchall()
+            if rows:
+                sections.append("## ❌ Databases with Schema Errors ({})".format(len(rows)))
+                sections.append("")
+                sections.append("| Database | Tables | Non-empty | Errors |")
+                sections.append("|----------|--------|-----------|--------|")
+                for db_id, tables_count, non_empty, error_count in rows:
+                    pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
+                    ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {error_count} |")
+                sections.append("")
+        except Exception:
+            pass
+
+        # Databases with Warnings Only (status = 'warns')
+        try:
+            rows = self.conn.execute(f"""
+                SELECT db_id, COALESCE(tables,0), COALESCE(tables_non_empty,0),
+                       json_array_length(COALESCE(warnings,'[]')) as warning_count
+                FROM {table}
+                WHERE status = 'warns'
+                ORDER BY db_id
+            """).fetchall()
+            if rows:
+                sections.append("## ⚠️ Databases with Warnings Only ({})".format(len(rows)))
+                sections.append("")
+                sections.append("| Database | Tables | Non-empty | Warnings |")
+                sections.append("|----------|--------|-----------|----------|")
+                for db_id, tables_count, non_empty, warn_count in rows:
+                    pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
+                    ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {warn_count} |")
+                sections.append("")
+        except Exception:
+            pass
+
+        # Clean Databases (status = 'ok') - show limited with ellipsis like in 1111.txt
+        try:
+            rows = self.conn.execute(f"""
+                SELECT db_id, COALESCE(tables,0), COALESCE(tables_non_empty,0)
+                FROM {table}
+                WHERE status = 'ok'
+                ORDER BY db_id
+            """).fetchall()
+            if rows:
+                sections.append("## ✅ Clean Databases ({})".format(len(rows)))
+                sections.append("")
+                sections.append("| Database | Tables | Non-empty |")
+                sections.append("|----------|--------|-----------|")
+                # Show first 3 entries
+                for db_id, tables_count, non_empty in rows[:3]:
+                    pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
+                    ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} |")
+                if len(rows) > 3:
+                    sections.append("| … | … | … |")
+                sections.append("")
+        except Exception:
+            pass
+
+        # Per-DB details (only for DBs with errors or warnings) - improved format
+        try:
+            import json
+            dbs = self.conn.execute(f"""
+                SELECT db_id, status, COALESCE(tables,0), COALESCE(tables_non_empty,0),
+                       COALESCE(fk_data_violations_count,0), COALESCE(fk_enforcement,''),
+                       errors, warnings
+                FROM {table}
+                WHERE status IN ('failed', 'errors', 'warns')
+                ORDER BY 
+                    CASE status 
+                        WHEN 'failed' THEN 1 
+                        WHEN 'errors' THEN 2 
+                        WHEN 'warns' THEN 3 
+                        ELSE 4 
+                    END, db_id ASC
+            """).fetchall()
+            
+            if dbs:
+                sections.append("---")
+                sections.append("")
+                sections.append("## Detailed Database Reports")
+                sections.append("")
+            
+            for db_id, status, tables_count, non_empty, fk_viol, fk_enf, errors_raw, warnings_raw in dbs:
+                sections.append(f"### Database: {db_id}")
+                sections.append("")
+                
+                # Build status line with appropriate icon
+                if status == "failed":
+                    status_icon = "🚫"
+                elif status == "errors":
+                    status_icon = "❌"
+                elif status == "warns":
+                    status_icon = "⚠️"
+                else:
+                    status_icon = "✅"
+                    
+                pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
+                
+                # Count errors and warnings
+                def to_list(val):
+                    if val in (None, "", "[]"): return []
+                    if isinstance(val, str):
+                        try:
+                            return json.loads(val)
+                        except Exception:
+                            return []
+                    return val if isinstance(val, list) else []
+                
+                errs_list = to_list(errors_raw)
+                warns_list = to_list(warnings_raw)
+                
+                status_parts = []
+                if errs_list:
+                    status_parts.append(f"{len(errs_list)} error{'s' if len(errs_list) != 1 else ''}")
+                if warns_list:
+                    status_parts.append(f"{len(warns_list)} warning{'s' if len(warns_list) != 1 else ''}")
+                status_msg = ", ".join(status_parts) if status_parts else "ok"
+                
+                sections.append(f"**Status:** {status_icon} {status_msg} · **Non-empty:** {non_empty}/{tables_count} ({pct:.0f}%) · **FK:** {fk_enf.upper() if fk_enf else 'N/A'}{' · **IC:** ok' if not fk_viol else f' · **IC:** {fk_viol} violations'}")
+                sections.append("")
+                
+                # Errors section with visual indicators
+                if errs_list:
+                    sections.append("**Errors**")
+                    sections.append("")
+                    for e in errs_list:
+                        if isinstance(e, dict):
+                            msg = e.get("message", str(e))
+                            sections.append(f"⛔ {msg}")
+                        else:
+                            sections.append(f"⛔ {e}")
+                    sections.append("")
+                
+                # Warnings section with visual indicators
+                if warns_list:
+                    sections.append("**Warnings**")
+                    sections.append("")
+                    for w in warns_list:
+                        if isinstance(w, dict):
+                            msg = w.get("message", str(w))
+                            sections.append(f"⚠️ {msg}")
+                        else:
+                            sections.append(f"⚠️ {w}")
+                    sections.append("")
+                
+                # Tables summary (if available)
+                try:
+                    # Get table row counts for this database if possible
+                    # Note: This would require additional schema introspection
+                    # For now, just show basic stats
+                    if tables_count > 0:
+                        sections.append("**Tables (summary)**")
+                        sections.append("")
+                        sections.append(f"Total: {tables_count} · Non-empty: {non_empty} · Empty: {tables_count - non_empty}")
+                        sections.append("")
+                except Exception:
+                    pass
+                
+                sections.append("")
+        except Exception as e:
+            sections.append(f"*Error generating detailed reports: {e}*")
+
+        Path(output_path).write_text("\n".join(sections), encoding="utf-8")
     
     def _generate_header(self) -> str:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -96,7 +364,7 @@ class MarkdownReportGenerator:
             try:
                 result = self.conn.execute(f"""
                     SELECT COUNT(*) as total,
-                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful
+                           SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful
                     FROM {table_name} WHERE item_id IS NOT NULL OR db_id IS NOT NULL
                 """).fetchone()
                 
@@ -104,7 +372,8 @@ class MarkdownReportGenerator:
                     total, successful = result
                     success_rate = (successful / total * 100) if total > 0 else 0
                     display_name = analyzer_name.replace("_annot", "").replace("_", " ").title()
-                    lines.append(f"| {display_name} | {total:,} | {success_rate:.1f}% |")
+                    # Use 2 decimal places for better precision when success rate is high
+                    lines.append(f"| {display_name} | {total:,} | {success_rate:.2f}% |")
             except Exception:
                 pass
         
@@ -120,7 +389,7 @@ class MarkdownReportGenerator:
         
         try:
             result = self.conn.execute(f"""
-                SELECT COUNT(*) as total_dbs, SUM(CASE WHEN success THEN 1 ELSE 0 END) as valid_dbs,
+                SELECT COUNT(*) as total_dbs, SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as valid_dbs,
                        SUM(tables) as total_tables, SUM(columns) as total_columns,
                        SUM(fk_total) as total_fks, SUM(fk_invalid) as invalid_fks,
                        SUM(blocking_errors_total) as total_errors
@@ -187,7 +456,7 @@ class MarkdownReportGenerator:
         
         try:
             result = self.conn.execute(f"""
-                SELECT COUNT(*) as total, SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful
+                SELECT COUNT(*) as total, SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful
                 FROM {table}
             """).fetchone()
             
@@ -195,7 +464,7 @@ class MarkdownReportGenerator:
                 total, successful = result
                 success_rate = (successful / total * 100) if total else 0
                 lines.append(f"- **Total Queries:** {total:,}")
-                lines.append(f"- **Successful:** {successful:,} ({success_rate:.1f}%)")
+                lines.append(f"- **Successful:** {successful:,} ({success_rate:.2f}%)")
                 lines.append(f"- **Failed:** {total - successful:,}")
                 lines.append("")
         except Exception as e:

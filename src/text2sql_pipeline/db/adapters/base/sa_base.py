@@ -76,13 +76,13 @@ class SAExecMixin:
                     cols.sort(key=lambda x: (x["name"] or ""))
                     out["tables"][tname] = {"cols": cols}
 
-                # ---- CREATE INDEX ----
-                if isinstance(node.this, exp.Index):
-                    out["indexes"].append({
-                        "name": node.this.name,
-                        "table": node.this.table,
-                        "columns": [c.name for c in (node.this.expressions or [])],
-                    })
+                # # ---- CREATE INDEX ----
+                # if isinstance(node.this, exp.Index):
+                #     out["indexes"].append({
+                #         "name": node.this.name,
+                #         "table": node.this.table,
+                #         "columns": [c.name for c in (node.this.expressions or [])],
+                #     })
 
         out["indexes"].sort(key=lambda x: (x.get("table") or "", x.get("name") or ""))
         out["tables"] = {k: out["tables"][k] for k in sorted(out["tables"].keys())}

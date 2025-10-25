@@ -41,7 +41,12 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                 return [row[0] for row in result.fetchall()]
         finally:
             engine.dispose()
-    
+
+    def _qident(self, name: str) -> str:
+        """Quote a SQLite identifier with double quotes and escape embedded quotes."""
+        s = str(name).replace('"', '""')
+        return f'"{s}"'
+ 
     def get_table_info(self, db_id: str, table: str) -> Dict[str, Any]:
         """Get complete table information using SQLite's PRAGMA commands."""
         url = self.db_url_for(db_id)
@@ -50,7 +55,7 @@ class SQLiteSAAdapter(FileDBAdapterBase):
         try:
             with engine.connect() as conn:
                 # Get columns info
-                col_info = conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+                col_info = conn.exec_driver_sql(f"PRAGMA table_info({self._qident(table)})").fetchall()
                 columns = []
                 primary_keys = []
                 
@@ -68,7 +73,7 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                         primary_keys.append(col["name"])
                 
                 # Get foreign keys
-                fk_info = conn.exec_driver_sql(f"PRAGMA foreign_key_list({table})").fetchall()
+                fk_info = conn.exec_driver_sql(f"PRAGMA foreign_key_list({self._qident(table)})").fetchall()
                 foreign_keys = []
                 fk_map: Dict[int, Dict] = {}
                 
@@ -93,3 +98,32 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                 }
         finally:
             engine.dispose()
+
+    # ---------- Optional FK checks for manager ----------
+    def fk_enforcement_enabled(self, db_id: str) -> bool | None:
+        """Return True if PRAGMA foreign_keys is ON, False if OFF, None on error."""
+        try:
+            url = self.db_url_for(db_id)
+            engine = create_engine(url, future=True)
+            try:
+                with engine.connect() as conn:
+                    row = conn.exec_driver_sql("PRAGMA foreign_keys").fetchone()
+                    return bool(row[0]) if row is not None else None
+            finally:
+                engine.dispose()
+        except Exception:
+            return None
+
+    def count_fk_violations(self, db_id: str) -> int | None:
+        """Return number of rows reported by PRAGMA foreign_key_check, or None if unsupported."""
+        try:
+            url = self.db_url_for(db_id)
+            engine = create_engine(url, future=True)
+            try:
+                with engine.connect() as conn:
+                    rows = conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+                    return len(rows) if rows is not None else 0
+            finally:
+                engine.dispose()
+        except Exception:
+            return None

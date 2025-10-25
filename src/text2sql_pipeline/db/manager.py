@@ -142,3 +142,29 @@ class DbManager:
             except Exception:
                 pass
         self._engines.clear()
+
+    # ---------- optional FK introspection (adapter-specific) ----------
+    def fk_enforcement_enabled(self, db_id: str) -> Optional[bool]:
+        """
+        Return True/False if adapter can determine FK enforcement status for db_id, else None.
+        """
+        method = getattr(self._adapter, "fk_enforcement_enabled", None)
+        if callable(method):
+            try:
+                return bool(method(db_id))
+            except Exception:
+                return None
+        return None
+
+    def count_fk_violations(self, db_id: str) -> Optional[int]:
+        """
+        Return number of FK data violations if adapter can check, else None.
+        """
+        method = getattr(self._adapter, "count_fk_violations", None)
+        if callable(method):
+            try:
+                val = method(db_id)
+                return int(val) if val is not None else None
+            except Exception:
+                return None
+        return None

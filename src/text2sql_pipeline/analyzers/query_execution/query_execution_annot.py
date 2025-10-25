@@ -67,13 +67,16 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
             # Calculate total duration
             duration_ms = (time.perf_counter() - start) * 1000
             
+            # Determine status: ok if execution succeeded, failed otherwise
+            status = "ok" if ok else "failed"
+            
             # Build structured metric
             metric = QueryExecutionMetricEvent(
                 dataset_id=dataset_id,
                 item_id=item.id,
                 db_id=item.dbId,
-                status="ok" if ok else "failed",
-                success=ok,
+                status=status,
+                success=(status == "ok"),
                 duration_ms=round(duration_ms, 2),
                 err=error
             )
@@ -88,7 +91,7 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
             
             item.metadata["analysisSteps"].append({
                 "name": "query_execution",
-                "status": "ok" if ok else "failed"
+                "status": status
             })
             
             yield item

@@ -64,19 +64,22 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             # First time seeing this db_id - analyze and emit metric
             start = time.perf_counter()
             
-            features, stats, tags, ok, error = self._analyze_schema(item)
+            features, stats, tags, status, error = self._analyze_schema(item)
             
             # Calculate duration
             duration_ms = (time.perf_counter() - start) * 1000
             stats.collect_ms = round(duration_ms, 2)
+            
+            # Determine success (only "ok" is considered success)
+            success = (status == "ok")
             
             # Build typed metric event with item_id=None (DB-level metric)
             metric = SchemaAnalysisMetricEvent(
                 dataset_id=dataset_id,
                 item_id=None,  # DB-level, not item-level
                 db_id=item.dbId,
-                status="ok" if ok else "failed",
-                success=ok,
+                status=status,
+                success=success,
                 duration_ms=round(duration_ms, 2),
                 err=error,
                 features=features,
@@ -88,10 +91,10 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             sink.write(metric)
             
             # Cache result
-            self._analyzed_dbs[item.dbId] = (ok, error or "")
+            self._analyzed_dbs[item.dbId] = (success, error or "")
             
             # Annotate item
-            self._annotate_item(item, ok)
+            self._annotate_item(item, success)
             
             yield item
     
@@ -115,7 +118,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         """
         Core analysis logic.
         
-        Returns: (features, stats, tags, ok, error_message)
+        Returns: (features, stats, tags, status, error_message)
+        where status is one of: "ok", "failed", "errors", "warns"
         """
         stats = SchemaAnalysisStats()
         tags = SchemaAnalysisTags(
@@ -123,6 +127,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             source="reflection"
         )
         evidence = SchemaEvidence()
+        fk_violations_count = 0
+        tables_non_empty = 0
         
         # Step 1: Check database health
         try:
@@ -132,6 +138,27 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         except Exception as e:
             return self._build_db_error_result(str(e), stats, tags)
         
+        # # Step 1.5: FK enforcement and data violations (SQLite-focused)
+        try:
+            # fk_enabled_opt = self.db_manager.fk_enforcement_enabled(item.dbId)
+            # if fk_enabled_opt is not None:
+            #     tags.fk_enforcement = "enabled" if fk_enabled_opt else "disabled"
+            #     if not fk_enabled_opt:
+            #         stats.warnings.append(ErrorDetail(
+            #             kind="fk_not_enforced",
+            #             message="Foreign key enforcement is disabled by the database configuration."
+            #         ))
+            fk_violations_opt = self.db_manager.count_fk_violations(item.dbId)
+            if fk_violations_opt is not None:
+                fk_violations_count = fk_violations_opt
+                if fk_violations_count > 0:
+                    stats.warnings.append(ErrorDetail(
+                        kind="fk_data_violation",
+                        message=f"Found {fk_violations_count} FK data violation(s)"
+                    ))
+        except Exception:
+            pass
+
         # Step 2: Get schema information
         try:
             tables = self.db_manager.get_tables(item.dbId)
@@ -153,6 +180,21 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                         kind="table_info_error",
                         message=f"Failed to get info for table '{table}': {str(e)}"
                     ))
+            # Count non-empty tables (fast existence check)
+            try:
+                eng = self.db_manager.engine(item.dbId)
+                with eng.connect() as conn:
+                    for t in tables:
+                        try:
+                            # Quote table name to be safe for special chars
+                            res = conn.exec_driver_sql(f'SELECT 1 FROM "{t}" LIMIT 1').fetchone()
+                            if res is not None:
+                                tables_non_empty += 1
+                        except Exception:
+                            # If table access fails, treat as empty for purposes of this metric
+                            pass
+            except Exception:
+                pass
             
             # Step 3: Run validation checks
             validation_result = self._validate_schema(schema_info, evidence, stats)
@@ -169,14 +211,26 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                 unknown_types_count=validation_result["unknown_types_count"],
                 multiple_pks_count=validation_result["multiple_pks_count"],
                 blocking_errors_total=validation_result["blocking_errors_total"],
+                tables_non_empty=tables_non_empty,
+                fk_data_violations_count=fk_violations_count,
                 evidence=evidence
             )
             
-            # Determine success
-            ok = validation_result["blocking_errors_total"] == 0
-            error_msg = None if ok else f"{validation_result['blocking_errors_total']} error(s)"
+            # Determine status based on errors and warnings
+            has_errors = validation_result["blocking_errors_total"] > 0
+            has_warnings = len(stats.warnings) > 0
             
-            return features, stats, tags, ok, error_msg
+            if has_errors:
+                status = "errors"
+                error_msg = f"{validation_result['blocking_errors_total']} schema error(s)"
+            elif has_warnings:
+                status = "warns"
+                error_msg = None
+            else:
+                status = "ok"
+                error_msg = None
+            
+            return features, stats, tags, status, error_msg
             
         except Exception as e:
             return self._build_analysis_error_result(str(e), stats, tags)
@@ -242,12 +296,14 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                 missing_cols = [c for c in parent_cols if c not in parent_col_names]
                 if missing_cols:
                     fk_invalid += 1
+                    display_parent_cols = ["None" if c is None else c for c in (parent_cols if parent_cols is not None else [None])]
+
                     evidence.fk_missing_column.append(
                         ForeignKeyMissingColumn(
                             table=table,
                             local=local_cols,
                             parent_table=parent_table,
-                            parent_columns=parent_cols
+                            parent_columns=display_parent_cols
                         )
                     )
                     stats.errors.append(ErrorDetail(
@@ -318,7 +374,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         }
     
     def _build_db_error_result(self, error_msg: str, stats: SchemaAnalysisStats, tags: SchemaAnalysisTags):
-        """Build result when database is not accessible."""
+        """Build result when database is not accessible - status: failed."""
         stats.errors.append(ErrorDetail(
             kind="db_connection_error",
             message=f"Database connection failed: {error_msg}"
@@ -330,19 +386,19 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             evidence=SchemaEvidence()
         )
         
-        return features, stats, tags, False, f"Database connection failed: {error_msg}"
+        return features, stats, tags, "failed", f"Database connection failed: {error_msg}"
     
     def _build_empty_schema_result(self, stats: SchemaAnalysisStats, tags: SchemaAnalysisTags):
-        """Build result for empty schema."""
+        """Build result for empty schema - status: ok."""
         features = SchemaAnalysisFeatures(
             parsed=True,
             evidence=SchemaEvidence()
         )
         
-        return features, stats, tags, True, None
+        return features, stats, tags, "ok", None
     
     def _build_analysis_error_result(self, error_msg: str, stats: SchemaAnalysisStats, tags: SchemaAnalysisTags):
-        """Build result when analysis itself fails."""
+        """Build result when analysis itself fails - status: failed."""
         stats.errors.append(ErrorDetail(
             kind="analysis_error",
             message=f"Schema analysis failed: {error_msg}"
@@ -354,7 +410,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             evidence=SchemaEvidence()
         )
         
-        return features, stats, tags, False, f"Schema analysis failed: {error_msg}"
+        return features, stats, tags, "failed", f"Schema analysis failed: {error_msg}"
     
     def get_stats(self) -> Dict[str, int]:
         """Return analyzer statistics."""

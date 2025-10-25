@@ -53,17 +53,25 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
         for item in items:
             start = time.perf_counter()
             
-            features, stats, tags, ok, err = self._analyze_query(item)
+            features, stats, tags, parseable, err = self._analyze_query(item)
             
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             stats.collect_ms = duration_ms
+            
+            # Determine status: failed if not parseable, warns if has antipatterns, ok otherwise
+            if not parseable:
+                status = "failed"
+            elif features.total_antipatterns > 0:
+                status = "warns"
+            else:
+                status = "ok"
             
             metric = QueryAntipatternMetricEvent(
                 dataset_id=dataset_id,
                 item_id=item.id,
                 db_id=item.dbId,
-                status="ok" if ok else "failed",
-                success=ok,
+                status=status,
+                success=(status == "ok"),
                 duration_ms=duration_ms,
                 err=err,
                 features=features,
@@ -77,10 +85,10 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
             item.metadata.setdefault("analysisSteps", [])
             item.metadata["analysisSteps"].append({
                 "name": "query_antipattern",
-                "status": "ok" if ok else "failed",
-                "quality_score": features.quality_score if ok else None,
-                "quality_level": features.quality_level if ok else "unknown",
-                "antipattern_count": features.total_antipatterns if ok else None
+                "status": status,
+                "quality_score": features.quality_score if parseable else None,
+                "quality_level": features.quality_level if parseable else "unknown",
+                "antipattern_count": features.total_antipatterns if parseable else None
             })
             
             yield item
