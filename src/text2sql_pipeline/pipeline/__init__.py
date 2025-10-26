@@ -16,6 +16,7 @@ def import_builtin_plugins() -> None:
     import text2sql_pipeline.analyzers.query_syntax.query_syntax_annot
     import text2sql_pipeline.analyzers.query_execution.query_execution_annot
     import text2sql_pipeline.analyzers.query_antipattern.query_antipattern_annot
+    import text2sql_pipeline.analyzers.llm_as_a_judge.semantic_llm_annot
 
     # ADAPTERS
     import text2sql_pipeline.db.adapters.sqlite_sa

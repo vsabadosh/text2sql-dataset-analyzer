@@ -61,6 +61,7 @@ class DuckDBMetricsSink(MetricsSink):
             "query_syntax": lambda: self._query_syntax_table(table_name),
             "query_execution": lambda: self._query_execution_table(table_name),
             "query_antipattern": lambda: self._query_antipattern_table(table_name),
+            "semantic_llm_judge": lambda: self._semantic_llm_judge_table(table_name),
         }
         
         # Get schema or use generic
@@ -275,6 +276,53 @@ class DuckDBMetricsSink(MetricsSink):
         )
         """
     
+    def _semantic_llm_judge_table(self, table_name: str) -> str:
+        """Schema for semantic LLM judge metrics."""
+        return f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            -- Metadata
+            ts TIMESTAMP,
+            spec_version VARCHAR,
+            dataset_id VARCHAR,
+            item_id VARCHAR,
+            db_id VARCHAR,
+            
+            -- Event identity
+            event_type VARCHAR,
+            name VARCHAR,
+            
+            -- Status
+            status VARCHAR,
+            success BOOLEAN,
+            duration_ms DOUBLE,
+            err VARCHAR,
+            
+            -- Features (LLM judge specific)
+            total_voters INTEGER,
+            voters_correct INTEGER,
+            voters_partially_correct INTEGER,
+            voters_incorrect INTEGER,
+            voters_failed INTEGER,
+            weighted_score DOUBLE,
+            consensus_reached BOOLEAN,
+            consensus_verdict VARCHAR,
+            
+            -- Detailed voter results (stored as JSON)
+            voter_results JSON,
+            
+            -- Stats
+            collect_ms DOUBLE,
+            prompt_used VARCHAR,
+            temperature DOUBLE,
+            
+            -- Tags
+            dialect VARCHAR,
+            prompt_variant VARCHAR,
+            
+            PRIMARY KEY (dataset_id, item_id, ts)
+        )
+        """
+    
     def _generic_table(self, table_name: str) -> str:
         """Generic schema for unknown analyzers."""
         return f"""
@@ -351,6 +399,8 @@ class DuckDBMetricsSink(MetricsSink):
                 self._insert_query_execution(table_name, self._batches[table_name])
             elif analyzer_name == "query_antipattern":
                 self._insert_query_antipattern(table_name, self._batches[table_name])
+            elif analyzer_name == "semantic_llm_judge":
+                self._insert_semantic_llm_judge(table_name, self._batches[table_name])
             else:
                 self._insert_generic(table_name, self._batches[table_name])
             
@@ -556,6 +606,51 @@ class DuckDBMetricsSink(MetricsSink):
                 stats.get("dialect"),
                 json.dumps(stats.get("errors", [])),
                 tags.get("dialect")
+            ])
+    
+    def _insert_semantic_llm_judge(self, table_name: str, records: list[Dict[str, Any]]) -> None:
+        """Insert semantic LLM judge records."""
+        import json
+        
+        for rec in records:
+            features = rec.get("features", {})
+            stats = rec.get("stats", {})
+            tags = rec.get("tags", {})
+            
+            self.conn.execute(f"""
+                INSERT INTO {table_name} VALUES (
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?
+                )
+            """, [
+                rec.get("ts"),
+                rec.get("spec_version"),
+                rec.get("dataset_id"),
+                rec.get("item_id"),
+                rec.get("db_id"),
+                rec.get("event_type"),
+                rec.get("name"),
+                rec.get("status"),
+                rec.get("success"),
+                rec.get("duration_ms"),
+                rec.get("err"),
+                features.get("total_voters"),
+                features.get("voters_correct"),
+                features.get("voters_partially_correct"),
+                features.get("voters_incorrect"),
+                features.get("voters_failed"),
+                features.get("weighted_score"),
+                features.get("consensus_reached"),
+                features.get("consensus_verdict"),
+                json.dumps(stats.get("voter_results", [])),
+                stats.get("collect_ms"),
+                stats.get("prompt_used"),
+                stats.get("temperature"),
+                tags.get("dialect"),
+                tags.get("prompt_variant")
             ])
     
     def _insert_generic(self, table_name: str, records: list[Dict[str, Any]]) -> None:

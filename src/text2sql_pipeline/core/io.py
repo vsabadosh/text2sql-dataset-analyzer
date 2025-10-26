@@ -32,5 +32,15 @@ def open_jsonl_writer(path: str) -> AbstractContextManager[JsonlWriter]:
 
 
 def yaml_load(path: str) -> Dict[str, Any]:
+    """
+    Load YAML configuration file with environment variable resolution.
+    
+    Supports ${VAR_NAME} and ${VAR_NAME:default} syntax.
+    """
+    from .config_utils import load_config_with_env_resolution
+    
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    
+    # Resolve environment variables in config
+    return load_config_with_env_resolution(config)

@@ -1,10 +1,12 @@
 from __future__ import annotations
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
+import sqlglot
+from sqlglot import exp
 
 from .adapters.base.protocol import SAAdapter
 from .adapters.base.errors import AdapterError
@@ -168,3 +170,234 @@ class DbManager:
             except Exception:
                 return None
         return None
+    
+    # ---------- smart DDL generation with examples ----------
+    def get_ddl_schema_with_examples(
+        self, 
+        db_id: str, 
+        sql: str, 
+        num_examples: int = 2
+    ) -> str:
+        """
+        Generate DDL schema with example data for tables referenced in the SQL query.
+        
+        This method:
+        1. Parses the SQL query to extract referenced tables
+        2. For each table, retrieves schema information
+        3. Samples example data for each column (limited by num_examples)
+        4. Formats DDL with inline example comments
+        
+        Args:
+            db_id: Database identifier
+            sql: SQL query to analyze for table references
+            num_examples: Number of example values to include per column (default: 2)
+        
+        Returns:
+            DDL schema string with example data in comments
+        
+        Example output:
+            CREATE TABLE users (
+                id INTEGER NOT NULL /* ex: [1, 2] */,
+                name VARCHAR(255) /* ex: ['Alice', 'Bob'] */,
+                PRIMARY KEY (id)
+            );
+        """
+        try:
+            # Parse SQL to extract referenced tables
+            dialect = self.get_sqlglot_dialect()
+            referenced_tables = self._extract_tables_from_sql(sql, dialect)
+            
+            if not referenced_tables:
+                # Fallback: get all tables if parsing fails
+                referenced_tables = self.get_tables(db_id)
+            
+            # Get engine for data sampling
+            eng = self.engine(db_id)
+            
+            # Build DDL for each referenced table
+            ddl_statements = []
+            for table in referenced_tables:
+                try:
+                    info = self.get_table_info(db_id, table)
+                    examples = self._sample_column_examples(eng, table, info, num_examples)
+                    ddl = self._build_create_table_with_examples(table, info, examples)
+                    ddl_statements.append(ddl)
+                except Exception as e:
+                    # Log but don't fail - continue with other tables
+                    import logging
+                    logging.warning(f"Failed to get DDL for table {table}: {e}")
+                    continue
+            
+            return "\n\n".join(ddl_statements)
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to generate DDL schema with examples for {db_id}: {e}")
+            raise
+    
+    def _extract_tables_from_sql(self, sql: str, dialect: str) -> List[str]:
+        """
+        Extract table names referenced in SQL query using sqlglot.
+        
+        Args:
+            sql: SQL query string
+            dialect: SQL dialect for parsing
+        
+        Returns:
+            List of table names
+        """
+        try:
+            ast = sqlglot.parse_one(sql, read=dialect)
+            tables = set()
+            
+            # Find all table references
+            for table_node in ast.find_all(exp.Table):
+                table_name = table_node.name
+                if table_name:
+                    tables.add(table_name)
+            
+            return sorted(list(tables))
+        except Exception:
+            # If parsing fails, return empty list (caller will use fallback)
+            return []
+    
+    def _sample_column_examples(
+        self,
+        eng: Engine,
+        table: str,
+        info: Dict[str, Any],
+        num_examples: int
+    ) -> Dict[str, List[Any]]:
+        """
+        Sample example values for each column in the table.
+        
+        Args:
+            eng: SQLAlchemy engine
+            table: Table name
+            info: Table info dict with columns
+            num_examples: Number of examples to sample
+        
+        Returns:
+            Dict mapping column name to list of example values
+        """
+        examples = {}
+        
+        try:
+            with eng.connect() as conn:
+                # Build query to sample data
+                # Use DISTINCT and LIMIT to get diverse examples
+                columns = [col["name"] for col in info.get("columns", [])]
+                
+                if not columns:
+                    return examples
+                
+                # Quote table name for safety
+                quoted_table = f'"{table}"'
+                
+                # Sample each column separately to get non-null diverse examples
+                for col in columns:
+                    try:
+                        quoted_col = f'"{col}"'
+                        query = f"""
+                            SELECT DISTINCT {quoted_col}
+                            FROM {quoted_table}
+                            WHERE {quoted_col} IS NOT NULL
+                            LIMIT {num_examples}
+                        """
+                        result = conn.exec_driver_sql(query)
+                        values = [row[0] for row in result.fetchall()]
+                        examples[col] = values
+                    except Exception:
+                        # If column sampling fails, use empty list
+                        examples[col] = []
+        except Exception:
+            # If sampling fails entirely, return empty dict
+            pass
+        
+        return examples
+    
+    def _build_create_table_with_examples(
+        self,
+        table: str,
+        info: Dict[str, Any],
+        examples: Dict[str, List[Any]]
+    ) -> str:
+        """
+        Build CREATE TABLE statement with example data in comments.
+        
+        Args:
+            table: Table name
+            info: Table info dict with columns, PKs, FKs
+            examples: Dict mapping column name to example values
+        
+        Returns:
+            DDL statement string
+        """
+        lines = [f"CREATE TABLE {table} ("]
+        
+        # Add columns with examples
+        col_lines = []
+        for col in info.get("columns", []):
+            col_name = col.get("name", "")
+            col_type = col.get("type", "TEXT")
+            nullable = col.get("nullable", True)
+            
+            col_def = f"    {col_name} {col_type}"
+            if not nullable:
+                col_def += " NOT NULL"
+            
+            # Add example comment
+            col_examples = examples.get(col_name, [])
+            if col_examples:
+                # Format examples based on type
+                formatted_examples = self._format_example_values(col_examples)
+                col_def += f" /* ex: {formatted_examples} */"
+            
+            col_lines.append(col_def)
+        
+        # Add primary keys
+        pks = info.get("primary_keys", [])
+        if pks:
+            pk_def = f"    PRIMARY KEY ({', '.join(pks)})"
+            col_lines.append(pk_def)
+        
+        # Add foreign keys
+        for fk in info.get("foreign_keys", []):
+            local_cols = fk.get("local", [])
+            parent_table = fk.get("parent_table", "")
+            parent_cols = fk.get("parent_columns", [])
+            
+            if local_cols and parent_table and parent_cols:
+                fk_def = f"    FOREIGN KEY ({', '.join(local_cols)}) REFERENCES {parent_table} ({', '.join(parent_cols)})"
+                col_lines.append(fk_def)
+        
+        lines.append(",\n".join(col_lines))
+        lines.append(");")
+        
+        return "\n".join(lines)
+    
+    def _format_example_values(self, values: List[Any]) -> str:
+        """
+        Format example values for display in comment.
+        
+        Args:
+            values: List of example values
+        
+        Returns:
+            Formatted string like "[1, 2]" or "['a', 'b']"
+        """
+        if not values:
+            return "[]"
+        
+        # Detect if values are strings or numbers
+        formatted = []
+        for val in values:
+            if isinstance(val, str):
+                # Escape single quotes in strings
+                escaped = val.replace("'", "\\'")
+                formatted.append(f"'{escaped}'")
+            elif val is None:
+                formatted.append("NULL")
+            else:
+                formatted.append(str(val))
+        
+        return f"[{', '.join(formatted)}]"

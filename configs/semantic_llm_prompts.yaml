@@ -1,0 +1,86 @@
+# Semantic LLM Judge Prompt Templates
+#
+# Available placeholders:
+# - {{dialect}} - Database dialect (e.g., "sqlite", "postgresql")
+# - {{ddl_schema}} - DDL schema (CREATE TABLE statements with examples)
+# - {{natural_question}} - Natural language question
+# - {{sql_to_revise}} - SQL query to evaluate
+
+# Simple variant - Basic semantic evaluation
+variant_1: |
+  Task:
+  You are a data science expert. Evaluate whether the provided SQL query correctly answers the question given the database schema.
+
+  Database Engine:
+  {{dialect}}
+
+  ### Database Schema:
+  {{ddl_schema}}
+
+  ### Question:
+  {{natural_question}}
+
+  ### SQL Query:
+  {{sql_to_revise}}
+
+
+  Allowed verdicts (choose exactly one):
+
+  - CORRECT — The output is fully correct and produces the expected result.
+  - PARTIALLY_CORRECT — The output is mostly correct but misses minor conditions or details.
+  - INCORRECT — The output is logically wrong or does not answer the question.
+
+
+  OUTPUT (STRICT):
+  - Return exactly one JSON object and nothing else (no prose, no code fences).
+  - Keys: "verdict", "explanation".
+  - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT.
+  - If "verdict" is CORRECT, set "explanation" to "" (empty string).
+  - Otherwise, "explanation" MUST be single-line (no newlines), concise (≤ 160 chars).
+  - No extra keys. No trailing commas.
+
+  EXAMPLE (no explanation verdict):
+  {"verdict":"CORRECT","explanation":""}
+
+# Comprehensive variant - Assumes SQL is parseable and executable (DEFAULT)
+variant_2: |
+  You are a data science expert. Assume the SQL parses and executes in the specified dialect. Do not comment on syntax, style, or performance. Evaluate only logical correctness against the question using the provided schema.
+
+  Database Engine (SQL dialect):
+  {{dialect}}
+
+  ### Database Schema
+  {{ddl_schema}}
+
+  ### Question
+  {{natural_question}}
+
+  ### SQL Query
+  {{sql_to_revise}}
+
+  Decision rules (semantics only):
+  - Verify filters, joins, and join cardinality.
+  - Check grouping/aggregation/window usage and HAVING logic.
+  - Consider NULL handling, empty-set behavior, and DISTINCT vs duplicates.
+  - Validate required ordering/limits and handling of ties if applicable.
+  - Check time/date boundaries (inclusive/exclusive), casting, and comparisons.
+  - Do not assume columns or data beyond the schema; do not propose fixes.
+
+  Allowed verdicts (choose exactly one):
+  - CORRECT — The output is fully correct and produces the expected result.
+  - PARTIALLY_CORRECT — The output is mostly correct but misses minor conditions or details.
+  - INCORRECT — The output is logically wrong or does not answer the question.
+
+  OUTPUT (STRICT):
+  - Return exactly one JSON object and nothing else (no prose, no code fences).
+  - Keys: "verdict", "explanation".
+  - If "verdict" is CORRECT, set "explanation" to "" (empty string).
+  - Otherwise, "explanation" must be single-line (no newlines), concise (≤160 chars).
+  - No extra keys. No trailing commas.
+
+  EXAMPLE
+  {"verdict":"CORRECT","explanation":""}
+
+# Default template (alias to variant_2)
+default: variant_2
+

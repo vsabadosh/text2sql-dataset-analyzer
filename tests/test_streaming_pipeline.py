@@ -11,6 +11,7 @@ from text2sql_pipeline.pipeline.engine import run_pipeline
 
 def test_full_pipeline(tmp_path):
     # use example config relative to repo root
+    os.environ["OPENAI_API_KEY"] = "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"
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     cfg_path = os.path.join(repo_root, "configs", "pipeline.example.yaml")
     out_dir = run_pipeline(cfg_path)
