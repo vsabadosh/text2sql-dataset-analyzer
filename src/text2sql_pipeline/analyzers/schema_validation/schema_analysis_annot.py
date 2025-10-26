@@ -140,6 +140,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         
         # # Step 1.5: FK enforcement and data violations (SQLite-focused)
         try:
+            # TODO: Volodymyr Sabadosh. Temporary Comented. Uncoment.
             # fk_enabled_opt = self.db_manager.fk_enforcement_enabled(item.dbId)
             # if fk_enabled_opt is not None:
             #     tags.fk_enforcement = "enabled" if fk_enabled_opt else "disabled"

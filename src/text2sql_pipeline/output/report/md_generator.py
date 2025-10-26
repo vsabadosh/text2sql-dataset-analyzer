@@ -77,11 +77,20 @@ class MarkdownReportGenerator:
                 FROM {table}
             """).fetchone()
             totals = self.conn.execute(f"""
-                SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_invalid),0)
+                SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_invalid),0),
+                       SUM(CASE WHEN fk_data_violations_count > 0 THEN 1 ELSE 0 END)
                 FROM {table}
             """).fetchone()
+            # Count total warnings across all databases
+            warning_counts = self.conn.execute(f"""
+                SELECT 
+                    SUM(json_array_length(COALESCE(warnings,'[]'))) as total_warnings
+                FROM {table}
+            """).fetchone()
+            
             total, clean, failed, errors, warns = status_counts if status_counts else (0, 0, 0, 0, 0)
-            total_tables, invalid_fks = totals if totals else (0, 0)
+            total_tables, invalid_fks, dbs_with_violations = totals if totals else (0, 0, 0)
+            total_warnings = warning_counts[0] if warning_counts and warning_counts[0] else 0
             
             clean_pct = (clean / total * 100) if total > 0 else 0
             
@@ -90,6 +99,8 @@ class MarkdownReportGenerator:
             sections.append(f"**Databases:** {total} · **Clean:** {clean} ({clean_pct:.1f}%) · **Fatal Errors:** {failed} · **Errors:** {errors} · **Warnings:** {warns}")
             sections.append("")
             sections.append(f"**Tables scanned:** {total_tables:,} · **Invalid FKs:** {invalid_fks}")
+            sections.append("")
+            sections.append(f"**Total warnings:** {total_warnings:,} · **DBs with FK data violations:** {dbs_with_violations}")
 
             # Top issue (sum evidence arrays)
             top_issue = self.conn.execute(f"""
@@ -124,6 +135,7 @@ class MarkdownReportGenerator:
                 SELECT db_id,
                        COALESCE(tables,0) AS tables,
                        COALESCE(tables_non_empty,0) AS non_empty,
+                       COALESCE(fk_data_violations_count,0) AS fk_violations,
                        err
                 FROM {table}
                 WHERE status = 'failed'
@@ -132,13 +144,13 @@ class MarkdownReportGenerator:
             if rows:
                 sections.append("## 🚫 Databases with Fatal Errors ({})".format(len(rows)))
                 sections.append("")
-                sections.append("| Database | Tables | Non-empty | Error |")
-                sections.append("|----------|--------|-----------|-------|")
-                for db_id, tables_count, non_empty, error_msg in rows:
+                sections.append("| Database | Tables | Non-empty | FK Violations | Error |")
+                sections.append("|----------|--------|-----------|---------------|-------|")
+                for db_id, tables_count, non_empty, fk_violations, error_msg in rows:
                     pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
                     ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)" if tables_count > 0 else "N/A"
                     err_short = (error_msg[:40] + "...") if error_msg and len(error_msg) > 40 else (error_msg or "")
-                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {err_short} |")
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {fk_violations} | {err_short} |")
                 sections.append("")
         except Exception:
             pass
@@ -149,7 +161,9 @@ class MarkdownReportGenerator:
                 SELECT db_id,
                        COALESCE(tables,0) AS tables,
                        COALESCE(tables_non_empty,0) AS non_empty,
-                       COALESCE(blocking_errors_total,0) AS error_count
+                       COALESCE(blocking_errors_total,0) AS error_count,
+                       json_array_length(COALESCE(warnings,'[]')) as warning_count,
+                       COALESCE(fk_data_violations_count,0) AS fk_violations
                 FROM {table}
                 WHERE status = 'errors'
                 ORDER BY db_id
@@ -157,12 +171,12 @@ class MarkdownReportGenerator:
             if rows:
                 sections.append("## ❌ Databases with Schema Errors ({})".format(len(rows)))
                 sections.append("")
-                sections.append("| Database | Tables | Non-empty | Errors |")
-                sections.append("|----------|--------|-----------|--------|")
-                for db_id, tables_count, non_empty, error_count in rows:
+                sections.append("| Database | Tables | Non-empty | Errors | Warnings | FK Violations |")
+                sections.append("|----------|--------|-----------|--------|----------|---------------|")
+                for db_id, tables_count, non_empty, error_count, warning_count, fk_violations in rows:
                     pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
                     ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
-                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {error_count} |")
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {error_count} | {warning_count} | {fk_violations} |")
                 sections.append("")
         except Exception:
             pass
@@ -171,7 +185,8 @@ class MarkdownReportGenerator:
         try:
             rows = self.conn.execute(f"""
                 SELECT db_id, COALESCE(tables,0), COALESCE(tables_non_empty,0),
-                       json_array_length(COALESCE(warnings,'[]')) as warning_count
+                       json_array_length(COALESCE(warnings,'[]')) as warning_count,
+                       COALESCE(fk_data_violations_count,0) AS fk_violations
                 FROM {table}
                 WHERE status = 'warns'
                 ORDER BY db_id
@@ -179,12 +194,12 @@ class MarkdownReportGenerator:
             if rows:
                 sections.append("## ⚠️ Databases with Warnings Only ({})".format(len(rows)))
                 sections.append("")
-                sections.append("| Database | Tables | Non-empty | Warnings |")
-                sections.append("|----------|--------|-----------|----------|")
-                for db_id, tables_count, non_empty, warn_count in rows:
+                sections.append("| Database | Tables | Non-empty | Warnings | FK Violations |")
+                sections.append("|----------|--------|-----------|----------|---------------|")
+                for db_id, tables_count, non_empty, warn_count, fk_violations in rows:
                     pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
                     ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
-                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {warn_count} |")
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {warn_count} | {fk_violations} |")
                 sections.append("")
         except Exception:
             pass
@@ -192,7 +207,8 @@ class MarkdownReportGenerator:
         # Clean Databases (status = 'ok') - show limited with ellipsis like in 1111.txt
         try:
             rows = self.conn.execute(f"""
-                SELECT db_id, COALESCE(tables,0), COALESCE(tables_non_empty,0)
+                SELECT db_id, COALESCE(tables,0), COALESCE(tables_non_empty,0),
+                       COALESCE(fk_data_violations_count,0) AS fk_violations
                 FROM {table}
                 WHERE status = 'ok'
                 ORDER BY db_id
@@ -200,15 +216,15 @@ class MarkdownReportGenerator:
             if rows:
                 sections.append("## ✅ Clean Databases ({})".format(len(rows)))
                 sections.append("")
-                sections.append("| Database | Tables | Non-empty |")
-                sections.append("|----------|--------|-----------|")
+                sections.append("| Database | Tables | Non-empty | FK Violations |")
+                sections.append("|----------|--------|-----------|---------------|")
                 # Show first 3 entries
-                for db_id, tables_count, non_empty in rows[:3]:
+                for db_id, tables_count, non_empty, fk_violations in rows[:3]:
                     pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
                     ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)"
-                    sections.append(f"| {db_id} | {tables_count} | {ne_str} |")
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {fk_violations} |")
                 if len(rows) > 3:
-                    sections.append("| … | … | … |")
+                    sections.append("| … | … | … | … |")
                 sections.append("")
         except Exception:
             pass
