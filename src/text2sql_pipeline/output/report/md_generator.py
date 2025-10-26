@@ -155,7 +155,7 @@ class MarkdownReportGenerator:
         except Exception:
             pass
 
-        # Databases with Schema Errors (status = 'errors')
+        # Databases with Errors (status = 'errors')
         try:
             rows = self.conn.execute(f"""
                 SELECT db_id,
@@ -169,7 +169,7 @@ class MarkdownReportGenerator:
                 ORDER BY db_id
             """).fetchall()
             if rows:
-                sections.append("## ❌ Databases with Schema Errors ({})".format(len(rows)))
+                sections.append("## ❌ Databases with Errors ({})".format(len(rows)))
                 sections.append("")
                 sections.append("| Database | Tables | Non-empty | Errors | Warnings | FK Violations |")
                 sections.append("|----------|--------|-----------|--------|----------|---------------|")
