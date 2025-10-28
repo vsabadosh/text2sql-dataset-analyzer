@@ -137,7 +137,7 @@ default: "File prompt"
         # Load variant_2 (default)
         resolver2 = PromptTemplateResolver(
             prompt_file=str(prompts_file),
-            variant="default"
+            variant="variant_2"
         )
         result2 = resolver2.resolve(
             dialect="postgresql",

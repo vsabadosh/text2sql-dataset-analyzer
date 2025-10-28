@@ -6,8 +6,8 @@ from .base import Provider
 
 
 class AnthropicProvider(Provider):
-    def __init__(self, name: str, model_name: str, weight: float, **kwargs: Any) -> None:
-        super().__init__(name, model_name, weight, **kwargs)
+    def __init__(self, name: str, model_name: str, weight: float, temperature: float = 0.0, **kwargs: Any) -> None:
+        super().__init__(name, model_name, weight, temperature=temperature, **kwargs)
         self.api_key = kwargs.get("api_key") or os.getenv("ANTHROPIC_API_KEY")
         self._client = None
         try:
@@ -17,16 +17,18 @@ class AnthropicProvider(Provider):
         except Exception:
             self._client = None
 
-    def generate(self, prompt: str, temperature: float) -> str:
+    def generate(self, prompt: str, temperature: float | None = None) -> str:
         if not self._client:
             raise RuntimeError("Anthropic client unavailable or API key missing; skipping.")
+        # Use provider's temperature if none specified
+        temp = temperature if temperature is not None else self.temperature
         try:
             msg = self._client.messages.create(
                 model=self.model_name,
                 max_tokens=1024,
-                temperature=temperature,
+                temperature=temp,
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json"},  
+                response_format={"type": "json"},
             )
             # Concatenate text blocks
             parts = []

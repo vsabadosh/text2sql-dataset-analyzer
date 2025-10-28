@@ -314,9 +314,7 @@ class DuckDBMetricsSink(MetricsSink):
             
             -- Stats
             collect_ms DOUBLE,
-            prompt_used VARCHAR,
-            temperature DOUBLE,
-            
+
             -- Tags
             dialect VARCHAR,
             prompt_variant VARCHAR,
@@ -625,7 +623,7 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?
+                    ?, ?
                 )
             """, [
                 rec.get("ts"),
@@ -651,8 +649,6 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("is_unanimous"),
                 json.dumps(stats.get("voter_results", [])),
                 stats.get("collect_ms"),
-                stats.get("prompt_used"),
-                stats.get("temperature"),
                 tags.get("dialect"),
                 tags.get("prompt_variant")
             ])

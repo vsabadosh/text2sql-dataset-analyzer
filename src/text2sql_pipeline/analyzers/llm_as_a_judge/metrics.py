@@ -33,8 +33,6 @@ class LLMJudgeFeatures(BaseModel):
 class LLMJudgeStats(BaseModel):
     """Detailed LLM judge statistics."""
     voter_results: List[VoterResult] = Field(default_factory=list)
-    prompt_used: str = ""
-    temperature: float = 0.0
     collect_ms: float = 0.0
 
 

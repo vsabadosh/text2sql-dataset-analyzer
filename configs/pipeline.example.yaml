@@ -54,12 +54,10 @@ analyze:
       prompt_file: "configs/semantic_llm_prompts.yaml"  # Path to prompt templates
       prompt_variant: default  # Options: variant_1, variant_2, default
       # custom_prompt: "Your custom prompt..."  # Override file/variant
-      
-      # Generation settings
-      temperature: 0.0
+
       num_examples: 2  # Number of example values per column in DDL.
       skip_on_empty_providers: true  # Skip if no providers configured
-      
+
       # LLM Provider Configuration (environment variables resolved automatically)
       # Syntax: ${VAR_NAME} or ${VAR_NAME:default_value}
       providers:
@@ -67,29 +65,30 @@ analyze:
           api_key: "${OPENAI_API_KEY}"  # Or set in environment
           # api_key: ""  #  Or set in environment
           models:
-            - name: gpt-5-mini
-              weight: 1.0
-            # - name: gpt-4o
-            #   weight: 1.0
             - name: gpt-4o-mini
               weight: 1.0
-            # - name: gpt-4.1-nano
-            #   weight: 1.0        
+              temperature: 0.0 
+            - name: gpt-4o
+              weight: 1.0
+              temperature: 0.1
         # - name: anthropic
         #   api_key: "${ANTHROPIC_API_KEY}"
         #   models:
         #     - name: claude-3-5-sonnet-20241022
-        #       weight: 1.0       
+        #       weight: 1.0
+        #       temperature: 0.0
         # - name: gemini
         #   api_key: "${GEMINI_API_KEY}"  # Or GOOGLE_API_KEY
         #   models:
         #     - name: gemini-1.5-pro
-        #       weight: 1.0   
+        #       weight: 1.0
+        #       temperature: 0.0
         - name: ollama
           base_url: "${OLLAMA_BASE_URL:http://localhost:11434}"  # With default value
           models:
             - name: codeqwen:7b-chat-v1.5-q8_0
               weight: 1.0
+              temperature: 0.0  # Per-model temperature setting
 
 output:
   dataset_name: Spider Dataset

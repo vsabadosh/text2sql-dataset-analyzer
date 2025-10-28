@@ -18,21 +18,22 @@ def build_providers(config: Dict[str, Any]) -> List[Provider]:
         for m in models:
             model_name = m.get("name")
             weight = m.get("weight", 1.0)
+            temperature = m.get("temperature", 0.0)  # Default to 0.0 if not specified
             if not model_name:
                 continue
 
             if provider_name == "openai":
                 from .openai_provider import OpenAIProvider
-                out.append(OpenAIProvider(provider_name, model_name, weight, **common_kwargs))
+                out.append(OpenAIProvider(provider_name, model_name, weight, temperature=temperature, **common_kwargs))
             elif provider_name == "anthropic":
                 from .anthropic_provider import AnthropicProvider
-                out.append(AnthropicProvider(provider_name, model_name, weight, **common_kwargs))
+                out.append(AnthropicProvider(provider_name, model_name, weight, temperature=temperature, **common_kwargs))
             elif provider_name == "gemini":
                 from .gemini_provider import GeminiProvider
-                out.append(GeminiProvider(provider_name, model_name, weight, **common_kwargs))
+                out.append(GeminiProvider(provider_name, model_name, weight, temperature=temperature, **common_kwargs))
             elif provider_name == "ollama":
                 from .ollama_provider import OllamaProvider
-                out.append(OllamaProvider(provider_name, model_name, weight, **common_kwargs))
+                out.append(OllamaProvider(provider_name, model_name, weight, temperature=temperature, **common_kwargs))
             else:
                 continue
     return out

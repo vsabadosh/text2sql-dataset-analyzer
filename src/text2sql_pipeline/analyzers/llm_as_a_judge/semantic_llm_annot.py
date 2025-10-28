@@ -54,25 +54,22 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         prompt_variant: str = "default",
         custom_prompt: str | None = None,
         prompt_file: str | None = None,
-        temperature: float = 0.0,
         skip_on_empty_providers: bool = True,
         num_examples: int = 2,
     ) -> None:
         """
         Initialize semantic LLM analyzer.
-        
+
         Args:
             db_manager: Database manager for schema access
             providers: List of provider configurations (from config)
             prompt_variant: Template variant to use ("variant_1", "variant_2", "default")
             custom_prompt: Custom prompt template (overrides variant and file)
             prompt_file: Path to YAML file with prompt templates (overrides built-in)
-            temperature: LLM temperature setting
             skip_on_empty_providers: If True, skip evaluation when no providers configured
             num_examples: Number of example values to include per column in DDL (default: 2)
         """
         self.db_manager = db_manager
-        self.temperature = temperature
         self.skip_on_empty_providers = skip_on_empty_providers
         self.num_examples = num_examples
         
@@ -108,7 +105,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             start = time.perf_counter()
             
             # Perform semantic validation
-            features, stats, tags, status, error = self._evaluate_semantic(item, dataset_id)
+            features, stats, tags, status, error = self._evaluate_semantic(item)
             
             # Calculate duration
             duration_ms = (time.perf_counter() - start) * 1000
@@ -143,13 +140,13 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             
             yield item
     
-    def _evaluate_semantic(self, item: DataItem, dataset_id: str) -> tuple:
+    def _evaluate_semantic(self, item: DataItem) -> tuple:
         """
         Evaluate semantic correctness using LLM voters.
         
         Returns: (features, stats, tags, status, error_message)
         """
-        stats = LLMJudgeStats(temperature=self.temperature)
+        stats = LLMJudgeStats()
         tags = LLMJudgeTags(
             dialect=self.db_manager.get_sqlglot_dialect() or "sqlite",
             prompt_variant="custom" if hasattr(self, "custom_prompt") else "default"
@@ -190,7 +187,6 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
                 natural_question=item.question,
                 sql_to_revise=item.sql
             )
-            stats.prompt_used = prompt
         except Exception as e:
             return self._build_failed_result(f"Failed to resolve prompt: {str(e)}", stats, tags)
         
@@ -215,7 +211,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         Returns: VoterResult with verdict and explanation
         """
         try:
-            response = provider.generate(prompt, self.temperature)
+            response = provider.generate(prompt)  # Uses provider's configured temperature
             
             # Parse JSON response
             try:
