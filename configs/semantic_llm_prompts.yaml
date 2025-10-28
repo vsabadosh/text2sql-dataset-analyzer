@@ -81,6 +81,388 @@ variant_2: |
   EXAMPLE
   {"verdict":"CORRECT","explanation":""}
 
+variant_3: |
+  Task:
+  You are a data science expert. Evaluate whether the provided SQL query correctly answers the question given the database schema.
+
+  Database Engine:
+  {{dialect}}
+
+  ### Database Schema:
+  {{ddl_schema}}
+
+  ### Question:
+  {{natural_question}}
+
+  ### SQL Query:
+  {{sql_to_revise}}
+
+  Evaluation Criteria:
+  - Does the query select the correct columns/aggregations?
+  - Does it join the necessary tables with correct join conditions?
+  - Are WHERE/HAVING filters logically correct?
+  - Does it handle edge cases (NULLs, duplicates, empty results)?
+  - Does the GROUP BY/ORDER BY match the question's intent?
+  - Are there syntax errors or undefined references?
+
+  Allowed verdicts (choose exactly one):
+
+  - CORRECT — The query is fully correct and produces the expected result.
+  - PARTIALLY_CORRECT — The query is mostly correct but has minor issues (e.g., missing edge case handling, suboptimal but functional logic, minor filtering issues).
+  - INCORRECT — The query is logically wrong, has syntax errors, references non-existent tables/columns, or fundamentally misunderstands the question.
+
+  OUTPUT (STRICT):
+  - Return exactly one JSON object and nothing else (no prose, no code fences, no markdown).
+  - Keys: "verdict", "explanation".
+  - "verdict" MUST be exactly one of: CORRECT, PARTIALLY_CORRECT, INCORRECT (case-sensitive).
+  - If "verdict" is "CORRECT", set "explanation" to "" (empty string).
+  - Otherwise, "explanation" MUST be single-line (no newlines), concise (≤ 160 chars), and identify the specific issue.
+  - No extra keys. No trailing commas. Valid JSON only.
+
+  EXAMPLES:
+  {"verdict":"CORRECT","explanation":""}
+  {"verdict":"INCORRECT","explanation":"Query references non-existent column 'customer_email'; should use 'email' from customers table"}
+  {"verdict":"PARTIALLY_CORRECT","explanation":"Missing NULL handling for optional address field; otherwise logic is sound"}
+
+variant_4: |
+  Task:
+  You are a data science expert. Evaluate whether the provided SQL query correctly answers the question given the database schema.
+
+  Database Engine:
+  {{dialect}}
+
+  ### Database Schema:
+  {{ddl_schema}}
+
+  ### Question:
+  {{natural_question}}
+
+  ### SQL Query:
+  {{sql_to_revise}}
+
+  Evaluation Criteria:
+  - Answerability & Question Quality. UNANSWERABLE if any: required tables/columns missing; not a real question; ambiguous/underspecified; needs external data; contradictory constraints.
+  - Selection/Aggregation: columns/expressions/aggregates match intent.
+  - Joins: all required tables; correct keys; join type fits semantics.
+  - Filters: WHERE/HAVING reflect constraints; date bounds inclusivity correct.
+  - Edge cases: NULLs, duplicates (DISTINCT/GROUP BY), zero-row behavior.
+  - Grain/Ordering: GROUP BY matches requested granularity; ignore ORDER BY unless explicitly required.
+  - Equivalence: semantically equivalent queries count as CORRECT.
+
+  Allowed verdicts (choose exactly one):
+  - CORRECT — The query logic is fully correct and produces the expected result.
+  - PARTIALLY_CORRECT — The query is mostly correct but has minor logical issues (e.g., missing NULL handling, suboptimal filtering).
+  - INCORRECT — The query logic is fundamentally wrong or does not answer the question.
+  - UNANSWERABLE — The question cannot be answered with the provided schema (references non-existent tables/columns/concepts).
+
+  OUTPUT (STRICT):
+  - Return exactly one JSON object and nothing else (no prose, no code fences, no markdown).
+  - Keys: "verdict", "explanation".
+  - "verdict" MUST be exactly one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE (case-sensitive).
+  - If "verdict" is "CORRECT", set "explanation" to "" (empty string).
+  - Otherwise, "explanation" MUST be single-line (no newlines), concise (≤ 160 chars), and identify the specific logical issue.
+  - No extra keys. No trailing commas. Valid JSON only.
+
+  EXAMPLE (no explanation verdict):
+  {"verdict":"CORRECT","explanation":""}
+
+variant_10: |
+  Task: Perform semantic (logic/intent) review only — no execution, no syntax/style fixes.
+
+  Dialect: {{dialect}}
+  DDL Schema: {{ddl_schema}}
+  Question: {{natural_question}}
+  SQL: {{sql_to_revise}}
+
+  Step 1 — Check Answerability (use provided schema only).
+  If ANY apply, set verdict = UNANSWERABLE and SKIP Step 2:
+  - Required tables/columns are missing
+  - Question is not well-formed / intent is ambiguous or underspecified
+  - Requires external data or contains contradictory constraints
+
+  Step 2 — Evaluate SQL Logic (only if answerable):
+  - Selection/Aggregation: Columns/metrics match intent; non-aggregates align with GROUP BY (query grain)
+  - Joins: All needed tables; correct keys; join type matches semantics; guard against m:n duplicate inflation (e.g., missing GROUP BY after fact table joins)
+  - Filters: WHERE/HAVING reflect constraints; date/time bounds match question intent (>= vs >); note timezone ambiguity if present
+  - Edge Cases: NULL handling (JOIN/filters/aggregates), duplicates (DISTINCT/GROUP BY), zero-row behavior
+  - Ordering/Determinism: ORDER BY only if sorting required; LIMIT/TOP without ORDER BY → PARTIALLY_CORRECT (non-deterministic)
+  - Advanced Constructs: CTEs, subqueries, window functions consistent with intended grain and filters (frame clauses if relevant)
+  - Equivalence: Accept any semantically equivalent solution (prefer simpler logic but don't penalize verbose-but-correct queries)
+
+  Verdicts (enum):
+  - CORRECT — fully answers the question
+  - PARTIALLY_CORRECT — minor logical gaps (off-by-one date, missing DISTINCT, NULL handling, non-deterministic LIMIT)
+  - INCORRECT — fundamentally wrong or doesn't answer the question
+  - UNANSWERABLE — cannot be answered from provided schema
+
+  OUTPUT (STRICT JSON, no extra keys, no trailing commas):
+  {"verdict":"<verdict>","explanation":"<explanation>"}
+  - If verdict = CORRECT, explanation = ""
+  - Otherwise, explanation is single line ≤200 chars naming specific issue
+  - Do not propose revised SQL
+
+  EXAMPLES:
+  {"verdict":"CORRECT","explanation":""}
+  {"verdict":"PARTIALLY_CORRECT","explanation":"Uses > instead of >= for start_date, excluding boundary case"}
+  {"verdict":"INCORRECT","explanation":"Missing JOIN to products; cannot access product_name from orders"}
+  {"verdict":"UNANSWERABLE","explanation":"Schema lacks revenue columns needed for profit calculation"}
+
+
+variant_11: |
+  Task: Perform semantic (logic/intent) review only — no execution, no syntax/style fixes.
+
+  Dialect: {{dialect}}
+  DDL Schema: {{ddl_schema}}
+  Question: {{natural_question}}
+  SQL: {{sql_to_revise}}
+
+  Step 1 — Check Answerability (use provided schema only).
+  If ANY apply, set verdict = UNANSWERABLE and SKIP Step 2:
+  - Required tables/columns are missing
+  - Question is not well-formed / intent is ambiguous or underspecified
+  - Requires external data or contains contradictory constraints
+
+  Step 2 — Evaluate SQL Logic (only if answerable):
+  - Selection/Aggregation: Columns/metrics match intent; non-aggregates align with GROUP BY (query grain)
+  - Joins: All needed tables; correct keys; join type matches semantics; guard against m:n duplicate inflation (e.g., missing GROUP BY after fact table joins)
+  - Filters: WHERE/HAVING reflect constraints; date/time bounds match question intent (>= vs >); note timezone ambiguity if present
+  - Edge Cases: NULL handling (JOIN/filters/aggregates), duplicates (DISTINCT/GROUP BY), zero-row behavior
+  - Ordering/Determinism: ORDER BY only if sorting required; LIMIT/TOP without ORDER BY → PARTIALLY_CORRECT (non-deterministic)
+  - Advanced Constructs: CTEs, subqueries, window functions consistent with intended grain and filters (frame clauses if relevant)
+  - Equivalence: Accept any semantically equivalent solution (prefer simpler logic but don't penalize verbose-but-correct queries)
+
+  Verdicts (enum):
+  - CORRECT — fully answers the question
+  - PARTIALLY_CORRECT — minor logical gaps (off-by-one date, missing DISTINCT, NULL handling, non-deterministic LIMIT)
+  - INCORRECT — fundamentally wrong or doesn't answer the question
+  - UNANSWERABLE — cannot be answered from provided schema
+
+  OUTPUT (STRICT JSON, no extra keys, no trailing commas):
+  {"verdict":"<verdict>","explanation":"<explanation>"}
+  - If verdict = CORRECT, explanation = ""
+  - Otherwise, explanation is single line ≤200 chars naming specific issue
+  - Do not propose revised SQL
+
+  EXAMPLE (no explanation verdict):
+  {"verdict":"CORRECT","explanation":""}
+
+variant_12: |
+    Task: You are a Text2SQL expert. Perform semantic (logic/intent) review only — no execution, no syntax/style fixes.
+    
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability
+    Return UNANSWERABLE if:
+    - Missing required tables/columns
+    - Question ambiguous or contradictory
+    - Needs external data
+
+    Step 2 — Semantic Logic Check (if answerable)
+    Evaluate:
+    - Correct tables, joins, keys
+    - Filters match question (date bounds, WHERE/HAVING)
+    - Aggregations align with GROUP BY
+    - Handles NULLs, duplicates, edge cases
+    - ORDER BY only if needed; LIMIT without ORDER BY = PARTIALLY_CORRECT
+    - CTEs, subqueries, window functions consistent with intended grain and filters (frame clauses if relevant)
+    - Accept any semantically correct solution, regardless of complexity
+    - Dialect-specific semantics:
+      * SQLite: 
+          1)Cross-type joins allowed. Equality in JOIN/WHERE follows SQLite’s affinity/coercion rules; do not mark incorrect solely due to TEXT vs INTEGER (or other) type mismatches.
+          2)identifiers are case-insensitive.
+
+    Verdicts:
+    - CORRECT — fully correct
+    - PARTIALLY_CORRECT — minor issues (date bounds, DISTINCT, NULL handling)
+    - INCORRECT — fundamentally wrong
+    - UNANSWERABLE — can't answer from schema
+
+    OUTPUT (STRICT):
+    - Return exactly one JSON object and nothing else (no prose, no code fences)
+    - Keys: "verdict", "explanation"
+    - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - If "verdict" is CORRECT, "explanation" MUST be "" (empty string)
+    - Otherwise, "explanation" MUST be ≤200 chars, single-line (no \n), describing the specific issue
+    - No extra keys, no trailing commas, valid JSON only
+
+    EXAMPLE:
+    {"verdict":"CORRECT","explanation":""}
+
+variant_13: |
+    Task: You are a Text2SQL expert performing semantic validation on SQL queries. 
+    Your goal: Verify that the SQL query correctly answers the natural language question based on the database schema.
+
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    NL Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability
+    Return UNANSWERABLE if:
+    - Missing required tables/columns
+    - Question ambiguous or contradictory
+    - Needs external data
+
+    Step 2 — Semantic Logic Check (if answerable)
+    Evaluate:
+    - Correct tables, joins, keys
+    - Filters match question (date bounds, WHERE/HAVING)
+    - Aggregations align with GROUP BY and intended grain
+    - Handles NULLs, duplicates, edge cases
+    - Determinism: LIMIT without ORDER BY ⇒ PARTIALLY_CORRECT; 
+    - Selecting non-grouped columns without functional dependency ⇒ PARTIALLY_CORRECT
+    - Tie-breaking if a single “top” result is implied
+    - COUNT(*) vs COUNT(DISTINCT …) consistent with PK/UKs
+    - CTEs/subqueries/window functions consistent with grain and filters (frame clauses if relevant)
+    - Accept any semantically correct solution, regardless of complexity
+
+    Dialect-specific semantics:
+      * SQLite:
+          1) Cross-type joins allowed. Equality in JOIN/WHERE follows affinity/coercion; do NOT mark incorrect solely due to TEXT vs INTEGER (or other) type mismatches. If this is the only issue, return CORRECT.
+          2) Identifiers are case-insensitive (e.g., cost_Id == cost_id).
+          3) Permissive GROUP BY: selecting non-grouped columns is allowed; mark PARTIALLY_CORRECT unless functional dependency is guaranteed by schema.
+          4) Foreign keys: do not require matching declared types for semantic correctness (FK enforcement may be separate).
+
+    Verdicts:
+    - CORRECT — fully correct
+    - PARTIALLY_CORRECT — minor issues (date bounds, DISTINCT, NULL handling, determinism)
+    - INCORRECT — fundamentally wrong
+    - UNANSWERABLE — can't answer from schema
+
+    OUTPUT (STRICT):
+    - Return exactly one JSON object and nothing else (no prose, no code fences)
+    - Keys: "verdict", "explanation"
+    - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - If "verdict" is CORRECT, "explanation" MUST be "" (empty string)
+    - Otherwise, "explanation" MUST be ≤200 chars, single-line (no \n), describing the specific issue
+    - No extra keys, no trailing commas, valid JSON only
+
+    EXAMPLE:
+    {"verdict":"CORRECT","explanation":""}
+
+variant_14: |
+    Task: You are a Text2SQL expert performing semantic validation on SQL queries. 
+    Your goal: Verify that the SQL query correctly answers the natural language question based on the database schema.
+
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    NL Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability
+    Return UNANSWERABLE if:
+    - Missing required tables/columns
+    - Question ambiguous or contradictory
+    - Needs external data
+
+    Step 2 — Semantic Validation (if answerable)
+    Evaluate:
+    - Does the query logically answer the question asked?
+    - Are the correct tables and columns used?
+    - Are JOINs semantically correct (proper relationships)?
+    - Are aggregations (COUNT, SUM, etc.) used appropriately?
+    - Does the GROUP BY logic make sense?
+    - Are filters (WHERE clauses) aligned with the question intent?
+    - Does the query handle edge cases mentioned in the question?
+    - CTEs/subqueries/window functions consistent with grain and filters (frame clauses if relevant)
+    - Accept any semantically correct solution, regardless of complexity
+
+    Dialect-specific semantics:
+      * SQLite:
+          1) Cross-type joins allowed. Equality in JOIN/WHERE follows affinity/coercion; do NOT mark incorrect solely due to TEXT vs INTEGER (or other) type mismatches. If this is the only issue, return CORRECT.
+          2) Identifiers are case-insensitive (e.g., cost_Id == cost_id).
+          3) Permissive GROUP BY: selecting non-grouped columns is allowed; mark PARTIALLY_CORRECT unless functional dependency is guaranteed by schema.
+          4) Foreign keys: do not require matching declared types for semantic correctness (FK enforcement may be separate).
+
+    Verdicts:
+    - CORRECT — fully correct
+    - PARTIALLY_CORRECT — minor issues (date bounds, DISTINCT, NULL handling, determinism)
+    - INCORRECT — fundamentally wrong
+    - UNANSWERABLE — can't answer from schema
+
+    OUTPUT (STRICT):
+    - Return exactly one JSON object and nothing else (no prose, no code fences)
+    - Keys: "verdict", "explanation"
+    - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - If "verdict" is CORRECT, "explanation" MUST be "" (empty string)
+    - Otherwise, "explanation" MUST be ≤200 chars, single-line (no \n), describing the specific issue
+    - No extra keys, no trailing commas, valid JSON only
+
+    EXAMPLE:
+    {"verdict":"CORRECT","explanation":""}
+
+variant_15: |
+    Task: You are a Text2SQL expert performing semantic validation on SQL queries. 
+    Your goal: Verify that the SQL query correctly answers the natural language question based on the database schema.
+
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    NL Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability
+    Return UNANSWERABLE if:
+    - Missing required tables/columns in schema
+    - Question is ambiguous or contradictory
+    - Requires external data not in schema
+
+    Step 2 — Semantic Validation (if answerable)
+    Evaluate:
+    - Does the query logically answer the question asked?
+    - Are the correct tables and columns used?
+    - Are JOINs semantically correct (proper relationships)?
+    - Are aggregations (COUNT, SUM, etc.) used appropriately?
+    - Does the GROUP BY logic make sense?
+    - Are filters (WHERE clauses) aligned with the question intent?
+    - Does the query handle edge cases mentioned in the question?
+    - Are CTEs/subqueries/window functions consistent with grain and filters?
+    - Accept any semantically correct solution, regardless of complexity or style
+
+    Do NOT flag:
+    - Syntax errors or formatting issues
+    - Performance concerns (missing indexes, query optimization)
+    - Alternative correct solutions (multiple valid approaches acceptable)
+    - Style differences (keyword capitalization, aliases, etc.)
+
+    Dialect-specific semantics (SQLite):
+      1) Cross-type comparisons: Equality in JOIN/WHERE follows affinity/coercion rules.
+         Do NOT mark incorrect solely due to type mismatches (TEXT vs INTEGER, etc.).
+         If this is the only issue, return CORRECT.
+      2) Identifiers are case-insensitive (e.g., cost_Id == cost_id).
+      3) Permissive GROUP BY: SQLite allows selecting non-grouped columns.
+         - Mark CORRECT if functional dependency exists (e.g., PK in GROUP BY)
+         - Mark PARTIALLY_CORRECT if no functional dependency (non-deterministic)
+      4) Foreign keys: do not require matching types for semantic correctness.
+
+    Verdicts:
+    - CORRECT — Query fully and accurately answers the question
+    - PARTIALLY_CORRECT — Minor issues that don't fundamentally break correctness:
+      * Missing DISTINCT when duplicates possible
+      * Imprecise date/time boundaries  
+      * NULL handling edge cases
+      * Non-deterministic GROUP BY (no functional dependency)
+    - INCORRECT — Fundamental semantic errors:
+      * Wrong tables/columns used
+      * Missing or incorrect JOINs
+      * Wrong aggregation logic
+      * Incorrect WHERE clause logic
+    - UNANSWERABLE — Cannot be answered from the provided schema
+
+    OUTPUT (STRICT):
+    - Return exactly one valid JSON object and nothing else
+    - No markdown code fences, no prose, no extra text
+    - Keys: "verdict", "explanation"
+    - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - If "verdict" is CORRECT, "explanation" MUST be "" (empty string)
+    - Otherwise, "explanation" MUST be ≤200 chars, single-line (no \n), describing the specific issue
+    - Must be parseable by standard JSON parsers
+
+    EXAMPLE:
+    {"verdict":"CORRECT","explanation":""}
+
 # Default template (alias to variant_2)
-default: variant_2
+default: variant_15
 

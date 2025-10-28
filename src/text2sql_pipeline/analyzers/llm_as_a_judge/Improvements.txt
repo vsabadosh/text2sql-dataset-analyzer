@@ -1,0 +1,70 @@
+variant_12: |
+    Task: You are a Text2SQL expert. Perform semantic (logic/intent) review only — no execution, no syntax/style fixes.
+    
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability
+    Return UNANSWERABLE if:
+    - Missing required tables/columns
+    - Question ambiguous or contradictory
+    - Needs external data
+
+    Step 2 — Semantic Logic Check (if answerable)
+    Evaluate:
+    - Correct tables, joins, keys
+    - Filters match question (date bounds, WHERE/HAVING)
+    - Aggregations align with GROUP BY
+    - Handles NULLs, duplicates, edge cases
+    - ORDER BY only if needed; LIMIT without ORDER BY = PARTIALLY_CORRECT
+    - CTEs, subqueries, window functions consistent with intended grain and filters (frame clauses if relevant)
+    - Accept any semantically correct solution, regardless of complexity
+
+    Verdicts:
+    - CORRECT — fully correct
+    - PARTIALLY_CORRECT — minor issues (date bounds, DISTINCT, NULL handling)
+    - INCORRECT — fundamentally wrong
+    - UNANSWERABLE — can't answer from schema
+
+    OUTPUT (STRICT):
+    - Return exactly one JSON object and nothing else (no prose, no code fences)
+    - Keys: "verdict", "explanation"
+    - "verdict" MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - If "verdict" is CORRECT, "explanation" MUST be "" (empty string)
+    - Otherwise, "explanation" MUST be ≤200 chars, single-line (no \n), describing the specific issue
+    - No extra keys, no trailing commas, valid JSON only
+
+    EXAMPLE:
+    {"verdict":"CORRECT","explanation":""}
+
+Improvements:
+1)Based on the new prompt template we should introduce new UNANSWERABLE constant and update llm analizer and report generator.
+2) IN analysis_report:
+Now we have 
+## 🤖 Semantic LLM Judge Analysis
+- **Total Queries Evaluated:** 1
+- **Correct:** 0 (0.0%)
+- **Warnings:** 0 (0.0%)
+- **Errors:** 1 (100.0%)
+- **Failed:** 0 (0.0%)
+
+I want  
+## 🤖 Semantic LLM Judge Analysis
+- **Total Queries Evaluated:** 5
+- **Majority CORRECT:** 2 (40.0%)
+    of which Unanimous CORRECT: 1 (20.0%)
+- **Majority PARTIALLY_CORRECT:** 2 (20.0%)
+- **Majority INCORRECT:** 1 (20.0%)
+- **Mixed (No Majority): 1 (20.0%)
+- **Majority UNANSWERABLE:** 0 (0.0%)
+
+Similar Summary  I want in llm_judge_issues_report.
+
+In Details We can should have section:
+- Majority CORRECT (without Unanimous CORRECT)
+- Majority PARTIALLY_CORRECT
+- Majority INCORRECT 
+- Mixed (No Majority)
+- Majority UNANSWERABLE:

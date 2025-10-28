@@ -302,10 +302,12 @@ class DuckDBMetricsSink(MetricsSink):
             voters_correct INTEGER,
             voters_partially_correct INTEGER,
             voters_incorrect INTEGER,
+            voters_unanswerable INTEGER,
             voters_failed INTEGER,
             weighted_score DOUBLE,
             consensus_reached BOOLEAN,
             consensus_verdict VARCHAR,
+            is_unanimous BOOLEAN,
             
             -- Detailed voter results (stored as JSON)
             voter_results JSON,
@@ -621,9 +623,9 @@ class DuckDBMetricsSink(MetricsSink):
                 INSERT INTO {table_name} VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?
+                    ?, ?, ?, ?
                 )
             """, [
                 rec.get("ts"),
@@ -641,10 +643,12 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("voters_correct"),
                 features.get("voters_partially_correct"),
                 features.get("voters_incorrect"),
+                features.get("voters_unanswerable"),
                 features.get("voters_failed"),
                 features.get("weighted_score"),
                 features.get("consensus_reached"),
                 features.get("consensus_verdict"),
+                features.get("is_unanimous"),
                 json.dumps(stats.get("voter_results", [])),
                 stats.get("collect_ms"),
                 stats.get("prompt_used"),

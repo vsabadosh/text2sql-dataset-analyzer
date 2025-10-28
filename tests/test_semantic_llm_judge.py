@@ -218,10 +218,13 @@ class TestSemanticLLMAnnot:
         
         features = LLMJudgeFeatures(
             total_voters=2,
+            consensus_verdict="CORRECT",
             voters_correct=2,
             voters_incorrect=0,
             voters_partially_correct=0,
-            voters_failed=0
+            voters_unanswerable=0,
+            voters_failed=0,
+            consensus_reached=True
         )
         
         status, error = analyzer._determine_status(features)
@@ -243,6 +246,9 @@ class TestSemanticLLMAnnot:
             voters_correct=1,
             voters_incorrect=2,
             voters_partially_correct=0,
+            voters_unanswerable=0,
+            consensus_verdict="INCORRECT",
+            consensus_reached=True,
             voters_failed=0
         )
         
@@ -265,6 +271,7 @@ class TestSemanticLLMAnnot:
             voters_correct=1,
             voters_incorrect=1,
             voters_partially_correct=1,
+            voters_unanswerable=0,
             voters_failed=0
         )
         
@@ -287,6 +294,7 @@ class TestSemanticLLMAnnot:
             voters_correct=0,
             voters_incorrect=0,
             voters_partially_correct=0,
+            voters_unanswerable=0,
             voters_failed=2
         )
         
@@ -294,6 +302,157 @@ class TestSemanticLLMAnnot:
         
         assert status == "failed"
         assert "failed" in error.lower()
+    
+    def test_determine_status_majority_unanswerable(self):
+        """Test status determination when majority say unanswerable."""
+        mock_db_manager = Mock()
+        analyzer = SemanticLLMAnnot(
+            db_manager=mock_db_manager,
+            providers=[],
+            custom_prompt="Test prompt {{dialect}}"
+        )
+        
+        features = LLMJudgeFeatures(
+            total_voters=3,
+            voters_correct=0,
+            voters_incorrect=1,
+            voters_partially_correct=0,
+            voters_unanswerable=2,
+            voters_failed=0,
+            consensus_reached=True,
+            consensus_verdict="UNANSWERABLE"
+        )
+        
+        status, error = analyzer._determine_status(features)
+        
+        assert status == "errors"
+        assert "UNANSWERABLE" in error
+    
+    def test_aggregate_results_with_unanswerable(self):
+        """Test result aggregation with UNANSWERABLE verdicts."""
+        mock_db_manager = Mock()
+        analyzer = SemanticLLMAnnot(
+            db_manager=mock_db_manager,
+            providers=[],
+            custom_prompt="Test prompt {{dialect}}"
+        )
+        
+        voter_results = [
+            VoterResult(
+                model="model1",
+                provider="provider1",
+                verdict="UNANSWERABLE",
+                explanation="Missing required column",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model2",
+                provider="provider2",
+                verdict="UNANSWERABLE",
+                explanation="Ambiguous question",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model3",
+                provider="provider3",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            )
+        ]
+        
+        features = analyzer._aggregate_results(voter_results)
+        
+        assert features.total_voters == 3
+        assert features.voters_unanswerable == 2
+        assert features.voters_correct == 1
+        assert features.consensus_reached is True
+        assert features.consensus_verdict == "UNANSWERABLE"
+        assert features.is_unanimous is False
+    
+    def test_aggregate_results_unanimous(self):
+        """Test unanimous consensus detection."""
+        mock_db_manager = Mock()
+        analyzer = SemanticLLMAnnot(
+            db_manager=mock_db_manager,
+            providers=[],
+            custom_prompt="Test prompt {{dialect}}"
+        )
+        
+        voter_results = [
+            VoterResult(
+                model="model1",
+                provider="provider1",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model2",
+                provider="provider2",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model3",
+                provider="provider3",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            )
+        ]
+        
+        features = analyzer._aggregate_results(voter_results)
+        
+        assert features.total_voters == 3
+        assert features.voters_correct == 3
+        assert features.consensus_reached is True
+        assert features.consensus_verdict == "CORRECT"
+        assert features.is_unanimous is True
+        assert features.weighted_score == 1.0
+    
+    def test_aggregate_results_majority_not_unanimous(self):
+        """Test majority consensus without unanimity."""
+        mock_db_manager = Mock()
+        analyzer = SemanticLLMAnnot(
+            db_manager=mock_db_manager,
+            providers=[],
+            custom_prompt="Test prompt {{dialect}}"
+        )
+        
+        voter_results = [
+            VoterResult(
+                model="model1",
+                provider="provider1",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model2",
+                provider="provider2",
+                verdict="CORRECT",
+                explanation="",
+                weight=1.0
+            ),
+            VoterResult(
+                model="model3",
+                provider="provider3",
+                verdict="PARTIALLY_CORRECT",
+                explanation="Minor issue",
+                weight=1.0
+            )
+        ]
+        
+        features = analyzer._aggregate_results(voter_results)
+        
+        assert features.total_voters == 3
+        assert features.voters_correct == 2
+        assert features.voters_partially_correct == 1
+        assert features.consensus_reached is True  # 2 out of 3 is majority
+        assert features.consensus_verdict == "CORRECT"
+        assert features.is_unanimous is False  # Not all voters agree
     
     def test_transform_without_providers(self):
         """Test transform when no providers configured (should pass through)."""

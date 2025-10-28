@@ -11,7 +11,6 @@ from text2sql_pipeline.pipeline.engine import run_pipeline
 
 def test_full_pipeline(tmp_path):
     # use example config relative to repo root
-    os.environ["OPENAI_API_KEY"] = "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"
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     cfg_path = os.path.join(repo_root, "configs", "pipeline.example.yaml")
     out_dir = run_pipeline(cfg_path)
@@ -44,74 +43,26 @@ def test_full_pipeline(tmp_path):
         assert "query_execution" in step_names
 
 def test_db_manager():
-        # Adapter + DbManager
+    # Adapter + DbManager
     schema_identity = SchemaIdentity()
     adapter = make_adapter(
         dialect='sqlite',
         kind='file',
-        endpoint='/Users/volodyms/projects/LLM/llm_tuning/bird_train_20240627/train_databases',
+        endpoint='./data_examples/databases',
         identity=schema_identity,
     )
     db_manager = DbManager(adapter=adapter)
     error = None
         # Check DB health
     try:
-        health, err = db_manager.status('movielens', probe=True)
+        health, err = db_manager.status('student_assessment', probe=True)
         if health != "ok":
             error = f"DB not accessible: {err}"
         else:
-            tables = db_manager.get_tables('movielens')
+            tables = db_manager.get_tables('student_assessment')
             print(tables)
      
     except Exception as e:
         error = f"Health check failed: {str(e)}"
     
     print(error)
-
-
-import os
-import json
-
-def _steps_for_filter(rec):
-    """Prefer top-level analysisSteps; fall back to metadata.analysisSteps."""
-    if "analysisSteps" in rec and isinstance(rec["analysisSteps"], list):
-        return rec["analysisSteps"]
-    meta = rec.get("metadata") or {}
-    steps = meta.get("analysisSteps")
-    return steps if isinstance(steps, list) else []
-
-def _has_failed_query_execution(rec) -> bool:
-    steps = _steps_for_filter(rec)
-    return any(
-        isinstance(s, dict)
-        and s.get("name") == "query_execution"
-        and s.get("status") == "failed"
-        for s in steps
-    )
-
-def test_query_execution():
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    in_path  = os.path.join(repo_root, "Bird Dataset_1761398305", "annotatedOutputDataset.jsonl")
-    out_path = os.path.join(repo_root, "Bird Dataset_1761398305", "annotatedOutputDataset.failed.jsonl")
-
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
-    written = 0
-    with open(in_path, "r", encoding="utf-8") as fin, open(out_path, "w", encoding="utf-8") as fout:
-        for i, line in enumerate(fin, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                # skip malformed lines
-                continue
-
-            if _has_failed_query_execution(rec):
-                obj = {"id": rec.get("id"), "dbId": rec.get("dbId"), "question": rec.get("question"), "schema": rec.get("schema"), "sql": rec.get("sql")}
-                fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
-                written += 1
-
-    print(f"[test_query_execution] Wrote {written} record(s) to {out_path}")
-    assert os.path.exists(out_path)     

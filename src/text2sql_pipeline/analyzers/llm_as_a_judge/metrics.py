@@ -10,7 +10,7 @@ class VoterResult(BaseModel):
     """Individual LLM voter result."""
     model: str
     provider: str
-    verdict: Literal["CORRECT", "PARTIALLY_CORRECT", "INCORRECT", "FAILED"] | None
+    verdict: Literal["CORRECT", "PARTIALLY_CORRECT", "INCORRECT", "UNANSWERABLE", "FAILED"] | None
     explanation: str = ""
     weight: float = 1.0
     error: str | None = None
@@ -22,10 +22,12 @@ class LLMJudgeFeatures(BaseModel):
     voters_correct: int = 0
     voters_partially_correct: int = 0
     voters_incorrect: int = 0
+    voters_unanswerable: int = 0
     voters_failed: int = 0
-    weighted_score: float = 0.0  # Weighted average: CORRECT=1.0, PARTIALLY_CORRECT=0.5, INCORRECT=0.0
-    consensus_reached: bool = False  # True if all voters agree
-    consensus_verdict: str | None = None  # CORRECT/PARTIALLY_CORRECT/INCORRECT if consensus reached
+    weighted_score: float = 0.0  # Weighted average: CORRECT=1.0, PARTIALLY_CORRECT=0.5, INCORRECT/UNANSWERABLE=0.0
+    consensus_reached: bool = False  # True if majority of voters agree (>50%)
+    consensus_verdict: str | None = None  # Majority verdict: CORRECT/PARTIALLY_CORRECT/INCORRECT/UNANSWERABLE
+    is_unanimous: bool = False  # True if ALL voters agree (100%)
 
 
 class LLMJudgeStats(BaseModel):

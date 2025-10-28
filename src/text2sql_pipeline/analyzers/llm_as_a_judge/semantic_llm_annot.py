@@ -40,7 +40,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
     Status determination:
     - ok: All voters respond with CORRECT
     - warns: At least one voter responds with not CORRECT (but not majority INCORRECT)
-    - errors: Majority of voters respond with INCORRECT
+    - errors: Majority of voters respond with INCORRECT or UNANSWERABLE
     - failed: Unable to evaluate (missing data, LLM failures, etc.)
     """
     
@@ -235,7 +235,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
                 explanation = data.get("explanation", "")
                 
                 # Validate verdict
-                if verdict not in ["CORRECT", "PARTIALLY_CORRECT", "INCORRECT"]:
+                if verdict not in ["CORRECT", "PARTIALLY_CORRECT", "INCORRECT", "UNANSWERABLE"]:
                     verdict = "INCORRECT"
                     explanation = f"Invalid verdict format: {verdict}"
                 
@@ -274,13 +274,15 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         
         Calculates:
         - Vote counts by verdict
-        - Weighted score (CORRECT=1.0, PARTIALLY_CORRECT=0.5, INCORRECT=0.0)
-        - Consensus detection
+        - Weighted score (CORRECT=1.0, PARTIALLY_CORRECT=0.5, INCORRECT/UNANSWERABLE=0.0)
+        - Majority consensus (>50%)
+        - Unanimous consensus (100%)
         """
         total_voters = len(voter_results)
         voters_correct = 0
         voters_partially_correct = 0
         voters_incorrect = 0
+        voters_unanswerable = 0
         voters_failed = 0
         
         weighted_sum = 0.0
@@ -306,6 +308,9 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             elif result.verdict == "INCORRECT":
                 voters_incorrect += 1
                 weighted_sum += 0.0 * weight
+            elif result.verdict == "UNANSWERABLE":
+                voters_unanswerable += 1
+                weighted_sum += 0.0 * weight
             # Note: FAILED verdict is handled above, won't reach here
             
             total_weight += weight
@@ -313,20 +318,43 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         # Calculate weighted score
         weighted_score = weighted_sum / total_weight if total_weight > 0 else 0.0
         
-        # Detect consensus (all non-failed voters agree)
+        # Detect unanimous consensus (all non-failed voters agree)
         unique_verdicts = set(verdicts)
-        consensus_reached = len(unique_verdicts) == 1 and len(verdicts) > 0
-        consensus_verdict = verdicts[0] if consensus_reached else None
+        is_unanimous = len(unique_verdicts) == 1 and len(verdicts) > 0
+        
+        # Detect majority consensus (>50% of non-failed voters agree)
+        total_valid = len(verdicts)
+        consensus_reached = False
+        consensus_verdict = None
+        
+        if total_valid > 0:
+            # Find the most common verdict
+            verdict_counts = {
+                "CORRECT": voters_correct,
+                "PARTIALLY_CORRECT": voters_partially_correct,
+                "INCORRECT": voters_incorrect,
+                "UNANSWERABLE": voters_unanswerable
+            }
+            
+            max_verdict = max(verdict_counts, key=verdict_counts.get)
+            max_count = verdict_counts[max_verdict]
+            
+            # Majority if >50%
+            if max_count > total_valid / 2:
+                consensus_reached = True
+                consensus_verdict = max_verdict
         
         return LLMJudgeFeatures(
             total_voters=total_voters,
             voters_correct=voters_correct,
             voters_partially_correct=voters_partially_correct,
             voters_incorrect=voters_incorrect,
+            voters_unanswerable=voters_unanswerable,
             voters_failed=voters_failed,
             weighted_score=round(weighted_score, 3),
             consensus_reached=consensus_reached,
-            consensus_verdict=consensus_verdict
+            consensus_verdict=consensus_verdict,
+            is_unanimous=is_unanimous
         )
     
     def _determine_status(self, features: LLMJudgeFeatures) -> tuple:
@@ -334,29 +362,37 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         Determine overall status based on aggregated features.
         
         Rules:
-        - ok: All voters respond with CORRECT
-        - warns: At least one voter responds with not CORRECT (but not majority INCORRECT)
-        - errors: Majority of voters respond with INCORRECT
+        - ok: Majority CORRECT (unanimous or not)
+        - warns: Mixed verdicts (no majority) OR majority PARTIALLY_CORRECT
+        - errors: Majority INCORRECT or majority UNANSWERABLE
         - failed: All voters failed or no valid responses
         
         Returns: (status, error_message)
         """
-        total_valid = features.voters_correct + features.voters_partially_correct + features.voters_incorrect
+        total_valid = (features.voters_correct + features.voters_partially_correct + 
+                      features.voters_incorrect + features.voters_unanswerable)
         
         # All voters failed
         if total_valid == 0:
             return "failed", "All LLM voters failed to provide valid responses"
         
-        # All voters say CORRECT
-        if features.voters_correct == total_valid:
-            return "ok", None
+        # Use consensus detection from aggregation
+        if features.consensus_reached:
+            if features.consensus_verdict == "CORRECT":
+                return "ok", None
+            elif features.consensus_verdict == "PARTIALLY_CORRECT":
+                majority_type = "Unanimous" if features.is_unanimous else "Majority"
+                return "warns", f"{majority_type} of voters marked as PARTIALLY_CORRECT"
+            elif features.consensus_verdict == "INCORRECT":
+                return "errors", f"Majority of voters ({features.voters_incorrect}/{total_valid}) marked as INCORRECT"
+            elif features.consensus_verdict == "UNANSWERABLE":
+                return "errors", f"Majority of voters ({features.voters_unanswerable}/{total_valid}) marked as UNANSWERABLE"
         
-        # Majority say INCORRECT
-        if features.voters_incorrect > total_valid / 2:
-            return "errors", f"Majority of voters ({features.voters_incorrect}/{total_valid}) marked as INCORRECT"
-        
-        # At least one voter disagrees (but not majority INCORRECT)
-        return "warns", f"Mixed verdicts: {features.voters_correct} CORRECT, {features.voters_partially_correct} PARTIALLY_CORRECT, {features.voters_incorrect} INCORRECT"
+        # No majority consensus - mixed verdicts
+        return "warns", (f"Mixed verdicts (no majority): {features.voters_correct} CORRECT, "
+                        f"{features.voters_partially_correct} PARTIALLY_CORRECT, "
+                        f"{features.voters_incorrect} INCORRECT, "
+                        f"{features.voters_unanswerable} UNANSWERABLE")
     
     def _build_failed_result(
         self,

@@ -536,73 +536,80 @@ class MarkdownReportGenerator:
         lines = ["## 🤖 Semantic LLM Judge Analysis", ""]
         
         try:
-            # Overall status distribution
-            status_result = self.conn.execute(f"""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as ok,
-                    SUM(CASE WHEN status = 'warns' THEN 1 ELSE 0 END) as warns,
-                    SUM(CASE WHEN status = 'errors' THEN 1 ELSE 0 END) as errors,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+            # Get total count
+            total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            
+            if total == 0:
+                lines.append("*No queries evaluated.*")
+                return "\n".join(lines)
+            
+            lines.append(f"- **Total Queries Evaluated:** {total:,}")
+            
+            # Majority CORRECT (with unanimous subset)
+            majority_correct = self.conn.execute(f"""
+                SELECT COUNT(*) 
                 FROM {table}
-            """).fetchone()
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT'
+            """).fetchone()[0]
             
-            if status_result:
-                total, ok, warns, errors, failed = status_result
-                ok_pct = (ok / total * 100) if total else 0
-                
-                lines.append(f"- **Total Queries Evaluated:** {total:,}")
-                lines.append(f"- **Correct:** {ok:,} ({ok_pct:.1f}%)")
-                lines.append(f"- **Warnings:** {warns:,} ({(warns/total*100 if total else 0):.1f}%)")
-                lines.append(f"- **Errors:** {errors:,} ({(errors/total*100 if total else 0):.1f}%)")
-                lines.append(f"- **Failed:** {failed:,} ({(failed/total*100 if total else 0):.1f}%)")
-                lines.append("")
-            
-            # Voting statistics
-            voting_result = self.conn.execute(f"""
-                SELECT 
-                    AVG(total_voters) as avg_voters,
-                    AVG(voters_correct) as avg_correct,
-                    AVG(voters_partially_correct) as avg_partial,
-                    AVG(voters_incorrect) as avg_incorrect,
-                    AVG(weighted_score) as avg_score,
-                    SUM(CASE WHEN consensus_reached THEN 1 ELSE 0 END) as consensus_count
+            unanimous_correct = self.conn.execute(f"""
+                SELECT COUNT(*)
                 FROM {table}
-            """).fetchone()
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true
+            """).fetchone()[0]
             
-            if voting_result:
-                avg_voters, avg_correct, avg_partial, avg_incorrect, avg_score, consensus_count = voting_result
-                consensus_pct = (consensus_count / status_result[0] * 100) if status_result and status_result[0] else 0
-                
-                lines.append("### Voting Statistics")
-                lines.append("")
-                lines.append(f"- **Average Voters per Query:** {avg_voters:.1f}")
-                lines.append(f"- **Average Weighted Score:** {avg_score:.3f} (0.0-1.0)")
-                lines.append(f"- **Consensus Reached:** {consensus_count:,} ({consensus_pct:.1f}%)")
-                lines.append("")
-                lines.append("**Average Voter Verdicts:**")
-                lines.append(f"- CORRECT: {avg_correct:.2f}")
-                lines.append(f"- PARTIALLY_CORRECT: {avg_partial:.2f}")
-                lines.append(f"- INCORRECT: {avg_incorrect:.2f}")
-                lines.append("")
+            majority_correct_pct = (majority_correct / total * 100) if total else 0
+            unanimous_correct_pct = (unanimous_correct / total * 100) if total else 0
+            lines.append(f"- **Majority CORRECT:** {majority_correct:,} ({majority_correct_pct:.1f}%)")
+            lines.append(f"    *of which Unanimous CORRECT: {unanimous_correct:,} ({unanimous_correct_pct:.1f}%)*")
             
-            # Consensus verdict distribution
-            consensus_result = self.conn.execute(f"""
-                SELECT consensus_verdict, COUNT(*) as count
+            # Majority PARTIALLY_CORRECT
+            majority_partial = self.conn.execute(f"""
+                SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = true
-                GROUP BY consensus_verdict
-                ORDER BY count DESC
-            """).fetchall()
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
+            """).fetchone()[0]
+            majority_partial_pct = (majority_partial / total * 100) if total else 0
+            lines.append(f"- **Majority PARTIALLY_CORRECT:** {majority_partial:,} ({majority_partial_pct:.1f}%)")
             
-            if consensus_result:
-                lines.append("### Consensus Verdict Distribution")
-                lines.append("")
-                lines.append("| Verdict | Count |")
-                lines.append("|---------|-------|")
-                for verdict, count in consensus_result:
-                    lines.append(f"| {verdict or 'N/A'} | {count:,} |")
-                lines.append("")
+            # Majority INCORRECT
+            majority_incorrect = self.conn.execute(f"""
+                SELECT COUNT(*)
+                FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+            """).fetchone()[0]
+            majority_incorrect_pct = (majority_incorrect / total * 100) if total else 0
+            lines.append(f"- **Majority INCORRECT:** {majority_incorrect:,} ({majority_incorrect_pct:.1f}%)")
+            
+            # Mixed (No Majority)
+            mixed = self.conn.execute(f"""
+                SELECT COUNT(*)
+                FROM {table}
+                WHERE consensus_reached = false AND status != 'failed'
+            """).fetchone()[0]
+            mixed_pct = (mixed / total * 100) if total else 0
+            lines.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
+            
+            # Majority UNANSWERABLE
+            majority_unanswerable = self.conn.execute(f"""
+                SELECT COUNT(*)
+                FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+            """).fetchone()[0]
+            majority_unanswerable_pct = (majority_unanswerable / total * 100) if total else 0
+            lines.append(f"- **Majority UNANSWERABLE:** {majority_unanswerable:,} ({majority_unanswerable_pct:.1f}%)")
+            
+            # Failed evaluations
+            failed = self.conn.execute(f"""
+                SELECT COUNT(*)
+                FROM {table}
+                WHERE status = 'failed'
+            """).fetchone()[0]
+            if failed > 0:
+                failed_pct = (failed / total * 100) if total else 0
+                lines.append(f"- **Failed Evaluations:** {failed:,} ({failed_pct:.1f}%)")
+            
+            lines.append("")
             
         except Exception as e:
             lines.append(f"*Error generating LLM judge report: {e}*")
@@ -641,11 +648,11 @@ class MarkdownReportGenerator:
 """
     
     def generate_llm_judge_issues_report(self, output_path: str) -> None:
-        """Generate detailed report for LLM judge non-ok items (warns, errors, failed)."""
+        """Generate detailed report for LLM judge with verdict-based sections."""
         table = self.available_tables.get("semantic_llm_judge")
         if not table:
             Path(output_path).write_text(
-                "# LLM Judge Issues Report\n\nNo semantic LLM judge metrics available.",
+                "# LLM Judge Detailed Report\n\nNo semantic LLM judge metrics available.",
                 encoding="utf-8"
             )
             return
@@ -654,47 +661,92 @@ class MarkdownReportGenerator:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # Header
-        sections.append(f"# LLM Judge Semantic Validation Issues Report\n\n**Generated:** {now}")
+        sections.append(f"# LLM Judge Semantic Validation Report\n\n**Generated:** {now}")
         sections.append("")
         
         try:
-            # Executive summary
-            summary = self.conn.execute(f"""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as ok,
-                    SUM(CASE WHEN status = 'warns' THEN 1 ELSE 0 END) as warns,
-                    SUM(CASE WHEN status = 'errors' THEN 1 ELSE 0 END) as errors,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-                FROM {table}
-            """).fetchone()
+            # Get total count
+            total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
             
-            if summary:
-                total, ok, warns, errors, failed = summary
-                issue_count = warns + errors + failed
-                issue_pct = (issue_count / total * 100) if total else 0
-                
-                sections.append("## Executive Summary")
-                sections.append("")
-                sections.append(f"**Total Queries:** {total:,} · **Issues:** {issue_count:,} ({issue_pct:.1f}%) · **OK:** {ok:,} ({(ok/total*100 if total else 0):.1f}%)")
-                sections.append("")
-                sections.append(f"- **Warnings:** {warns:,} (mixed verdicts, not majority incorrect)")
-                sections.append(f"- **Errors:** {errors:,} (majority voters say incorrect)")
-                sections.append(f"- **Failed:** {failed:,} (unable to evaluate)")
-                sections.append("")
+            if total == 0:
+                sections.append("*No queries evaluated.*")
+                Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+                return
             
-            # Detailed breakdown by status
+            # Summary section (same as main report)
+            sections.append("## Summary")
+            sections.append("")
+            sections.append(f"- **Total Queries Evaluated:** {total:,}")
+            
+            # Majority CORRECT (with unanimous subset)
+            majority_correct = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT'
+            """).fetchone()[0]
+            
+            unanimous_correct = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true
+            """).fetchone()[0]
+            
+            majority_correct_pct = (majority_correct / total * 100) if total else 0
+            unanimous_correct_pct = (unanimous_correct / total * 100) if total else 0
+            sections.append(f"- **Majority CORRECT:** {majority_correct:,} ({majority_correct_pct:.1f}%)")
+            sections.append(f"    *of which Unanimous CORRECT: {unanimous_correct:,} ({unanimous_correct_pct:.1f}%)*")
+            
+            # Majority PARTIALLY_CORRECT
+            majority_partial = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
+            """).fetchone()[0]
+            majority_partial_pct = (majority_partial / total * 100) if total else 0
+            sections.append(f"- **Majority PARTIALLY_CORRECT:** {majority_partial:,} ({majority_partial_pct:.1f}%)")
+            
+            # Majority INCORRECT
+            majority_incorrect = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+            """).fetchone()[0]
+            majority_incorrect_pct = (majority_incorrect / total * 100) if total else 0
+            sections.append(f"- **Majority INCORRECT:** {majority_incorrect:,} ({majority_incorrect_pct:.1f}%)")
+            
+            # Mixed (No Majority)
+            mixed = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = false AND status != 'failed'
+            """).fetchone()[0]
+            mixed_pct = (mixed / total * 100) if total else 0
+            sections.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
+            
+            # Majority UNANSWERABLE
+            majority_unanswerable = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+            """).fetchone()[0]
+            majority_unanswerable_pct = (majority_unanswerable / total * 100) if total else 0
+            sections.append(f"- **Majority UNANSWERABLE:** {majority_unanswerable:,} ({majority_unanswerable_pct:.1f}%)")
+            
+            # Failed evaluations
+            failed = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE status = 'failed'
+            """).fetchone()[0]
+            if failed > 0:
+                failed_pct = (failed / total * 100) if total else 0
+                sections.append(f"- **Failed Evaluations:** {failed:,} ({failed_pct:.1f}%)")
+            
+            sections.append("")
             sections.append("---")
             sections.append("")
             
-            # WARNS section
-            sections.append(self._generate_llm_judge_warns_section(table))
-            
-            # ERRORS section
-            sections.append(self._generate_llm_judge_errors_section(table))
-            
-            # FAILED section
-            sections.append(self._generate_llm_judge_failed_section(table))
+            # Detailed sections
+            sections.append(self._generate_llm_judge_majority_correct_section(table))
+            sections.append(self._generate_llm_judge_majority_partial_section(table))
+            sections.append(self._generate_llm_judge_majority_incorrect_section(table))
+            sections.append(self._generate_llm_judge_mixed_section(table))
+            sections.append(self._generate_llm_judge_majority_unanswerable_section(table))
+            if failed > 0:
+                sections.append(self._generate_llm_judge_failed_section(table))
             
         except Exception as e:
             sections.append(f"*Error generating report: {e}*")
@@ -702,53 +754,51 @@ class MarkdownReportGenerator:
         report_content = "\n".join(sections)
         Path(output_path).write_text(report_content, encoding="utf-8")
     
-    def _generate_llm_judge_warns_section(self, table: str) -> str:
-        """Generate detailed section for warnings (mixed verdicts)."""
-        lines = ["## ⚠️ Warnings - Mixed Verdicts", ""]
+    def _generate_llm_judge_majority_correct_section(self, table: str) -> str:
+        """Generate section for Majority CORRECT (without Unanimous)."""
+        lines = ["## ✅ Majority CORRECT (Non-Unanimous)", ""]
         
         try:
-            warns_with_voters = self.conn.execute(f"""
+            items = self.conn.execute(f"""
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
-                       voters_incorrect, total_voters, voter_results, err
+                       voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE status = 'warns'
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = false
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
             
-            if not warns_with_voters:
-                lines.append("*No warnings found.*")
+            if not items:
+                lines.append("*No non-unanimous majority CORRECT queries found.*")
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(warns_with_voters):,} queries with mixed voter verdicts** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries where majority (but not all) voters said CORRECT** (showing up to 50)")
             lines.append("")
-            lines.append("These queries have at least one voter disagreement but not a majority saying INCORRECT.")
+            lines.append("These queries are likely correct but had some voter disagreement.")
             lines.append("")
             
-            for item_id, db_id, score, correct, partial, incorrect, total, voter_results_json, err in warns_with_voters:
+            for item_id, db_id, score, correct, partial, incorrect, unanswerable, total, voter_results_json in items:
                 lines.append(f"### Item: `{item_id}` (DB: `{db_id}`)")
                 lines.append("")
                 lines.append(f"- **Weighted Score:** {score:.3f}")
-                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT (out of {total} voters)")
+                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT, {unanswerable} UNANSWERABLE (out of {total} voters)")
                 
-                # Show ALL voter verdicts for warnings too
                 if voter_results_json:
                     try:
                         import json
                         voter_results = json.loads(voter_results_json)
                         
                         if voter_results:
-                            lines.append("- **Voter Explanations:**")
+                            lines.append("- **Voter Details:**")
                             for voter in voter_results:
                                 model = voter.get('model', 'unknown')
                                 verdict = voter.get('verdict', 'N/A')
                                 explanation = voter.get('explanation', '')
                                 error = voter.get('error')
                                 
-                                # Show failed voters with error message
                                 if verdict == 'FAILED' or error:
-                                    lines.append(f"  - **{model}** (FAILED - unavailable): {error or 'Connection error'}")
+                                    lines.append(f"  - **{model}** (FAILED): {error or 'Connection error'}")
                                 elif explanation:
                                     lines.append(f"  - **{model}** ({verdict}): {explanation}")
                                 else:
@@ -756,8 +806,6 @@ class MarkdownReportGenerator:
                     except Exception:
                         pass
                 
-                if err:
-                    lines.append(f"- **Note:** {err}")
                 lines.append("")
         
         except Exception as e:
@@ -766,65 +814,238 @@ class MarkdownReportGenerator:
         
         return "\n".join(lines)
     
-    def _generate_llm_judge_errors_section(self, table: str) -> str:
-        """Generate detailed section for errors (majority incorrect)."""
-        lines = ["## ❌ Errors - Majority Incorrect", ""]
+    def _generate_llm_judge_majority_partial_section(self, table: str) -> str:
+        """Generate section for Majority PARTIALLY_CORRECT."""
+        lines = ["## ⚡ Majority PARTIALLY_CORRECT", ""]
         
         try:
-            errors = self.conn.execute(f"""
-                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
-                       voters_incorrect, total_voters, voter_results, err
+            items = self.conn.execute(f"""
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
+                       voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE status = 'errors'
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
             
-            if not errors:
-                lines.append("*No errors found.*")
+            if not items:
+                lines.append("*No majority PARTIALLY_CORRECT queries found.*")
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(errors):,} queries where majority of voters said INCORRECT** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries where majority of voters said PARTIALLY_CORRECT** (showing up to 50)")
             lines.append("")
-            lines.append("These queries are likely semantically incorrect and need review.")
+            lines.append("These queries are mostly correct but may have minor issues.")
             lines.append("")
             
-            for item_id, db_id, score, correct, partial, incorrect, total, voter_results_json, err in errors:
+            for item_id, db_id, score, correct, partial, incorrect, unanswerable, total, voter_results_json in items:
                 lines.append(f"### Item: `{item_id}` (DB: `{db_id}`)")
                 lines.append("")
                 lines.append(f"- **Weighted Score:** {score:.3f}")
-                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT (out of {total} voters)")
+                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT, {unanswerable} UNANSWERABLE (out of {total} voters)")
                 
-                # Parse voter results to show ALL voters and their verdicts/explanations
                 if voter_results_json:
                     try:
                         import json
                         voter_results = json.loads(voter_results_json)
                         
-                        # Show ALL voters with their verdicts and explanations
                         if voter_results:
-                            lines.append("- **Voter Explanations:**")
+                            lines.append("- **Voter Details:**")
                             for voter in voter_results:
                                 model = voter.get('model', 'unknown')
                                 verdict = voter.get('verdict', 'N/A')
                                 explanation = voter.get('explanation', '')
                                 error = voter.get('error')
                                 
-                                # Show failed voters with error message
                                 if verdict == 'FAILED' or error:
-                                    lines.append(f"  - **{model}** (FAILED - unavailable): {error or 'Connection error'}")
+                                    lines.append(f"  - **{model}** (FAILED): {error or 'Connection error'}")
                                 elif explanation:
-                                    # Show verdict with explanation
                                     lines.append(f"  - **{model}** ({verdict}): {explanation}")
                                 else:
-                                    # Show verdict without explanation (e.g., CORRECT votes)
                                     lines.append(f"  - **{model}** ({verdict})")
                     except Exception:
                         pass
                 
-                if err:
-                    lines.append(f"- **Error:** {err}")
+                lines.append("")
+        
+        except Exception as e:
+            lines.append(f"*Error: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_llm_judge_majority_incorrect_section(self, table: str) -> str:
+        """Generate section for Majority INCORRECT."""
+        lines = ["## ❌ Majority INCORRECT", ""]
+        
+        try:
+            items = self.conn.execute(f"""
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
+                       voters_incorrect, voters_unanswerable, total_voters, voter_results
+                FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+                ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
+            """).fetchall()
+            
+            if not items:
+                lines.append("*No majority INCORRECT queries found.*")
+                lines.append("")
+                return "\n".join(lines)
+            
+            lines.append(f"**Found {len(items):,} queries where majority of voters said INCORRECT** (showing up to 50)")
+            lines.append("")
+            lines.append("These queries are likely semantically incorrect and need review.")
+            lines.append("")
+            
+            for item_id, db_id, score, correct, partial, incorrect, unanswerable, total, voter_results_json in items:
+                lines.append(f"### Item: `{item_id}` (DB: `{db_id}`)")
+                lines.append("")
+                lines.append(f"- **Weighted Score:** {score:.3f}")
+                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT, {unanswerable} UNANSWERABLE (out of {total} voters)")
+                
+                if voter_results_json:
+                    try:
+                        import json
+                        voter_results = json.loads(voter_results_json)
+                        
+                        if voter_results:
+                            lines.append("- **Voter Details:**")
+                            for voter in voter_results:
+                                model = voter.get('model', 'unknown')
+                                verdict = voter.get('verdict', 'N/A')
+                                explanation = voter.get('explanation', '')
+                                error = voter.get('error')
+                                
+                                if verdict == 'FAILED' or error:
+                                    lines.append(f"  - **{model}** (FAILED): {error or 'Connection error'}")
+                                elif explanation:
+                                    lines.append(f"  - **{model}** ({verdict}): {explanation}")
+                                else:
+                                    lines.append(f"  - **{model}** ({verdict})")
+                    except Exception:
+                        pass
+                
+                lines.append("")
+        
+        except Exception as e:
+            lines.append(f"*Error: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_llm_judge_mixed_section(self, table: str) -> str:
+        """Generate section for Mixed (No Majority)."""
+        lines = ["## ⚠️ Mixed (No Majority)", ""]
+        
+        try:
+            items = self.conn.execute(f"""
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
+                       voters_incorrect, voters_unanswerable, total_voters, voter_results
+                FROM {table}
+                WHERE consensus_reached = false AND status != 'failed'
+                ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
+            """).fetchall()
+            
+            if not items:
+                lines.append("*No mixed verdict queries found.*")
+                lines.append("")
+                return "\n".join(lines)
+            
+            lines.append(f"**Found {len(items):,} queries with mixed voter verdicts (no majority)** (showing up to 50)")
+            lines.append("")
+            lines.append("These queries have no clear majority verdict and require manual review.")
+            lines.append("")
+            
+            for item_id, db_id, score, correct, partial, incorrect, unanswerable, total, voter_results_json in items:
+                lines.append(f"### Item: `{item_id}` (DB: `{db_id}`)")
+                lines.append("")
+                lines.append(f"- **Weighted Score:** {score:.3f}")
+                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT, {unanswerable} UNANSWERABLE (out of {total} voters)")
+                
+                if voter_results_json:
+                    try:
+                        import json
+                        voter_results = json.loads(voter_results_json)
+                        
+                        if voter_results:
+                            lines.append("- **Voter Details:**")
+                            for voter in voter_results:
+                                model = voter.get('model', 'unknown')
+                                verdict = voter.get('verdict', 'N/A')
+                                explanation = voter.get('explanation', '')
+                                error = voter.get('error')
+                                
+                                if verdict == 'FAILED' or error:
+                                    lines.append(f"  - **{model}** (FAILED): {error or 'Connection error'}")
+                                elif explanation:
+                                    lines.append(f"  - **{model}** ({verdict}): {explanation}")
+                                else:
+                                    lines.append(f"  - **{model}** ({verdict})")
+                    except Exception:
+                        pass
+                
+                lines.append("")
+        
+        except Exception as e:
+            lines.append(f"*Error: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_llm_judge_majority_unanswerable_section(self, table: str) -> str:
+        """Generate section for Majority UNANSWERABLE."""
+        lines = ["## 🚫 Majority UNANSWERABLE", ""]
+        
+        try:
+            items = self.conn.execute(f"""
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
+                       voters_incorrect, voters_unanswerable, total_voters, voter_results
+                FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+                ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
+            """).fetchall()
+            
+            if not items:
+                lines.append("*No majority UNANSWERABLE queries found.*")
+                lines.append("")
+                return "\n".join(lines)
+            
+            lines.append(f"**Found {len(items):,} queries where majority of voters said UNANSWERABLE** (showing up to 50)")
+            lines.append("")
+            lines.append("These queries cannot be answered from the schema (missing data, ambiguous question, etc.).")
+            lines.append("")
+            
+            for item_id, db_id, score, correct, partial, incorrect, unanswerable, total, voter_results_json in items:
+                lines.append(f"### Item: `{item_id}` (DB: `{db_id}`)")
+                lines.append("")
+                lines.append(f"- **Weighted Score:** {score:.3f}")
+                lines.append(f"- **Voter Breakdown:** {correct} CORRECT, {partial} PARTIALLY_CORRECT, {incorrect} INCORRECT, {unanswerable} UNANSWERABLE (out of {total} voters)")
+                
+                if voter_results_json:
+                    try:
+                        import json
+                        voter_results = json.loads(voter_results_json)
+                        
+                        if voter_results:
+                            lines.append("- **Voter Details:**")
+                            for voter in voter_results:
+                                model = voter.get('model', 'unknown')
+                                verdict = voter.get('verdict', 'N/A')
+                                explanation = voter.get('explanation', '')
+                                error = voter.get('error')
+                                
+                                if verdict == 'FAILED' or error:
+                                    lines.append(f"  - **{model}** (FAILED): {error or 'Connection error'}")
+                                elif explanation:
+                                    lines.append(f"  - **{model}** ({verdict}): {explanation}")
+                                else:
+                                    lines.append(f"  - **{model}** ({verdict})")
+                    except Exception:
+                        pass
+                
                 lines.append("")
         
         except Exception as e:
