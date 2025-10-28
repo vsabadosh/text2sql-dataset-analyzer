@@ -20,10 +20,19 @@ def generate_llm_judge_issues_report(duckdb_path: str, output_path: str) -> None
     finally:
         gen.close()
 
+def generate_query_execution_issues_report(duckdb_path: str, output_path: str) -> None:
+    """Generate detailed report for Query Execution failures."""
+    gen = MarkdownReportGenerator(duckdb_path)
+    try:
+        gen.generate_query_execution_issues_report(output_path)
+    finally:
+        gen.close()
+
 __all__ = [
     "MarkdownReportGenerator",
     "generate_report_from_db",
     "generate_schema_details_report",
     "generate_llm_judge_issues_report",
+    "generate_query_execution_issues_report",
 ]
 

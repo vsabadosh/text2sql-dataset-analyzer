@@ -83,7 +83,12 @@ def run_pipeline(config_path: str) -> str:
     if auto_generate_report and output.use_duckdb and os.path.exists(output.duckdb_path):
         try:
             # Import here to make DuckDB optional
-            from ..output.report import generate_report_from_db, generate_schema_details_report, generate_llm_judge_issues_report
+            from ..output.report import (
+                generate_report_from_db,
+                generate_schema_details_report,
+                generate_llm_judge_issues_report,
+                generate_query_execution_issues_report,
+            )
             report_path = os.path.join(output.root_dir, "analysis_report.md")
             logger.info("generating report", extra={"report_path": report_path})
             generate_report_from_db(output.duckdb_path, report_path)
@@ -100,6 +105,12 @@ def run_pipeline(config_path: str) -> str:
             logger.info("generating LLM judge issues report", extra={"report_path": llm_judge_report_path})
             generate_llm_judge_issues_report(output.duckdb_path, llm_judge_report_path)
             logger.info("LLM judge issues report generated", extra={"report_path": llm_judge_report_path})
+
+            # Generate Query Execution issues report (failed only)
+            qexec_report_path = os.path.join(output.root_dir, "query_execution_issues_report.md")
+            logger.info("generating Query Execution issues report", extra={"report_path": qexec_report_path})
+            generate_query_execution_issues_report(output.duckdb_path, qexec_report_path)
+            logger.info("Query Execution issues report generated", extra={"report_path": qexec_report_path})
         except ImportError:
             logger.warning("report generation skipped - duckdb not installed")
         except Exception as e:
