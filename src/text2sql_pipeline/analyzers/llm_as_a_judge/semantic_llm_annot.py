@@ -5,6 +5,7 @@ import json
 import logging
 
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 from text2sql_pipeline.core.models import DataItem
@@ -97,11 +98,13 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
                 for item in items:
                     yield item
                 return
-            else:
-                # Continue but mark all as failed
-                pass
-        
+
         for item in items:
+            # Check if any previous analyzer failed - skip if so
+            if has_previous_failure(item.metadata or {}):
+                self._annotate_item_skipped(item)
+                yield item
+                continue
             start = time.perf_counter()
             
             # Perform semantic validation
@@ -137,9 +140,21 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
                 "consensus_verdict": features.consensus_verdict,
                 "weighted_score": features.weighted_score
             })
-            
+
             yield item
-    
+
+    def _annotate_item_skipped(self, item: DataItem) -> None:
+        """Annotate item with skipped status due to previous failures."""
+        item.metadata = item.metadata or {}
+        item.metadata.setdefault("analysisSteps", [])
+        item.metadata["analysisSteps"].append({
+            "name": "semantic_llm_judge",
+            "status": "skipped",
+            "reason": "previous analyzer failed",
+            "consensus_verdict": None,
+            "weighted_score": None
+        })
+
     def _evaluate_semantic(self, item: DataItem) -> tuple:
         """
         Evaluate semantic correctness using LLM voters.

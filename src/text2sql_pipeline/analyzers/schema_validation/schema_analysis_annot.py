@@ -3,6 +3,7 @@ from typing import Iterable, Iterator, List, Dict, Tuple
 import time
 
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 from ...core.models import DataItem
@@ -53,6 +54,12 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit schema validation metrics."""
         for item in items:
+            # Check if any previous analyzer failed - skip if so
+            if has_previous_failure(item.metadata or {}):
+                self._annotate_item_skipped(item)
+                yield item
+                continue
+
             # Check if we've already analyzed this database
             if item.dbId in self._analyzed_dbs:
                 # Already analyzed - just annotate item, don't emit metric
@@ -112,6 +119,21 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         item.metadata["analysisSteps"].append({
             "name": "schema_analysis",
             "status": "ok" if success else "failed"
+        })
+
+    def _annotate_item_skipped(self, item: DataItem) -> None:
+        """Annotate item with skipped status due to previous failures."""
+        item.metadata = item.metadata or {}
+
+        # Initialize analysisSteps if not present
+        if "analysisSteps" not in item.metadata:
+            item.metadata["analysisSteps"] = []
+
+        # Add skipped analysis step
+        item.metadata["analysisSteps"].append({
+            "name": "schema_analysis",
+            "status": "skipped",
+            "reason": "previous analyzer failed"
         })
     
     def _analyze_schema(self, item: DataItem) -> tuple:

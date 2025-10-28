@@ -6,6 +6,7 @@ import sqlglot
 from sqlglot import exp
 
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.pipeline.registry import register_analyzer
 from ...core.models import DataItem
 from ...db.manager import DbManager
@@ -49,6 +50,12 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query execution metrics."""
         for item in items:
+            # Check if any previous analyzer failed - skip if so
+            if has_previous_failure(item.metadata or {}):
+                self._annotate_item_skipped(item)
+                yield item
+                continue
+
             start = time.perf_counter()
             ok = False
             error = None
@@ -88,13 +95,25 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
             item.metadata = item.metadata or {}
             if "analysisSteps" not in item.metadata:
                 item.metadata["analysisSteps"] = []
-            
+
             item.metadata["analysisSteps"].append({
                 "name": "query_execution",
                 "status": status
             })
-            
+
             yield item
+
+    def _annotate_item_skipped(self, item: DataItem) -> None:
+        """Annotate item with skipped status due to previous failures."""
+        item.metadata = item.metadata or {}
+        if "analysisSteps" not in item.metadata:
+            item.metadata["analysisSteps"] = []
+
+        item.metadata["analysisSteps"].append({
+            "name": "query_execution",
+            "status": "skipped",
+            "reason": "previous analyzer failed"
+        })
     
     def _execute_query_safe(self, item: DataItem) -> tuple:
         """

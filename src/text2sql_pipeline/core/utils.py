@@ -22,3 +22,9 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
+def has_previous_failure(metadata: dict) -> bool:
+    """Check if any previous analyzer in analysisSteps has failed."""
+    analysis_steps = metadata.get("analysisSteps", [])
+    return any(step.get("status") == "failed" for step in analysis_steps)
+
+

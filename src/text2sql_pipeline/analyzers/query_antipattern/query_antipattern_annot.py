@@ -4,6 +4,7 @@ import time
 
 from text2sql_pipeline.analyzers.query_antipattern.antipattern_detector import detect_antipatterns
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 from ...core.models import DataItem
@@ -51,8 +52,14 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit antipattern detection metrics."""
         for item in items:
+            # Check if any previous analyzer failed - skip if so
+            if has_previous_failure(item.metadata or {}):
+                self._annotate_item_skipped(item)
+                yield item
+                continue
+
             start = time.perf_counter()
-            
+
             features, stats, tags, parseable, err = self._analyze_query(item)
             
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
@@ -78,6 +85,7 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
                 stats=stats,
                 tags=tags
             )
+            
             sink.write(metric)
             
             # annotate item
@@ -90,8 +98,21 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
                 "quality_level": features.quality_level if parseable else "unknown",
                 "antipattern_count": features.total_antipatterns if parseable else None
             })
-            
+
             yield item
+
+    def _annotate_item_skipped(self, item: DataItem) -> None:
+        """Annotate item with skipped status due to previous failures."""
+        item.metadata = item.metadata or {}
+        item.metadata.setdefault("analysisSteps", [])
+        item.metadata["analysisSteps"].append({
+            "name": "query_antipattern",
+            "status": "skipped",
+            "reason": "previous analyzer failed",
+            "quality_score": None,
+            "quality_level": "unknown",
+            "antipattern_count": None
+        })
     
     def _analyze_query(self, item: DataItem):
         """

@@ -4,6 +4,7 @@ import time
 
 from text2sql_pipeline.analyzers.query_syntax.query_feature_collect import collect_features
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
+from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 from ...core.models import DataItem
@@ -42,6 +43,12 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query syntax metrics."""
         for item in items:
+            # Check if any previous analyzer failed - skip if so
+            if has_previous_failure(item.metadata or {}):
+                self._annotate_item_skipped(item)
+                yield item
+                continue
+
             start = time.perf_counter()
 
             features, stats, tags, parseable, err = self._analyze_query(item)
@@ -84,6 +91,18 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
         tags = QuerySyntaxTags(dialect=self.db_dialect or "sqlite")
 
         if not item.sql or not item.sql.strip():
+            features = QuerySyntaxFeatures(parseable=False)
+            return features, stats, tags, False, "Empty or null SQL"
+
+        try:
+            features = collect_features(item.sql, self.db_dialect)
+            ok = features.parseable
+            return features, stats, tags, ok, None if ok else "Unparseable"
+        except Exception as e:
+            features = QuerySyntaxFeatures(parseable=False)
+            stats.errors.append({"kind": "parse_error", "message": str(e)})
+            return features, stats, tags, False, f"Parse error: {e}"
+
             features = QuerySyntaxFeatures(parseable=False)
             return features, stats, tags, False, "Empty or null SQL"
 
