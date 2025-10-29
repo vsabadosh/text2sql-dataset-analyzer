@@ -13,7 +13,7 @@ load:
     path: data_examples/spider_tiny.jsonl
 # Progress tracking configuration
 progress:
-  expected_items: 1        # Optional: Expected number of items for percentage tracking
+  expected_items: 2         # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 
 normalize:
@@ -35,7 +35,7 @@ normalize:
 analyze:
   - name: schema_analysis_annot
     params: {}
-
+    
   - name: query_syntax_annot
     params: {}
 
@@ -54,9 +54,9 @@ analyze:
       prompt_file: "configs/semantic_llm_prompts.yaml"  # Path to prompt templates
       prompt_variant: default  # Options: variant_1, variant_2, default
       # custom_prompt: "Your custom prompt..."  # Override file/variant
-
-      num_examples: 2  # Number of example values per column in DDL.
-      skip_on_empty_providers: true  # Skip if no providers configured
+      # Schema configuration
+      schema_mode: query_derived  # Options: 'full' (all tables) or 'query_derived' (only tables referenced in query)
+      num_examples: 2  # Number of example values per column in DDL Schema.
 
       # LLM Provider Configuration (environment variables resolved automatically)
       # Syntax: ${VAR_NAME} or ${VAR_NAME:default_value}
@@ -65,12 +65,15 @@ analyze:
           api_key: "${OPENAI_API_KEY}"  # Or set in environment
           # api_key: ""  #  Or set in environment
           models:
-            - name: gpt-4o-mini
-              weight: 1.0
-              temperature: 0.0 
-            - name: gpt-4o
-              weight: 1.0
-              temperature: 0.1
+            # - name: gpt-5-mini
+            #   weight: 1.0
+            #   temperature: 1.0 
+            # - name: gpt-4o-mini
+            #   weight: 1.0
+            #   temperature: 0.0 
+            # - name: gpt-4o
+            #   weight: 1.0
+            #   temperature: 0.0
         # - name: anthropic
         #   api_key: "${ANTHROPIC_API_KEY}"
         #   models:
