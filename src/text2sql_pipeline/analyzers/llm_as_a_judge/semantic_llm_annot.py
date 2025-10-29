@@ -55,8 +55,8 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         prompt_variant: str = "default",
         custom_prompt: str | None = None,
         prompt_file: str | None = None,
-        skip_on_empty_providers: bool = True,
         num_examples: int = 2,
+        schema_mode: str = "query_derived",
     ) -> None:
         """
         Initialize semantic LLM analyzer.
@@ -67,12 +67,16 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             prompt_variant: Template variant to use ("variant_1", "variant_2", "default")
             custom_prompt: Custom prompt template (overrides variant and file)
             prompt_file: Path to YAML file with prompt templates (overrides built-in)
-            skip_on_empty_providers: If True, skip evaluation when no providers configured
             num_examples: Number of example values to include per column in DDL (default: 2)
+            schema_mode: Schema inclusion mode - "full" (all tables) or "query_derived" (only tables referenced in query, default: "query_derived")
         """
+        # Validate schema_mode
+        if schema_mode not in ["full", "query_derived"]:
+            raise ValueError(f"Invalid schema_mode: {schema_mode}. Must be 'full' or 'query_derived'")
+
         self.db_manager = db_manager
-        self.skip_on_empty_providers = skip_on_empty_providers
         self.num_examples = num_examples
+        self.schema_mode = schema_mode
         
         # Build prompt template resolver
         self.prompt_resolver = PromptTemplateResolver(
@@ -85,19 +89,18 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         config = {"providers": providers} if providers else {"providers": []}
         self.providers: List[Provider] = build_providers(config)
         
-        if not self.providers and not skip_on_empty_providers:
+        if not self.providers:
             logger.warning("No LLM providers configured for semantic_llm_annot analyzer")
     
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit semantic validation metrics."""
         # Check if providers are available
         if not self.providers:
-            if self.skip_on_empty_providers:
-                logger.info("No LLM providers configured, skipping semantic_llm_annot analyzer")
-                # Just pass through items without analysis
-                for item in items:
-                    yield item
-                return
+            logger.info("No LLM providers configured, skipping semantic_llm_annot analyzer")
+            # Just pass through items without analysis
+            for item in items:
+                yield item
+            return
 
         for item in items:
             # Check if any previous analyzer failed - skip if so
@@ -164,7 +167,8 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         stats = LLMJudgeStats()
         tags = LLMJudgeTags(
             dialect=self.db_manager.get_sqlglot_dialect() or "sqlite",
-            prompt_variant="custom" if hasattr(self, "custom_prompt") else "default"
+            prompt_variant="custom" if hasattr(self, "custom_prompt") else "default",
+            schema_mode=self.schema_mode
         )
         
         # Validate required fields
@@ -181,11 +185,12 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         if not self.providers:
             return self._build_failed_result("No LLM providers configured", stats, tags)
         
-        # Get DDL schema with examples (only for tables used in query)
+        # Get DDL schema with examples based on schema_mode
         try:
+            sql_param = None if self.schema_mode == "full" else item.sql
             ddl_schema = self.db_manager.get_ddl_schema_with_examples(
                 db_id=item.dbId,
-                sql=item.sql,
+                sql=sql_param,
                 num_examples=self.num_examples
             )
         except Exception as e:

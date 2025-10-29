@@ -173,28 +173,33 @@ class DbManager:
     
     # ---------- smart DDL generation with examples ----------
     def get_ddl_schema_with_examples(
-        self, 
-        db_id: str, 
-        sql: str, 
+        self,
+        db_id: str,
+        sql: str | None = None,
         num_examples: int = 2
     ) -> str:
         """
-        Generate DDL schema with example data for tables referenced in the SQL query.
-        
+        Generate DDL schema with example data for tables in the database.
+
+        If sql is provided, only includes tables referenced in the SQL query.
+        If sql is None, includes ALL tables in the database.
+
         This method:
-        1. Parses the SQL query to extract referenced tables
+        1. If sql provided: Parses the SQL query to extract referenced tables
+           If sql is None: Gets all tables in the database
         2. For each table, retrieves schema information
         3. Samples example data for each column (limited by num_examples)
         4. Formats DDL with inline example comments
-        
+
         Args:
             db_id: Database identifier
-            sql: SQL query to analyze for table references
+            sql: Optional SQL query to analyze for table references.
+                 If None, includes all tables in the database.
             num_examples: Number of example values to include per column (default: 2)
-        
+
         Returns:
             DDL schema string with example data in comments
-        
+
         Example output:
             CREATE TABLE users (
                 id INTEGER NOT NULL /* ex: [1, 2] */,
@@ -203,20 +208,28 @@ class DbManager:
             );
         """
         try:
-            # Parse SQL to extract referenced tables
-            dialect = self.get_sqlglot_dialect()
-            referenced_tables = self._extract_tables_from_sql(sql, dialect)
-            
-            if not referenced_tables:
-                # Fallback: get all tables if parsing fails
-                referenced_tables = self.get_tables(db_id)
-            
+            # Determine which tables to include
+            if sql is not None:
+                # Parse SQL to extract referenced tables
+                dialect = self.get_sqlglot_dialect()
+                tables_to_include = self._extract_tables_from_sql(sql, dialect)
+
+                if not tables_to_include:
+                    # Fallback: get all tables if parsing fails
+                    tables_to_include = self.get_tables(db_id)
+            else:
+                # Include all tables in the database
+                tables_to_include = self.get_tables(db_id)
+
+            if not tables_to_include:
+                return ""
+
             # Get engine for data sampling
             eng = self.engine(db_id)
-            
-            # Build DDL for each referenced table
+
+            # Build DDL for each table
             ddl_statements = []
-            for table in referenced_tables:
+            for table in tables_to_include:
                 try:
                     info = self.get_table_info(db_id, table)
                     examples = self._sample_column_examples(eng, table, info, num_examples)
@@ -227,7 +240,7 @@ class DbManager:
                     import logging
                     logging.warning(f"Failed to get DDL for table {table}: {e}")
                     continue
-            
+
             return "\n\n".join(ddl_statements)
         except Exception as e:
             import logging

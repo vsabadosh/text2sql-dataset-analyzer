@@ -60,11 +60,9 @@ class TestSemanticLLMAnnot:
         analyzer = SemanticLLMAnnot(
             db_manager=mock_db_manager,
             providers=[],
-            skip_on_empty_providers=True,
             custom_prompt="Test prompt {{dialect}}"  # Required since built-in templates removed
         )
         
-        assert analyzer.skip_on_empty_providers is True
         assert len(analyzer.providers) == 0
     
     def test_init_with_mock_providers(self):
@@ -85,7 +83,6 @@ class TestSemanticLLMAnnot:
         analyzer = SemanticLLMAnnot(
             db_manager=mock_db_manager,
             providers=providers_config,
-            skip_on_empty_providers=False,
             custom_prompt="Test prompt {{dialect}}"  # Required since built-in templates removed
         )
         
@@ -462,7 +459,6 @@ class TestSemanticLLMAnnot:
         analyzer = SemanticLLMAnnot(
             db_manager=mock_db_manager,
             providers=[],
-            skip_on_empty_providers=True,
             custom_prompt="Test prompt {{dialect}}"
         )
         

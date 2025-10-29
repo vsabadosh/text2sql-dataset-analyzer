@@ -20,14 +20,14 @@ class PromptTemplateResolver:
     """
     
     def __init__(
-        self, 
-        variant: str = "default", 
+        self,
+        variant: str = "default",
         custom_template: str | None = None,
         prompt_file: str | None = None
     ):
         """
         Initialize template resolver.
-        
+
         Args:
             variant: Template variant name ("variant_1", "variant_2", "default")
             custom_template: Custom template string (overrides variant and file)

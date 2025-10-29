@@ -82,7 +82,7 @@ variant_2: "Prompt 2"
                 PromptTemplateResolver(prompt_file=temp_file, variant="nonexistent")
         finally:
             Path(temp_file).unlink()
-    
+
     def test_custom_prompt_overrides_file(self):
         """Test that custom_prompt overrides prompt_file."""
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
@@ -90,24 +90,25 @@ variant_2: "Prompt 2"
 default: "File prompt"
 """)
             temp_file = f.name
-        
+
         try:
             resolver = PromptTemplateResolver(
                 prompt_file=temp_file,
                 custom_template="Custom prompt {{dialect}}"
             )
-            
+
             result = resolver.resolve(
                 dialect="postgresql",
                 ddl_schema="",
                 natural_question="",
                 sql_to_revise=""
             )
-            
+
             assert result == "Custom prompt postgresql"
         finally:
             Path(temp_file).unlink()
-    
+
+
     def test_load_real_prompts_file(self):
         """Test loading from actual configs/semantic_llm_prompts.yaml."""
         # Get project root
