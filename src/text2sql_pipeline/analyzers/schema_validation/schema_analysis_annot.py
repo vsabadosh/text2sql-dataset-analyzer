@@ -20,6 +20,7 @@ from .metrics import (
     ForeignKeyArityMismatch,
     ForeignKeyTargetNotKey,
     DuplicateColumns,
+    ForeignKeyTypeMismatch,
 )
 
 
@@ -64,7 +65,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             if item.dbId in self._analyzed_dbs:
                 # Already analyzed - just annotate item, don't emit metric
                 ok, _ = self._analyzed_dbs[item.dbId]
-                self._annotate_item(item, ok)
+                self._annotate_item(item, "ok" if ok else "failed")
                 yield item
                 continue
             
@@ -101,11 +102,11 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             self._analyzed_dbs[item.dbId] = (success, error or "")
             
             # Annotate item
-            self._annotate_item(item, success)
+            self._annotate_item(item, status)
             
             yield item
     
-    def _annotate_item(self, item: DataItem, success: bool) -> None:
+    def _annotate_item(self, item: DataItem, status: str) -> None:
         """Annotate item with schema validation result."""
         from datetime import datetime
         
@@ -118,7 +119,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         # Add this analysis step
         item.metadata["analysisSteps"].append({
             "name": "schema_analysis",
-            "status": "ok" if success else "failed"
+            "status": status
         })
 
     def _annotate_item_skipped(self, item: DataItem) -> None:
@@ -290,6 +291,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         
         # Check 2: Foreign key validation
         for table, info in schema_info.items():
+            # Precompute column name -> type map for local table
+            local_col_types = {c["name"]: (c.get("type") or "") for c in info["columns"]}
             for fk in info["foreign_keys"]:
                 fk_total += 1
                 parent_table = fk["parent_table"]
@@ -314,6 +317,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                 
                 parent_info = schema_info[parent_table]
                 parent_col_names = {c["name"] for c in parent_info["columns"]}
+                parent_col_types = {c["name"]: (c.get("type") or "") for c in parent_info["columns"]}
                 
                 # Check 2b: Parent columns exist
                 missing_cols = [c for c in parent_cols if c not in parent_col_names]
@@ -377,8 +381,44 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                         ))
                         continue
                 
-                # FK is valid
+                # FK is valid (tentatively; may be flipped by type mismatch rule below)
                 fk_valid += 1
+
+                # Check 2e: Type/affinity mismatch between local and parent columns → treat as error
+                try:
+                    for lc, pc in zip(local_cols, parent_cols):
+                        ltype_raw = local_col_types.get(lc, "")
+                        ptype_raw = parent_col_types.get(pc, "")
+                        if not ltype_raw or not ptype_raw:
+                            # If types unavailable, skip comparison
+                            continue
+                        lfam = self.db_manager.normalize_type_family(ltype_raw)
+                        pfam = self.db_manager.normalize_type_family(ptype_raw)
+                        if lfam != pfam:
+                            # Reclassify this FK as invalid due to type mismatch
+                            if fk_valid > 0:
+                                fk_valid -= 1
+                            fk_invalid += 1
+                            evidence.fk_type_mismatch.append(
+                                ForeignKeyTypeMismatch(
+                                    table=table,
+                                    local=local_cols,
+                                    parent_table=parent_table,
+                                    parent_columns=parent_cols
+                                )
+                            )
+                            stats.errors.append(ErrorDetail(
+                                kind="fk_type_mismatch",
+                                message=(
+                                    f"Foreign key column types differ: {table}.{lc} ({ltype_raw}→{lfam}) "
+                                    f"vs {parent_table}.{pc} ({ptype_raw}→{pfam})"
+                                )
+                            ))
+                            # Report once per FK if any pair mismatches
+                            break
+                except Exception:
+                    # Be conservative: do not fail validation on type normalization issues
+                    pass
         
         blocking_errors_total = (
             fk_invalid +
@@ -395,6 +435,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             "multiple_pks_count": multiple_pks_count,
             "blocking_errors_total": blocking_errors_total
         }
+
+    
     
     def _build_db_error_result(self, error_msg: str, stats: SchemaAnalysisStats, tags: SchemaAnalysisTags):
         """Build result when database is not accessible - status: failed."""

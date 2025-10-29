@@ -1,5 +1,10 @@
 # Semantic LLM Judge Prompt Templates
 #
+# Configuration Note:
+# The schema_mode parameter in pipeline config controls what DDL schema is provided:
+# - "full": All tables in the database are included in {{ddl_schema}}
+# - "query_derived": Only tables referenced in the SQL query are included (default)
+#
 # Available placeholders:
 # - {{dialect}} - Database dialect (e.g., "sqlite", "postgresql")
 # - {{ddl_schema}} - DDL schema (CREATE TABLE statements with examples)
@@ -427,7 +432,7 @@ variant_15: |
     - Alternative correct solutions (multiple valid approaches acceptable)
     - Style differences (keyword capitalization, aliases, etc.)
 
-    Dialect-specific semantics (SQLite):
+    Dialect-specific semantics for sqlite dialect:
       1) Cross-type comparisons: Equality in JOIN/WHERE follows affinity/coercion rules.
          Do NOT mark incorrect solely due to type mismatches (TEXT vs INTEGER, etc.).
          If this is the only issue, return CORRECT.
@@ -463,6 +468,77 @@ variant_15: |
     EXAMPLE:
     {"verdict":"CORRECT","explanation":""}
 
+variant_16: |
+    Task: You are a Text2SQL expert performing semantic validation on SQL queries. 
+    Your goal: Verify that the SQL query correctly answers the natural language question based on the database schema.
+
+    Dialect: {{dialect}}
+    DDL Schema: {{ddl_schema}}
+    NL Question: {{natural_question}}
+    SQL: {{sql_to_revise}}
+
+    Step 1 — Answerability Check
+    First determine if the question can be answered from the schema:
+    - Return UNANSWERABLE if:
+      * Missing required tables/columns in schema
+      * Question is ambiguous or contradictory
+      * Requires external data not in schema
+    - If UNANSWERABLE, provide explanation of what's missing/why
+    - If answerable, proceed to Step 2
+
+    Step 2 — Semantic Validation
+    Evaluate whether the query logically answers the question:
+    - Are the correct tables and columns used?
+    - Are JOINs semantically correct (proper relationships)?
+    - Are aggregations (COUNT, SUM, etc.) used appropriately?
+    - Does the GROUP BY logic make sense?
+    - Are filters (WHERE clauses) aligned with the question intent?
+    - Does the query handle edge cases mentioned in the question?
+    - Are CTEs/subqueries/window functions consistent with grain and filters?
+    - Accept any semantically correct solution, regardless of complexity or style
+
+    Do NOT mark as INCORRECT for:
+    - Syntax errors or formatting issues (focus on semantics only)
+    - Performance concerns (missing indexes, query optimization)
+    - Alternative correct solutions (multiple valid approaches are acceptable)
+    - Style differences (keyword capitalization, aliases, formatting)
+
+    Dialect-specific semantics for sqlite:
+      1) Cross-type comparisons: Equality in JOIN/WHERE follows affinity/coercion rules.
+         Do NOT mark INCORRECT solely due to type mismatches (TEXT vs INTEGER, etc.).
+         If this is the only issue, return CORRECT.
+      2) Identifiers are case-insensitive (e.g., cost_Id == cost_id).
+      3) Permissive GROUP BY: SQLite allows selecting non-grouped columns.
+         - CORRECT if functional dependency exists (e.g., PK in GROUP BY)
+         - CORRECT if non-grouped columns don't affect result validity
+         - PARTIALLY_CORRECT if non-determinism causes ambiguous but not incorrect results
+      4) Foreign keys do not require matching types for semantic correctness.
+
+    Verdict Definitions:
+    - CORRECT — Query fully and accurately answers the question with no semantic issues
+    - PARTIALLY_CORRECT — Query mostly correct but has minor issues:
+      * Missing DISTINCT when duplicates possible
+      * Imprecise date/time boundaries  
+      * NULL handling edge cases
+      * Non-deterministic GROUP BY that doesn't break correctness
+    - INCORRECT — Fundamental semantic errors that prevent correct results:
+      * Wrong tables/columns used
+      * Missing or incorrect JOINs
+      * Wrong aggregation logic
+      * Incorrect WHERE clause logic
+      * Produces fundamentally wrong answer
+    - UNANSWERABLE — Cannot be answered from the provided schema
+
+    OUTPUT FORMAT (STRICT):
+    - Return exactly one valid JSON object and nothing else
+    - No markdown code fences, no prose, no explanatory text
+    - Must contain exactly two keys: "verdict" and "explanation"
+    - "verdict" value MUST be one of: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+    - "explanation" rules:
+      * If verdict is CORRECT: MUST be "" (empty string)
+      * For all other verdicts: MUST be a non-empty string ≤200 chars describing the specific issue
+    - Must be parseable by standard JSON parsers
+
 # Default template (alias to variant_2)
-default: variant_15
+default: variant_16
 

@@ -112,6 +112,7 @@ class MarkdownReportGenerator:
                     SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_missing_column'), '[]'))) AS fk_missing_column,
                     SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_arity_mismatch'), '[]'))) AS fk_arity_mismatch,
                     SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_target_not_key'), '[]'))) AS fk_target_not_key,
+                    SUM(json_array_length(COALESCE(json_extract(evidence, '$.fk_type_mismatch'), '[]'))) AS fk_type_mismatch,
                     SUM(json_array_length(COALESCE(json_extract(evidence, '$.duplicate_columns'), '[]'))) AS duplicate_columns
                   FROM {table}
                 )
@@ -120,6 +121,7 @@ class MarkdownReportGenerator:
                   SELECT 'fk_missing_column', fk_missing_column FROM counts UNION ALL
                   SELECT 'fk_arity_mismatch', fk_arity_mismatch FROM counts UNION ALL
                   SELECT 'fk_target_not_key', fk_target_not_key FROM counts UNION ALL
+                  SELECT 'fk_type_mismatch', fk_type_mismatch FROM counts UNION ALL
                   SELECT 'duplicate_columns', duplicate_columns FROM counts
                 ) ORDER BY cnt DESC LIMIT 1
             """).fetchone()

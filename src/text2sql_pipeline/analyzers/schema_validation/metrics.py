@@ -60,6 +60,14 @@ class MultiplePrimaryKeys(BaseModel):
     defined_as: List[str]
 
 
+class ForeignKeyTypeMismatch(BaseModel):
+    """FK local vs parent column type/affinity mismatch (treated as error)."""
+    table: str
+    local: List[str]
+    parent_table: str
+    parent_columns: List[str]
+
+
 class SchemaEvidence(BaseModel):
     """
     Structured evidence for all validation errors.
@@ -69,6 +77,7 @@ class SchemaEvidence(BaseModel):
     fk_missing_column: List[ForeignKeyMissingColumn] = Field(default_factory=list)
     fk_arity_mismatch: List[ForeignKeyArityMismatch] = Field(default_factory=list)
     fk_target_not_key: List[ForeignKeyTargetNotKey] = Field(default_factory=list)
+    fk_type_mismatch: List[ForeignKeyTypeMismatch] = Field(default_factory=list)
     duplicate_columns: List[DuplicateColumns] = Field(default_factory=list)
     unknown_types: List[UnknownType] = Field(default_factory=list)
     multiple_pks: List[MultiplePrimaryKeys] = Field(default_factory=list)

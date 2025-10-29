@@ -132,6 +132,58 @@ class DbManager:
         """Get the SQL dialect name for sqlglot parsing."""
         return self._adapter.get_sqlglot_dialect()
 
+    # ---------- type normalization (dialect-aware, adapter-extensible) ----------
+    def normalize_type_family(self, type_str: str) -> str:
+        """Normalize raw column type to a coarse family using adapter if available.
+
+        Adapters can optionally implement `normalize_type_family(type_str)`. If not,
+        we apply a generic fallback that handles SQLite affinities and a coarse
+        grouping for server dialects.
+        """
+        # Adapter-provided override
+        method = getattr(self._adapter, "normalize_type_family", None)
+        if callable(method):
+            try:
+                fam = method(type_str)
+                if isinstance(fam, str) and fam:
+                    return fam
+            except Exception:
+                pass
+
+        # Fallback based on adapter name
+        t = (type_str or "").strip().upper()
+        d = (getattr(self._adapter, "name", "") or "").lower()
+
+        if d == "sqlite":
+            if "INT" in t:
+                return "INTEGER"
+            if any(x in t for x in ("CHAR", "CLOB", "TEXT")):
+                return "TEXT"
+            if "BLOB" in t or t == "":
+                return "BLOB"
+            if any(x in t for x in ("REAL", "FLOA", "DOUB")):
+                return "REAL"
+            return "NUMERIC"
+
+        # Generic coarse grouping for non-SQLite
+        if any(x in t for x in ("INT", "SERIAL", "SMALLINT", "BIGINT")):
+            return "INTEGER"
+        if any(x in t for x in ("CHAR", "TEXT", "CITEXT", "VARCHAR")):
+            return "TEXT"
+        if any(x in t for x in ("BOOL",)):
+            return "BOOLEAN"
+        if any(x in t for x in ("REAL", "DOUBLE", "FLOAT")):
+            return "REAL"
+        if any(x in t for x in ("DECIMAL", "NUMERIC")):
+            return "NUMERIC"
+        if any(x in t for x in ("DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ")):
+            return "DATETIME"
+        if any(x in t for x in ("JSON", "JSONB")):
+            return "JSON"
+        if any(x in t for x in ("BYTEA", "BLOB")):
+            return "BLOB"
+        return t or "UNKNOWN"
+
     # optional
     def get_record(self, db_id: str) -> Optional[DbRecord]:
         return self._records.get(db_id)
