@@ -54,6 +54,19 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
         for item in items:
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
+                # Emit a 'skipped' metric to record this decision
+                metric = QueryAntipatternMetricEvent(
+                    dataset_id=dataset_id,
+                    item_id=item.id,
+                    db_id=item.dbId,
+                    status="skipped",
+                    success=False,
+                    duration_ms=0.0,
+                    err="skipped due to previous analyzer failure",
+                    features=QueryAntipatternFeatures(parseable=False)
+                )
+                sink.write(metric)
+
                 self._annotate_item_skipped(item)
                 yield item
                 continue

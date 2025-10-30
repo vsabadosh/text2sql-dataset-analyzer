@@ -377,23 +377,25 @@ class MarkdownReportGenerator:
         
         lines.append("### Analyzers Run")
         lines.append("")
-        lines.append("| Analyzer | Items Analyzed | Success Rate |")
-        lines.append("|----------|----------------|--------------|")
+        lines.append("| Analyzer | Items Analyzed | Skipped | Success Rate (Analyzed) |")
+        lines.append("|----------|----------------|---------|--------------------------|")
         
         for analyzer_name, table_name in sorted(self.available_tables.items()):
             try:
                 result = self.conn.execute(f"""
                     SELECT COUNT(*) as total,
-                           SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful
+                           SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful,
+                           SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped
                     FROM {table_name} WHERE item_id IS NOT NULL OR db_id IS NOT NULL
                 """).fetchone()
                 
                 if result:
-                    total, successful = result
-                    success_rate = (successful / total * 100) if total > 0 else 0
+                    total, successful, skipped = result
+                    analyzed = (total or 0) - (skipped or 0)
+                    success_rate = (successful / analyzed * 100) if analyzed > 0 else 0
                     display_name = analyzer_name.replace("_annot", "").replace("_", " ").title()
-                    # Use 2 decimal places for better precision when success rate is high
-                    lines.append(f"| {display_name} | {total:,} | {success_rate:.2f}% |")
+                    # Items Analyzed reflects analyzed events (excludes skipped)
+                    lines.append(f"| {display_name} | {analyzed:,} | {skipped or 0:,} | {success_rate:.2f}% |")
             except Exception:
                 pass
         
@@ -447,6 +449,11 @@ class MarkdownReportGenerator:
                 lines.append(f"- **Total Queries:** {total:,}")
                 lines.append(f"- **Average Complexity:** {avg_complexity:.1f}/100")
                 lines.append("")
+            # Skipped count
+            skipped = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status = 'skipped'").fetchone()[0]
+            if skipped:
+                lines.append(f"- **Skipped:** {skipped:,}")
+                lines.append("")
             
             difficulty = self.conn.execute(f"""
                 SELECT difficulty_level, COUNT(*) as count
@@ -476,16 +483,21 @@ class MarkdownReportGenerator:
         
         try:
             result = self.conn.execute(f"""
-                SELECT COUNT(*) as total, SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) as successful,
+                       SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped
                 FROM {table}
             """).fetchone()
             
             if result:
-                total, successful = result
-                success_rate = (successful / total * 100) if total else 0
-                lines.append(f"- **Total Queries:** {total:,}")
+                total, successful, skipped = result
+                analyzed = (total or 0) - (skipped or 0)
+                success_rate = (successful / analyzed * 100) if analyzed else 0
+                lines.append(f"- **Total Executions:** {total:,}")
+                lines.append(f"- **Analyzed:** {analyzed:,}")
                 lines.append(f"- **Successful:** {successful:,} ({success_rate:.2f}%)")
-                lines.append(f"- **Failed:** {total - successful:,}")
+                lines.append(f"- **Failed:** {max(analyzed - successful, 0):,}")
+                lines.append(f"- **Skipped:** {skipped or 0:,}")
                 lines.append("")
         except Exception as e:
             lines.append(f"*Error: {e}*")
@@ -509,6 +521,11 @@ class MarkdownReportGenerator:
                 avg_quality, avg_antipatterns = result
                 lines.append(f"- **Average Quality Score:** {avg_quality:.1f}/100")
                 lines.append(f"- **Average Antipatterns per Query:** {avg_antipatterns:.2f}")
+                lines.append("")
+            # Skipped count
+            skipped = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status = 'skipped'").fetchone()[0]
+            if skipped:
+                lines.append(f"- **Skipped:** {skipped:,}")
                 lines.append("")
             
             antipatterns = self.conn.execute(f"""
@@ -538,30 +555,35 @@ class MarkdownReportGenerator:
         lines = ["## 🤖 Semantic LLM Judge Analysis", ""]
         
         try:
-            # Get total count
+            # Get total and skipped counts
             total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            skipped = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status='skipped'").fetchone()[0]
             
             if total == 0:
                 lines.append("*No queries evaluated.*")
                 return "\n".join(lines)
             
             lines.append(f"- **Total Queries Evaluated:** {total:,}")
+            analyzed = (total or 0) - (skipped or 0)
+            if skipped:
+                lines.append(f"- **Analyzed:** {analyzed:,}")
+                lines.append(f"- **Skipped Evaluations:** {skipped:,}")
             
             # Majority CORRECT (with unanimous subset)
             majority_correct = self.conn.execute(f"""
                 SELECT COUNT(*) 
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND status != 'skipped'
             """).fetchone()[0]
             
             unanimous_correct = self.conn.execute(f"""
                 SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true AND status != 'skipped'
             """).fetchone()[0]
             
-            majority_correct_pct = (majority_correct / total * 100) if total else 0
-            unanimous_correct_pct = (unanimous_correct / total * 100) if total else 0
+            majority_correct_pct = (majority_correct / analyzed * 100) if analyzed else 0
+            unanimous_correct_pct = (unanimous_correct / analyzed * 100) if analyzed else 0
             lines.append(f"- **Majority CORRECT:** {majority_correct:,} ({majority_correct_pct:.1f}%)")
             lines.append(f"    *of which Unanimous CORRECT: {unanimous_correct:,} ({unanimous_correct_pct:.1f}%)*")
             
@@ -569,36 +591,36 @@ class MarkdownReportGenerator:
             majority_partial = self.conn.execute(f"""
                 SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
             """).fetchone()[0]
-            majority_partial_pct = (majority_partial / total * 100) if total else 0
+            majority_partial_pct = (majority_partial / analyzed * 100) if analyzed else 0
             lines.append(f"- **Majority PARTIALLY_CORRECT:** {majority_partial:,} ({majority_partial_pct:.1f}%)")
             
             # Majority INCORRECT
             majority_incorrect = self.conn.execute(f"""
                 SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
             """).fetchone()[0]
-            majority_incorrect_pct = (majority_incorrect / total * 100) if total else 0
+            majority_incorrect_pct = (majority_incorrect / analyzed * 100) if analyzed else 0
             lines.append(f"- **Majority INCORRECT:** {majority_incorrect:,} ({majority_incorrect_pct:.1f}%)")
             
             # Mixed (No Majority)
             mixed = self.conn.execute(f"""
                 SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = false AND status != 'failed'
+                WHERE consensus_reached = false AND status NOT IN ('failed','skipped')
             """).fetchone()[0]
-            mixed_pct = (mixed / total * 100) if total else 0
+            mixed_pct = (mixed / analyzed * 100) if analyzed else 0
             lines.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
             
             # Majority UNANSWERABLE
             majority_unanswerable = self.conn.execute(f"""
                 SELECT COUNT(*)
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND status != 'skipped'
             """).fetchone()[0]
-            majority_unanswerable_pct = (majority_unanswerable / total * 100) if total else 0
+            majority_unanswerable_pct = (majority_unanswerable / analyzed * 100) if analyzed else 0
             lines.append(f"- **Majority UNANSWERABLE:** {majority_unanswerable:,} ({majority_unanswerable_pct:.1f}%)")
             
             # Failed evaluations
@@ -608,7 +630,7 @@ class MarkdownReportGenerator:
                 WHERE status = 'failed'
             """).fetchone()[0]
             if failed > 0:
-                failed_pct = (failed / total * 100) if total else 0
+                failed_pct = (failed / analyzed * 100) if analyzed else 0
                 lines.append(f"- **Failed Evaluations:** {failed:,} ({failed_pct:.1f}%)")
             
             lines.append("")
@@ -752,8 +774,9 @@ class MarkdownReportGenerator:
         sections.append("")
         
         try:
-            # Get total count
+            # Get total and skipped counts
             total = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            skipped = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status='skipped'").fetchone()[0]
             
             if total == 0:
                 sections.append("*No queries evaluated.*")
@@ -764,53 +787,57 @@ class MarkdownReportGenerator:
             sections.append("## Summary")
             sections.append("")
             sections.append(f"- **Total Queries Evaluated:** {total:,}")
+            analyzed = (total or 0) - (skipped or 0)
+            if skipped:
+                sections.append(f"- **Analyzed:** {analyzed:,}")
+                sections.append(f"- **Skipped Evaluations:** {skipped:,}")
             
             # Majority CORRECT (with unanimous subset)
             majority_correct = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND status != 'skipped'
             """).fetchone()[0]
             
             unanimous_correct = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = true AND status != 'skipped'
             """).fetchone()[0]
             
-            majority_correct_pct = (majority_correct / total * 100) if total else 0
-            unanimous_correct_pct = (unanimous_correct / total * 100) if total else 0
+            majority_correct_pct = (majority_correct / analyzed * 100) if analyzed else 0
+            unanimous_correct_pct = (unanimous_correct / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority CORRECT:** {majority_correct:,} ({majority_correct_pct:.1f}%)")
             sections.append(f"    *of which Unanimous CORRECT: {unanimous_correct:,} ({unanimous_correct_pct:.1f}%)*")
             
             # Majority PARTIALLY_CORRECT
             majority_partial = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
             """).fetchone()[0]
-            majority_partial_pct = (majority_partial / total * 100) if total else 0
+            majority_partial_pct = (majority_partial / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority PARTIALLY_CORRECT:** {majority_partial:,} ({majority_partial_pct:.1f}%)")
             
             # Majority INCORRECT
             majority_incorrect = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
             """).fetchone()[0]
-            majority_incorrect_pct = (majority_incorrect / total * 100) if total else 0
+            majority_incorrect_pct = (majority_incorrect / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority INCORRECT:** {majority_incorrect:,} ({majority_incorrect_pct:.1f}%)")
             
             # Mixed (No Majority)
             mixed = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = false AND status != 'failed'
+                WHERE consensus_reached = false AND status NOT IN ('failed','skipped')
             """).fetchone()[0]
-            mixed_pct = (mixed / total * 100) if total else 0
+            mixed_pct = (mixed / analyzed * 100) if analyzed else 0
             sections.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
             
             # Majority UNANSWERABLE
             majority_unanswerable = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND status != 'skipped'
             """).fetchone()[0]
-            majority_unanswerable_pct = (majority_unanswerable / total * 100) if total else 0
+            majority_unanswerable_pct = (majority_unanswerable / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority UNANSWERABLE:** {majority_unanswerable:,} ({majority_unanswerable_pct:.1f}%)")
             
             # Failed evaluations
@@ -819,7 +846,7 @@ class MarkdownReportGenerator:
                 WHERE status = 'failed'
             """).fetchone()[0]
             if failed > 0:
-                failed_pct = (failed / total * 100) if total else 0
+                failed_pct = (failed / analyzed * 100) if analyzed else 0
                 sections.append(f"- **Failed Evaluations:** {failed:,} ({failed_pct:.1f}%)")
             
             sections.append("")
@@ -850,7 +877,7 @@ class MarkdownReportGenerator:
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = false
+                WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = false AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
@@ -910,7 +937,7 @@ class MarkdownReportGenerator:
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
@@ -970,7 +997,7 @@ class MarkdownReportGenerator:
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT'
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
@@ -1030,7 +1057,7 @@ class MarkdownReportGenerator:
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE consensus_reached = false AND status != 'failed'
+                WHERE consensus_reached = false AND status NOT IN ('failed','skipped')
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()
@@ -1090,7 +1117,7 @@ class MarkdownReportGenerator:
                 SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
-                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE'
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
                 LIMIT 50
             """).fetchall()

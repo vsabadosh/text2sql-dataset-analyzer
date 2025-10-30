@@ -48,15 +48,31 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
     def __init__(self, db_manager: DbManager) -> None:
         self.db_manager = db_manager
         
-        # Cache: db_id -> (ok, error_msg)
+        # Cache: db_id -> (status, error_msg)
         # If db_id is in cache, we've already analyzed and emitted metric for it
-        self._analyzed_dbs: Dict[str, Tuple[bool, str]] = {}
+        # Status preserves full outcome: "ok" | "errors" | "warns" | "failed"
+        self._analyzed_dbs: Dict[str, Tuple[str, str]] = {}
 
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit schema validation metrics."""
         for item in items:
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
+                # Emit a 'skipped' metric to record this decision
+                metric = SchemaAnalysisMetricEvent(
+                    dataset_id=dataset_id,
+                    item_id=None,
+                    db_id=item.dbId,
+                    status="skipped",
+                    success=False,
+                    duration_ms=0.0,
+                    err="skipped due to previous analyzer failure",
+                    features=SchemaAnalysisFeatures(parsed=False, evidence=SchemaEvidence()),
+                    stats=SchemaAnalysisStats(),
+                    tags=SchemaAnalysisTags(dialect=self.db_manager._adapter.name, source="reflection")
+                )
+                sink.write(metric)
+
                 self._annotate_item_skipped(item)
                 yield item
                 continue
@@ -64,8 +80,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             # Check if we've already analyzed this database
             if item.dbId in self._analyzed_dbs:
                 # Already analyzed - just annotate item, don't emit metric
-                ok, _ = self._analyzed_dbs[item.dbId]
-                self._annotate_item(item, "ok" if ok else "failed")
+                cached_status, _ = self._analyzed_dbs[item.dbId]
+                self._annotate_item(item, cached_status)
                 yield item
                 continue
             
@@ -98,8 +114,8 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
             # Emit metric (only once per db_id)
             sink.write(metric)
             
-            # Cache result
-            self._analyzed_dbs[item.dbId] = (success, error or "")
+            # Cache result with full status to preserve warns/errors distinctions
+            self._analyzed_dbs[item.dbId] = (status, error or "")
             
             # Annotate item
             self._annotate_item(item, status)
@@ -481,6 +497,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         """Return analyzer statistics."""
         return {
             "analyzed_databases": len(self._analyzed_dbs),
-            "successful": sum(1 for ok, _ in self._analyzed_dbs.values() if ok),
-            "failed": sum(1 for ok, _ in self._analyzed_dbs.values() if not ok)
+            "successful": sum(1 for st, _ in self._analyzed_dbs.values() if st == "ok"),
+            # Treat non-ok (errors/warns/failed) as not successful for this simple breakdown
+            "failed": sum(1 for st, _ in self._analyzed_dbs.values() if st != "ok")
         }
