@@ -51,6 +51,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
     def __init__(
         self,
         db_manager: DbManager,
+        enabled: bool,
         providers: List[Dict[str, Any]] | None = None,
         prompt_variant: str = "default",
         custom_prompt: str | None = None,
@@ -75,6 +76,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             raise ValueError(f"Invalid schema_mode: {schema_mode}. Must be 'full' or 'query_derived'")
 
         self.db_manager = db_manager
+        self.enabled = enabled
         self.num_examples = num_examples
         self.schema_mode = schema_mode
         
@@ -103,6 +105,9 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
             return
 
         for item in items:
+            if not self.enabled:
+                yield item;  
+                continue     
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

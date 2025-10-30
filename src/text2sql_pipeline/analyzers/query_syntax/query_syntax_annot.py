@@ -35,7 +35,8 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
     name = "query_syntax_annot"
     INJECT = ["db_manager"]  
 
-    def __init__(self, db_manager: DbManager) -> None:
+    def __init__(self, db_manager: DbManager, enabled: bool) -> None:
+        self.enabled = enabled
         self.db_dialect = db_manager.get_sqlglot_dialect()
 
     # --------------------------- public API ---------------------------
@@ -43,6 +44,10 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query syntax metrics."""
         for item in items:
+            if not self.enabled:
+                yield item;   
+                continue 
+            
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

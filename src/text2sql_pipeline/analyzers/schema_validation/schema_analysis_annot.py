@@ -45,8 +45,9 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
     name = "schema_analysis_annot"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
 
-    def __init__(self, db_manager: DbManager) -> None:
+    def __init__(self, db_manager: DbManager, enabled: bool) -> None:
         self.db_manager = db_manager
+        self.enabled = enabled
         
         # Cache: db_id -> (status, error_msg)
         # If db_id is in cache, we've already analyzed and emitted metric for it
@@ -56,6 +57,9 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit schema validation metrics."""
         for item in items:
+            if not self.enabled:
+                yield item;   
+                continue 
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

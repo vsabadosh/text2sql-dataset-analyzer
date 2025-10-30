@@ -40,16 +40,21 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
     def __init__(
         self,
         db_manager: DbManager,
+        enabled: bool,
         mode: str = "select_only",
         safety_limit: int = 1
     ) -> None:
         self.db_manager = db_manager
         self.mode = mode
         self.safety_limit = safety_limit
+        self.enabled = enabled
 
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query execution metrics."""
         for item in items:
+            if not self.enabled:
+                yield item;   
+                continue 
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

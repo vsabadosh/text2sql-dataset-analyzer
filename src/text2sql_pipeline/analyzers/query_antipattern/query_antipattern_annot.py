@@ -44,14 +44,19 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
     name = "query_antipattern_annot"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
     
-    def __init__(self, db_manager: DbManager) -> None:
+    def __init__(self, db_manager: DbManager, enabled: bool) -> None:
         self.db_dialect = db_manager.get_sqlglot_dialect()
+        self.enabled = enabled
     
     # --------------------------- public API ---------------------------
     
     def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit antipattern detection metrics."""
         for item in items:
+            if not self.enabled:
+                yield item;   
+                continue 
+
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

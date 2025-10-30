@@ -151,36 +151,71 @@ class DuckDBMetricsSink(MetricsSink):
             -- Features (query syntax specific)
             parseable BOOLEAN,
             statement_type VARCHAR,
-            num_tables INTEGER,
-            num_columns INTEGER,
-            num_joins INTEGER,
+            is_select BOOLEAN,
+            is_read_only BOOLEAN,
+            
+            -- Tables & Columns
+            table_count INTEGER,
+            tables JSON,
+            column_count INTEGER,
+            uses_wildcard BOOLEAN,
+            has_distinct BOOLEAN,
+            
+            -- Joins
+            join_count INTEGER,
             join_types JSON,
-            num_subqueries INTEGER,
+            
+            -- Subqueries
+            subquery_count INTEGER,
             max_subquery_depth INTEGER,
-            has_aggregation BOOLEAN,
-            num_aggregates INTEGER,
+            
+            -- Aggregations
+            aggregate_count INTEGER,
+            aggregate_types JSON,
             has_group_by BOOLEAN,
             has_having BOOLEAN,
+            
+            -- Filtering
+            has_where BOOLEAN,
+            where_condition_count INTEGER,
+            
+            -- Sorting & Limiting
             has_order_by BOOLEAN,
+            order_by_columns INTEGER,
             has_limit BOOLEAN,
-            has_distinct BOOLEAN,
-            has_cte BOOLEAN,
+            has_offset BOOLEAN,
+            
+            -- Advanced features
+            cte_count INTEGER,
             has_recursive_cte BOOLEAN,
-            has_window_functions BOOLEAN,
-            window_functions JSON,
-            has_set_operations BOOLEAN,
-            set_operations JSON,
-            has_union_all BOOLEAN,
+            window_fn_count INTEGER,
+            window_fn_types JSON,
+            has_window_frame BOOLEAN,
+            
+            -- Set operations
+            set_op_count INTEGER,
+            set_op_types JSON,
+            
+            -- Special operators
+            has_like BOOLEAN,
+            has_in BOOLEAN,
+            has_between BOOLEAN,
+            has_case BOOLEAN,
+            
+            -- Complexity & Difficulty
             complexity_score DOUBLE,
             difficulty_level VARCHAR,
             
             -- Stats
             collect_ms DOUBLE,
+            parser VARCHAR,
             dialect VARCHAR,
             errors JSON,
+            warnings JSON,
             
             -- Tags
             tags_dialect VARCHAR,
+            tags_source VARCHAR,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -472,52 +507,87 @@ class DuckDBMetricsSink(MetricsSink):
                 INSERT INTO {table_name} VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?
                 )
             """, [
+                # Metadata
                 rec.get("ts"),
                 rec.get("spec_version"),
                 rec.get("dataset_id"),
                 rec.get("item_id"),
                 rec.get("db_id"),
+                # Event identity
                 rec.get("event_type"),
                 rec.get("name"),
+                # Status
                 rec.get("status"),
                 rec.get("success"),
                 rec.get("duration_ms"),
                 rec.get("err"),
+                # Features
                 features.get("parseable"),
                 features.get("statement_type"),
-                features.get("num_tables"),
-                features.get("num_columns"),
-                features.get("num_joins"),
+                features.get("is_select"),
+                features.get("is_read_only"),
+                # Tables & Columns
+                features.get("table_count"),
+                json.dumps(features.get("tables", [])),
+                features.get("column_count"),
+                features.get("uses_wildcard"),
+                features.get("has_distinct"),
+                # Joins
+                features.get("join_count"),
                 json.dumps(features.get("join_types", [])),
-                features.get("num_subqueries"),
+                # Subqueries
+                features.get("subquery_count"),
                 features.get("max_subquery_depth"),
-                features.get("has_aggregation"),
-                features.get("num_aggregates"),
+                # Aggregations
+                features.get("aggregate_count"),
+                json.dumps(features.get("aggregate_types", [])),
                 features.get("has_group_by"),
                 features.get("has_having"),
+                # Filtering
+                features.get("has_where"),
+                features.get("where_condition_count"),
+                # Sorting & Limiting
                 features.get("has_order_by"),
+                features.get("order_by_columns"),
                 features.get("has_limit"),
-                features.get("has_distinct"),
-                features.get("has_cte"),
+                features.get("has_offset"),
+                # Advanced features
+                features.get("cte_count"),
                 features.get("has_recursive_cte"),
-                features.get("has_window_functions"),
-                json.dumps(features.get("window_functions", [])),
-                features.get("has_set_operations"),
-                json.dumps(features.get("set_operations", [])),
-                features.get("has_union_all"),
+                features.get("window_fn_count"),
+                json.dumps(features.get("window_fn_types", [])),
+                features.get("has_window_frame"),
+                # Set operations
+                features.get("set_op_count"),
+                json.dumps(features.get("set_op_types", [])),
+                # Special operators
+                features.get("has_like"),
+                features.get("has_in"),
+                features.get("has_between"),
+                features.get("has_case"),
+                # Complexity & Difficulty
                 features.get("complexity_score"),
                 features.get("difficulty_level"),
+                # Stats
                 stats.get("collect_ms"),
+                stats.get("parser"),
                 stats.get("dialect"),
                 json.dumps(stats.get("errors", [])),
-                tags.get("dialect")
+                json.dumps(stats.get("warnings", [])),
+                # Tags
+                tags.get("dialect"),
+                tags.get("source")
             ])
     
     def _insert_query_execution(self, table_name: str, records: list[Dict[str, Any]]) -> None:
