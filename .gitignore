@@ -146,5 +146,6 @@ cython_debug/
 # Project specific
 *.sqlite
 *.db
-
+*secrets-intellias.txt
+*Spider Dataset_*
 

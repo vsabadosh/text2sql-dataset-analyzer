@@ -37,6 +37,12 @@ def main():
         required=True,
         help="Output path for markdown report"
     )
+    report_parser.add_argument(
+        "--type",
+        choices=["full", "query-structure", "table-coverage", "query-quality", "all"],
+        default="full",
+        help="Type of report to generate (default: full)"
+    )
     
     # Parse arguments
     args = parser.parse_args()
@@ -50,15 +56,56 @@ def main():
     
     elif args.command == "report":
         try:
-            from text2sql_pipeline.output.report import generate_report_from_db
-            generate_report_from_db(args.database, args.output)
-            print(f"✅ Report generated: {args.output}")
+            from text2sql_pipeline.output.report import (
+                generate_report_from_db,
+                generate_query_structure_profile_report,
+                generate_table_coverage_report,
+                generate_query_quality_report,
+            )
+            
+            report_type = args.type
+            
+            if report_type == "full":
+                generate_report_from_db(args.database, args.output)
+                print(f"✅ Report generated: {args.output}")
+            elif report_type == "query-structure":
+                generate_query_structure_profile_report(args.database, args.output)
+                print(f"✅ Query Structure Profile report generated: {args.output}")
+            elif report_type == "table-coverage":
+                generate_table_coverage_report(args.database, args.output)
+                print(f"✅ Table Coverage report generated: {args.output}")
+            elif report_type == "query-quality":
+                generate_query_quality_report(args.database, args.output)
+                print(f"✅ Query Quality report generated: {args.output}")
+            elif report_type == "all":
+                # Generate all 3 new reports with appropriate filenames
+                import os
+                output_dir = os.path.dirname(args.output) or "."
+                base_name = os.path.splitext(os.path.basename(args.output))[0]
+                
+                structure_path = os.path.join(output_dir, f"{base_name}_structure.md")
+                coverage_path = os.path.join(output_dir, f"{base_name}_coverage.md")
+                quality_path = os.path.join(output_dir, f"{base_name}_quality.md")
+                
+                generate_query_structure_profile_report(args.database, structure_path)
+                print(f"✅ Query Structure Profile: {structure_path}")
+                
+                generate_table_coverage_report(args.database, coverage_path)
+                print(f"✅ Table Coverage: {coverage_path}")
+                
+                generate_query_quality_report(args.database, quality_path)
+                print(f"✅ Query Quality: {quality_path}")
+                
+                print(f"\n🎉 All 3 reports generated successfully!")
+            
             return 0
         except ImportError:
             print("❌ Error: duckdb not installed. Install with: pip install duckdb", file=sys.stderr)
             return 1
         except Exception as e:
             print(f"❌ Error generating report: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
             return 1
     
     else:

@@ -6,20 +6,24 @@ from sqlglot import exp
 
 from .query_metrics import QuerySyntaxFeatures
 
-def collect_features(sql: str, dialect: Optional[str] = "sqlite") -> QuerySyntaxFeatures:
+def collect_features(sql: str, dialect: Optional[str] = "sqlite") -> tuple[QuerySyntaxFeatures, Optional[str]]:
     """
     Pure public API for tests and other callers.
     Never touches DB/metrics/pipeline objects.
+    
+    Returns:
+        tuple: (QuerySyntaxFeatures, error_message)
+               error_message is None if parsing succeeded
     """
     if not sql or not sql.strip():
-        return QuerySyntaxFeatures(parseable=False)
+        return QuerySyntaxFeatures(parseable=False), "Empty or null SQL"
 
     try:
         ast = sqlglot.parse_one(sql, read=dialect or "sqlite")
-    except Exception:
-        return QuerySyntaxFeatures(parseable=False)
+    except Exception as e:
+        return QuerySyntaxFeatures(parseable=False), f"Unparsable error: {str(e)}"
 
-    return _extract_features_from_ast(ast)
+    return _extract_features_from_ast(ast), None
 
 def _extract_features_from_ast(ast: exp.Expression) -> QuerySyntaxFeatures:
     f = QuerySyntaxFeatures()

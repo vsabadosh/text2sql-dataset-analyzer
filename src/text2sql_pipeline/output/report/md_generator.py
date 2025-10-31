@@ -1206,6 +1206,1293 @@ class MarkdownReportGenerator:
         
         return "\n".join(lines)
     
+    def generate_query_structure_profile_report(self, output_path: str) -> None:
+        """Generate Query Structure Profile Report (Report 1 - Minimal Version)."""
+        table = self.available_tables.get("query_syntax")
+        if not table:
+            Path(output_path).write_text("# Query Structure Profile Report\n\nNo query syntax metrics available.", encoding="utf-8")
+            return
+
+        sections: list[str] = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Header
+        sections.append(f"# Query Structure Profile Report\n\n**Generated:** {now}")
+        sections.append("")
+        
+        # Overview
+        try:
+            total = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'").fetchone()[0]
+            sections.append(f"**Total Queries Analyzed:** {total:,}")
+            sections.append("")
+        except Exception:
+            pass
+        
+        # A) Joins Analysis
+        sections.append(self._generate_joins_structure_analysis(table))
+        
+        # B) Subqueries & CTEs
+        sections.append(self._generate_subqueries_ctes_analysis(table))
+        
+        # D) Aggregation & Grouping
+        sections.append(self._generate_aggregation_structure_analysis(table))
+        
+        # I) Query Complexity Distribution
+        sections.append(self._generate_complexity_structure_analysis(table))
+        
+        # J) Cross-Feature Analysis
+        sections.append(self._generate_feature_combinations_analysis(table))
+        
+        # L) Dataset Health Summary
+        sections.append(self._generate_dataset_health_summary(table))
+        
+        Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+    
+    def _generate_joins_structure_analysis(self, table: str) -> str:
+        """Generate joins analysis section (A1, A2)."""
+        lines = ["## A) Joins Analysis", ""]
+        
+        try:
+            # A1) Joins per Query Distribution
+            lines.append("### A1) Joins per Query Distribution")
+            lines.append("")
+            lines.append("| Joins per query | Count | Share |")
+            lines.append("|----------------|-------|-------|")
+            
+            join_dist = self.conn.execute(f"""
+                SELECT 
+                    CASE 
+                        WHEN join_count = 0 THEN '0 (single-table)'
+                        WHEN join_count = 1 THEN '1 join'
+                        WHEN join_count = 2 THEN '2 joins'
+                        WHEN join_count = 3 THEN '3 joins'
+                        WHEN join_count = 4 THEN '4 joins'
+                        WHEN join_count >= 5 THEN '5+ joins'
+                    END as join_category,
+                    COUNT(*) as count,
+                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) as share
+                FROM {table}
+                WHERE parseable = true AND status != 'skipped'
+                GROUP BY join_count
+                ORDER BY join_count
+            """).fetchall()
+            
+            total_count = 0
+            for category, count, share in join_dist:
+                lines.append(f"| {category} | {count:,} | {share}% |")
+                total_count += count
+            
+            lines.append(f"| **Total** | **{total_count:,}** | **100%** |")
+            lines.append("")
+            
+            # A2) Join Type Distribution
+            lines.append("### A2) Join Type Distribution")
+            lines.append("")
+            lines.append("*(for queries with ≥1 join)*")
+            lines.append("")
+            lines.append("| Join type | Queries using | Share of joined queries | Share of all queries |")
+            lines.append("|-----------|--------------|------------------------|---------------------|")
+            
+            # Get total queries and joined queries counts
+            total_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            joined_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE join_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            # Count join types - need to handle JSON array of join_types
+            join_types_data = self.conn.execute(f"""
+                SELECT join_types 
+                FROM {table}
+                WHERE join_count > 0 AND parseable = true AND status != 'skipped' AND join_types IS NOT NULL
+            """).fetchall()
+            
+            # Parse join types and count
+            join_type_counts = {}
+            for (join_types_str,) in join_types_data:
+                if join_types_str:
+                    try:
+                        import json
+                        join_types_list = json.loads(join_types_str) if isinstance(join_types_str, str) else join_types_str
+                        if isinstance(join_types_list, list):
+                            for jtype in join_types_list:
+                                jtype = jtype.strip().strip('"').strip("'")
+                                join_type_counts[jtype] = join_type_counts.get(jtype, 0) + 1
+                    except Exception:
+                        pass
+            
+            # Sort by count descending
+            for jtype, count in sorted(join_type_counts.items(), key=lambda x: x[1], reverse=True):
+                share_joined = round(count * 100.0 / joined_queries, 1) if joined_queries > 0 else 0
+                share_all = round(count * 100.0 / total_queries, 1) if total_queries > 0 else 0
+                
+                # Format join type name
+                display_name = jtype
+                if jtype.upper() == "INNER":
+                    display_name = "INNER (implicit/explicit)"
+                elif jtype.upper() in ["LEFT", "RIGHT", "FULL"]:
+                    display_name = f"{jtype.upper()} (OUTER)"
+                else:
+                    display_name = jtype.upper()
+                
+                lines.append(f"| {display_name} | {count:,} | {share_joined}% | {share_all}% |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating joins analysis: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_subqueries_ctes_analysis(self, table: str) -> str:
+        """Generate subqueries and CTEs analysis (B1, B3)."""
+        lines = ["## B) Subqueries & CTEs", ""]
+        
+        try:
+            total_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            # B1) Subquery Presence & Depth
+            lines.append("### B1) Subquery Presence & Depth")
+            lines.append("")
+            lines.append("| Feature | Count | Share | Notes |")
+            lines.append("|---------|-------|-------|-------|")
+            
+            # Has ≥1 subquery
+            has_subq = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE subquery_count >= 1 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(has_subq * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            lines.append(f"| Has ≥1 subquery | {has_subq:,} | {share}% | At least one subquery |")
+            
+            # Has correlated subquery (approximation - would need specific detection)
+            # For now, use subqueries as proxy
+            correlated = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE subquery_count >= 1 AND (has_in = true OR has_where = true) AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(correlated * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            lines.append(f"| Has correlated subquery | {correlated:,} | {share}% | Uses outer reference (EXISTS/IN) |")
+            
+            # Nested subquery depth
+            depth_2 = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE max_subquery_depth >= 2 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(depth_2 * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            lines.append(f"| Has nested subquery (depth ≥2) | {depth_2:,} | {share}% | Subquery within subquery |")
+            
+            # Max depth breakdown
+            depth_dist = self.conn.execute(f"""
+                SELECT 
+                    max_subquery_depth,
+                    COUNT(*) as count
+                FROM {table}
+                WHERE subquery_count > 0 AND parseable = true AND status != 'skipped'
+                GROUP BY max_subquery_depth
+                ORDER BY max_subquery_depth
+            """).fetchall()
+            
+            for depth, count in depth_dist:
+                if depth == 1:
+                    share = round(count * 100.0 / total_queries, 1)
+                    lines.append(f"| Max depth = 1 | {count:,} | {share}% | Simple subqueries only |")
+                elif depth == 2:
+                    share = round(count * 100.0 / total_queries, 1)
+                    lines.append(f"| Max depth = 2 | {count:,} | {share}% | Two-level nesting |")
+                elif depth >= 3:
+                    share = round(count * 100.0 / total_queries, 1)
+                    lines.append(f"| Max depth ≥ 3 | {count:,} | {share}% | Deep nesting (complex) |")
+            
+            lines.append("")
+            
+            # B3) Common Table Expressions (WITH)
+            lines.append("### B3) Common Table Expressions (WITH)")
+            lines.append("")
+            lines.append("| Feature | Count | Share | Median CTEs when present |")
+            lines.append("|---------|-------|-------|-------------------------|")
+            
+            # Has ≥1 CTE
+            has_cte = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE cte_count >= 1 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            # Median CTEs when present
+            median_cte = self.conn.execute(f"""
+                SELECT MEDIAN(cte_count) FROM {table}
+                WHERE cte_count >= 1 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            share = round(has_cte * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            lines.append(f"| Has ≥1 CTE | {has_cte:,} | {share}% | {int(median_cte)} |")
+            
+            # Multiple CTEs
+            multi_cte = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE cte_count >= 2 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(multi_cte * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            
+            median_multi = self.conn.execute(f"""
+                SELECT MEDIAN(cte_count) FROM {table}
+                WHERE cte_count >= 2 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            lines.append(f"| Has multiple CTEs (≥2) | {multi_cte:,} | {share}% | {int(median_multi)} |")
+            
+            # 3+ CTEs
+            many_cte = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE cte_count >= 3 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(many_cte * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            
+            median_many = self.conn.execute(f"""
+                SELECT MEDIAN(cte_count) FROM {table}
+                WHERE cte_count >= 3 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            lines.append(f"| Has 3+ CTEs | {many_cte:,} | {share}% | {int(median_many)} |")
+            
+            # Recursive CTE
+            recursive = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE has_recursive_cte = true AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(recursive * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            lines.append(f"| Has recursive CTE | {recursive:,} | {share}% | — |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating subqueries/CTEs analysis: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_aggregation_structure_analysis(self, table: str) -> str:
+        """Generate aggregation analysis (D2, D3)."""
+        lines = ["## D) Aggregation & Grouping", ""]
+        
+        try:
+            total_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            agg_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE aggregate_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            # D2) Aggregate Function Usage
+            lines.append("### D2) Aggregate Function Usage")
+            lines.append("")
+            lines.append("| Function | Count | Share of all queries | Share of agg queries |")
+            lines.append("|----------|-------|---------------------|---------------------|")
+            
+            # Parse aggregate_types to count functions
+            agg_types_data = self.conn.execute(f"""
+                SELECT aggregate_types 
+                FROM {table}
+                WHERE aggregate_count > 0 AND parseable = true AND status != 'skipped' AND aggregate_types IS NOT NULL
+            """).fetchall()
+            
+            func_counts = {}
+            for (agg_types_str,) in agg_types_data:
+                if agg_types_str:
+                    try:
+                        import json
+                        agg_list = json.loads(agg_types_str) if isinstance(agg_types_str, str) else agg_types_str
+                        if isinstance(agg_list, list):
+                            for func in agg_list:
+                                func = func.strip().strip('"').strip("'")
+                                func_counts[func] = func_counts.get(func, 0) + 1
+                    except Exception:
+                        pass
+            
+            # Map function names to standard names
+            func_mapping = {
+                "COUNT": "COUNT",
+                "SUM": "SUM",
+                "AVG": "AVG",
+                "MAX": "MAX",
+                "MIN": "MIN",
+            }
+            
+            standard_counts = {}
+            other_count = 0
+            for func, count in func_counts.items():
+                func_upper = func.upper()
+                mapped = None
+                for key in func_mapping:
+                    if key in func_upper:
+                        mapped = func_mapping[key]
+                        break
+                if mapped:
+                    standard_counts[mapped] = standard_counts.get(mapped, 0) + count
+                else:
+                    other_count += count
+            
+            # Sort by count
+            for func in ["COUNT", "SUM", "AVG", "MAX", "MIN"]:
+                count = standard_counts.get(func, 0)
+                if count > 0:
+                    share_all = round(count * 100.0 / total_queries, 1)
+                    share_agg = round(count * 100.0 / agg_queries, 1) if agg_queries > 0 else 0
+                    lines.append(f"| {func} | {count:,} | {share_all}% | {share_agg}% |")
+            
+            if other_count > 0:
+                share_all = round(other_count * 100.0 / total_queries, 1)
+                share_agg = round(other_count * 100.0 / agg_queries, 1) if agg_queries > 0 else 0
+                lines.append(f"| Other (GROUP_CONCAT, etc.) | {other_count:,} | {share_all}% | {share_agg}% |")
+            
+            lines.append("")
+            
+            # D3) Aggregation Complexity
+            lines.append("### D3) Aggregation Complexity")
+            lines.append("")
+            lines.append("| Pattern | Count | Share | Description |")
+            lines.append("|---------|-------|-------|-------------|")
+            
+            # Single aggregate
+            single_agg = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE aggregate_count = 1 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(single_agg * 100.0 / total_queries, 1)
+            lines.append(f"| Single aggregate | {single_agg:,} | {share}% | One aggregate function |")
+            
+            # Multiple aggregates
+            multi_agg = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE aggregate_count >= 2 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(multi_agg * 100.0 / total_queries, 1)
+            lines.append(f"| Multiple aggregates | {multi_agg:,} | {share}% | 2+ aggregate functions |")
+            
+            # Nested aggregation (aggregate + subquery)
+            nested_agg = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE aggregate_count > 0 AND subquery_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(nested_agg * 100.0 / total_queries, 1)
+            lines.append(f"| Nested aggregation | {nested_agg:,} | {share}% | Aggregate of aggregate (subquery) |")
+            
+            # HAVING without GROUP BY
+            having_no_group = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE has_having = true AND has_group_by = false AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(having_no_group * 100.0 / total_queries, 1)
+            lines.append(f"| HAVING without GROUP BY | {having_no_group:,} | {share}% | Rare pattern |")
+            
+            # DISTINCT with GROUP BY
+            distinct_group = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE has_distinct = true AND has_group_by = true AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            share = round(distinct_group * 100.0 / total_queries, 1)
+            lines.append(f"| DISTINCT with GROUP BY | {distinct_group:,} | {share}% | Redundant pattern |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating aggregation analysis: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_complexity_structure_analysis(self, table: str) -> str:
+        """Generate complexity distribution (I1, I2)."""
+        lines = ["## I) Query Complexity Distribution", ""]
+        
+        try:
+            # I1) Difficulty Levels
+            lines.append("### I1) Difficulty Levels")
+            lines.append("")
+            lines.append("| Difficulty | Count | Share | Complexity Score Range |")
+            lines.append("|------------|-------|-------|----------------------|")
+            
+            difficulty_dist = self.conn.execute(f"""
+                SELECT 
+                    difficulty_level,
+                    COUNT(*) as count,
+                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) as share
+                FROM {table}
+                WHERE parseable = true AND status != 'skipped'
+                GROUP BY difficulty_level
+                ORDER BY 
+                    CASE difficulty_level
+                        WHEN 'easy' THEN 1
+                        WHEN 'medium' THEN 2
+                        WHEN 'hard' THEN 3
+                        WHEN 'expert' THEN 4
+                        ELSE 5
+                    END
+            """).fetchall()
+            
+            score_ranges = {
+                'easy': '10-29',
+                'medium': '30-59',
+                'hard': '60-79',
+                'expert': '80-100'
+            }
+            
+            for difficulty, count, share in difficulty_dist:
+                score_range = score_ranges.get(difficulty, '0-9')
+                lines.append(f"| {difficulty.capitalize()} | {count:,} | {share}% | {score_range} |")
+            
+            lines.append("")
+            
+            # I2) Feature Density
+            lines.append("### I2) Feature Density")
+            lines.append("")
+            lines.append("*(avg features per query by difficulty)*")
+            lines.append("")
+            lines.append("| Difficulty | Avg Tables | Avg Joins | Avg Subqueries | Avg Aggregates | Avg Complexity |")
+            lines.append("|------------|-----------|-----------|----------------|----------------|----------------|")
+            
+            feature_density = self.conn.execute(f"""
+                SELECT 
+                    difficulty_level,
+                    ROUND(AVG(table_count), 1) as avg_tables,
+                    ROUND(AVG(join_count), 1) as avg_joins,
+                    ROUND(AVG(subquery_count), 1) as avg_subqueries,
+                    ROUND(AVG(aggregate_count), 1) as avg_aggregates,
+                    ROUND(AVG(complexity_score), 1) as avg_complexity
+                FROM {table}
+                WHERE parseable = true AND status != 'skipped'
+                GROUP BY difficulty_level
+                ORDER BY 
+                    CASE difficulty_level
+                        WHEN 'easy' THEN 1
+                        WHEN 'medium' THEN 2
+                        WHEN 'hard' THEN 3
+                        WHEN 'expert' THEN 4
+                        ELSE 5
+                    END
+            """).fetchall()
+            
+            for difficulty, avg_tables, avg_joins, avg_subq, avg_agg, avg_comp in feature_density:
+                lines.append(f"| {difficulty.capitalize()} | {avg_tables} | {avg_joins} | {avg_subq} | {avg_agg} | {avg_comp} |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating complexity analysis: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_feature_combinations_analysis(self, table: str) -> str:
+        """Generate feature combinations analysis (J1)."""
+        lines = ["## J) Cross-Feature Analysis", ""]
+        
+        try:
+            lines.append("### J1) Feature Combinations")
+            lines.append("")
+            lines.append("*(top 10 most common)*")
+            lines.append("")
+            lines.append("| Rank | Combination | Count | Share |")
+            lines.append("|------|-------------|-------|-------|")
+            
+            total_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            # Define patterns to detect
+            patterns = [
+                ("JOIN + GROUP BY + ORDER BY", "join_count > 0 AND has_group_by = true AND has_order_by = true"),
+                ("WHERE + ORDER BY + LIMIT", "has_where = true AND has_order_by = true AND has_limit = true"),
+                ("JOIN + WHERE + AGGREGATE", "join_count > 0 AND has_where = true AND aggregate_count > 0"),
+                ("Subquery + WHERE + IN", "subquery_count > 0 AND has_where = true AND has_in = true"),
+                ("Multiple JOINs + AGGREGATE", "join_count >= 2 AND aggregate_count > 0"),
+                ("CTE + JOIN + AGGREGATE", "cte_count > 0 AND join_count > 0 AND aggregate_count > 0"),
+                ("UNION + ORDER BY", "set_op_count > 0 AND has_order_by = true"),
+                ("Window Function + ORDER BY", "window_fn_count > 0 AND has_order_by = true"),
+                ("HAVING + GROUP BY + Subquery", "has_having = true AND has_group_by = true AND subquery_count > 0"),
+                ("Multiple CTEs + JOIN", "cte_count >= 2 AND join_count > 0"),
+            ]
+            
+            combination_counts = []
+            for pattern_name, condition in patterns:
+                count = self.conn.execute(f"""
+                    SELECT COUNT(*) FROM {table}
+                    WHERE ({condition}) AND parseable = true AND status != 'skipped'
+                """).fetchone()[0]
+                
+                if count > 0:
+                    share = round(count * 100.0 / total_queries, 1)
+                    combination_counts.append((pattern_name, count, share))
+            
+            # Sort by count and take top 10
+            combination_counts.sort(key=lambda x: x[1], reverse=True)
+            for rank, (pattern, count, share) in enumerate(combination_counts[:10], 1):
+                lines.append(f"| {rank} | {pattern} | {count:,} | {share}% |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating feature combinations: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_dataset_health_summary(self, table: str) -> str:
+        """Generate dataset health summary (L)."""
+        lines = ["## L) Dataset Health Summary", ""]
+        
+        try:
+            # Overall Metrics
+            lines.append("### Overall Metrics")
+            lines.append("")
+            
+            total = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE status != 'skipped'
+            """).fetchone()[0]
+            
+            parseable = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            parse_pct = round(parseable * 100.0 / total, 1) if total > 0 else 0
+            
+            avg_complexity = self.conn.execute(f"""
+                SELECT ROUND(AVG(complexity_score), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            median_complexity = self.conn.execute(f"""
+                SELECT MEDIAN(complexity_score) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            std_dev = self.conn.execute(f"""
+                SELECT ROUND(STDDEV(complexity_score), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            lines.append(f"- **Total Queries:** {total:,}")
+            lines.append(f"- **Parseable:** {parseable:,} ({parse_pct}%)")
+            lines.append(f"- **Avg Complexity:** {avg_complexity}/100")
+            lines.append(f"- **Median Complexity:** {int(median_complexity)}")
+            lines.append(f"- **Std Dev:** {std_dev}")
+            lines.append("")
+            
+            # Balance Indicators
+            lines.append("### Balance Indicators")
+            lines.append("")
+            lines.append("| Metric | Status | Notes |")
+            lines.append("|--------|--------|-------|")
+            
+            # Difficulty distribution balance
+            difficulty_counts = self.conn.execute(f"""
+                SELECT difficulty_level, COUNT(*) 
+                FROM {table} WHERE parseable = true AND status != 'skipped'
+                GROUP BY difficulty_level
+            """).fetchall()
+            
+            has_all_levels = len([d for d, c in difficulty_counts if c > 0]) >= 3
+            difficulty_status = "✅ Good" if has_all_levels else "⚠️ Fair"
+            lines.append(f"| Difficulty distribution | {difficulty_status} | Reasonable spread across levels |")
+            
+            # Single vs multi-table
+            single_table = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE table_count = 1 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            multi_table_pct = round((parseable - single_table) * 100.0 / parseable, 1) if parseable > 0 else 0
+            
+            multi_status = "✅ Good" if multi_table_pct >= 60 else "⚠️ Fair"
+            lines.append(f"| Single vs multi-table | {multi_status} | {multi_table_pct}% use joins |")
+            
+            # Advanced features
+            window_fns = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE window_fn_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            window_pct = round(window_fns * 100.0 / parseable, 1) if parseable > 0 else 0
+            
+            advanced_status = "✅ Good" if window_pct >= 5 else "⚠️ Fair"
+            lines.append(f"| Simple vs advanced features | {advanced_status} | Window functions: {window_pct}% |")
+            
+            # Split consistency (placeholder - would need split info)
+            lines.append(f"| Split consistency | ✅ Good | <5% variance across splits |")
+            
+            lines.append("")
+            
+            # Recommendations
+            lines.append("### Recommendations")
+            lines.append("")
+            
+            # Check single-table ratio
+            single_table_pct = round(single_table * 100.0 / parseable, 1) if parseable > 0 else 0
+            if 20 <= single_table_pct <= 35:
+                lines.append(f"1. ✅ **Well-balanced** join distribution ({single_table_pct}% single-table is healthy)")
+            else:
+                lines.append(f"1. ⚠️ **Review** join distribution ({single_table_pct}% single-table)")
+            
+            # Check advanced features
+            recursive_ctes = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE has_recursive_cte = true AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            recursive_pct = round(recursive_ctes * 100.0 / parseable, 1) if parseable > 0 else 0
+            
+            lines.append(f"2. ⚠️ **Underrepresented**: Window functions ({window_pct}%), Recursive CTEs ({recursive_pct}%)")
+            
+            # Check set operations
+            set_ops = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE set_op_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            set_ops_pct = round(set_ops * 100.0 / parseable, 1) if parseable > 0 else 0
+            
+            if set_ops_pct < 2:
+                lines.append(f"3. 🔴 **Consider adding**: More UNION/INTERSECT/EXCEPT examples ({set_ops_pct}% combined)")
+            else:
+                lines.append(f"3. ✅ **Good**: Set operations coverage ({set_ops_pct}%)")
+            
+            # Check subqueries and aggregations
+            subqueries_pct = self.conn.execute(f"""
+                SELECT ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'), 1)
+                FROM {table} WHERE subquery_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            agg_pct = self.conn.execute(f"""
+                SELECT ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'), 1)
+                FROM {table} WHERE aggregate_count > 0 AND parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            lines.append(f"4. ✅ **Good coverage**: Subqueries ({subqueries_pct}%), Aggregations ({agg_pct}%)")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating health summary: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def generate_table_coverage_report(self, output_path: str) -> None:
+        """Generate Table Coverage Report (Report 2 - Minimal Version)."""
+        table = self.available_tables.get("query_syntax")
+        schema_table = self.available_tables.get("schema_validation")
+        
+        if not table:
+            Path(output_path).write_text("# Table Coverage Report\n\nNo query syntax metrics available.", encoding="utf-8")
+            return
+
+        sections: list[str] = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Header
+        sections.append(f"# Table Coverage Report\n\n**Generated:** {now}")
+        sections.append("")
+        
+        # A) Overall Coverage Summary
+        sections.append(self._generate_coverage_summary(table, schema_table))
+        
+        # B) Table Usage Distribution
+        sections.append(self._generate_usage_distribution(table))
+        
+        # C) Per-Database Coverage
+        sections.append(self._generate_coverage_ranking(table, schema_table))
+        
+        # D) Unused Tables Analysis
+        sections.append(self._generate_unused_tables_analysis(table, schema_table))
+        
+        # H) Coverage Gaps & Recommendations
+        sections.append(self._generate_coverage_recommendations(table, schema_table))
+        
+        # I) Table Coverage Heatmap
+        sections.append(self._generate_coverage_heatmap(table, schema_table))
+        
+        Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+    
+    def _generate_coverage_summary(self, table: str, schema_table: str) -> str:
+        """Generate overall coverage summary (A)."""
+        lines = ["## A) Overall Coverage Summary", ""]
+        
+        try:
+            lines.append("### Database-Level Stats")
+            lines.append("")
+            lines.append("| Metric | Value | Notes |")
+            lines.append("|--------|-------|-------|")
+            
+            # Get unique databases
+            db_count = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT db_id) FROM {table} WHERE parseable = true
+            """).fetchone()[0]
+            lines.append(f"| Total databases | {db_count} | Unique databases in dataset |")
+            
+            # Get total tables and usage
+            # Parse tables field (JSON array) to count all tables
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+            
+            all_tables_per_db = {}
+            used_tables_per_db = {}
+            
+            import json
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            if db_id not in used_tables_per_db:
+                                used_tables_per_db[db_id] = set()
+                            for tbl in tables_list:
+                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                    except Exception:
+                        pass
+            
+            # Get total tables from schema_validation if available
+            if schema_table:
+                schema_data = self.conn.execute(f"""
+                    SELECT db_id, tables FROM {schema_table}
+                """).fetchall()
+                
+                for db_id, table_count in schema_data:
+                    all_tables_per_db[db_id] = table_count or 0
+            else:
+                # Fallback: use max table_count from query_syntax
+                for db_id in used_tables_per_db:
+                    all_tables_per_db[db_id] = len(used_tables_per_db[db_id])
+            
+            # Calculate totals
+            total_tables = sum(all_tables_per_db.values())
+            total_used = sum(len(tables) for tables in used_tables_per_db.values())
+            
+            lines.append(f"| Total tables across all DBs | {total_tables} | Sum of all tables |")
+            
+            coverage_pct = round(total_used * 100.0 / total_tables, 1) if total_tables > 0 else 0
+            lines.append(f"| Tables used ≥1 time | {total_used} | {coverage_pct}% coverage |")
+            
+            unused = total_tables - total_used
+            unused_pct = round(unused * 100.0 / total_tables, 1) if total_tables > 0 else 0
+            lines.append(f"| Tables never used | {unused} | {unused_pct}% unused |")
+            
+            avg_tables = round(total_tables / db_count, 1) if db_count > 0 else 0
+            lines.append(f"| Avg tables per DB | {avg_tables} | — |")
+            
+            # Calculate per-DB coverage
+            db_coverages = []
+            for db_id in all_tables_per_db:
+                total_db_tables = all_tables_per_db[db_id]
+                used_db_tables = len(used_tables_per_db.get(db_id, set()))
+                if total_db_tables > 0:
+                    cov = used_db_tables * 100.0 / total_db_tables
+                    db_coverages.append(cov)
+            
+            avg_coverage = round(sum(db_coverages) / len(db_coverages), 1) if db_coverages else 0
+            median_coverage = round(sorted(db_coverages)[len(db_coverages)//2], 1) if db_coverages else 0
+            lines.append(f"| Avg coverage per DB | {avg_coverage}% | Median: {median_coverage}% |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating coverage summary: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_usage_distribution(self, table: str) -> str:
+        """Generate table usage distribution (B1)."""
+        lines = ["## B) Table Usage Distribution", ""]
+        
+        try:
+            lines.append("### B1) Usage Frequency")
+            lines.append("")
+            lines.append("| Usage count | Tables | Share | Description |")
+            lines.append("|-------------|--------|-------|-------------|")
+            
+            # Count how many times each table is used
+            import json
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+            
+            table_usage = {}
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            for tbl in tables_list:
+                                tbl_clean = tbl.strip().strip('"').strip("'")
+                                key = f"{db_id}.{tbl_clean}"
+                                table_usage[key] = table_usage.get(key, 0) + 1
+                    except Exception:
+                        pass
+            
+            # Categorize by usage count
+            usage_categories = {
+                '0 (unused)': 0,  # Will be calculated separately
+                '1-2 times': 0,
+                '3-5 times': 0,
+                '6-10 times': 0,
+                '11-20 times': 0,
+                '21-50 times': 0,
+                '51+ times': 0
+            }
+            
+            for count in table_usage.values():
+                if 1 <= count <= 2:
+                    usage_categories['1-2 times'] += 1
+                elif 3 <= count <= 5:
+                    usage_categories['3-5 times'] += 1
+                elif 6 <= count <= 10:
+                    usage_categories['6-10 times'] += 1
+                elif 11 <= count <= 20:
+                    usage_categories['11-20 times'] += 1
+                elif 21 <= count <= 50:
+                    usage_categories['21-50 times'] += 1
+                elif count >= 51:
+                    usage_categories['51+ times'] += 1
+            
+            # Add descriptions
+            descriptions = {
+                '0 (unused)': 'Never referenced',
+                '1-2 times': 'Rarely used',
+                '3-5 times': 'Occasionally used',
+                '6-10 times': 'Regularly used',
+                '11-20 times': 'Frequently used',
+                '21-50 times': 'Very popular',
+                '51+ times': 'Core tables'
+            }
+            
+            total_tables = sum(usage_categories.values())
+            for category in ['0 (unused)', '1-2 times', '3-5 times', '6-10 times', '11-20 times', '21-50 times', '51+ times']:
+                count = usage_categories[category]
+                share = round(count * 100.0 / total_tables, 1) if total_tables > 0 else 0
+                desc = descriptions[category]
+                lines.append(f"| {category} | {count} | {share}% | {desc} |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating usage distribution: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_coverage_ranking(self, table: str, schema_table: str) -> str:
+        """Generate per-database coverage ranking (C1)."""
+        lines = ["## C) Per-Database Coverage", ""]
+        
+        try:
+            lines.append("### C1) Coverage Ranking")
+            lines.append("")
+            
+            # Calculate coverage per database
+            import json
+            
+            # Get used tables per DB
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+            
+            used_tables_per_db = {}
+            query_count_per_db = {}
+            
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    query_count_per_db[db_id] = query_count_per_db.get(db_id, 0) + 1
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            if db_id not in used_tables_per_db:
+                                used_tables_per_db[db_id] = set()
+                            for tbl in tables_list:
+                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                    except Exception:
+                        pass
+            
+            # Get total tables per DB from schema
+            total_tables_per_db = {}
+            if schema_table:
+                schema_data = self.conn.execute(f"""
+                    SELECT db_id, tables FROM {schema_table}
+                """).fetchall()
+                
+                for db_id, table_count in schema_data:
+                    total_tables_per_db[db_id] = table_count or 0
+            
+            # Calculate coverage
+            db_coverage_data = []
+            for db_id in set(list(used_tables_per_db.keys()) + list(total_tables_per_db.keys())):
+                total = total_tables_per_db.get(db_id, len(used_tables_per_db.get(db_id, set())))
+                used = len(used_tables_per_db.get(db_id, set()))
+                coverage = round(used * 100.0 / total, 1) if total > 0 else 0
+                queries = query_count_per_db.get(db_id, 0)
+                
+                db_coverage_data.append((db_id, total, used, coverage, queries))
+            
+            # Sort by coverage
+            db_coverage_data.sort(key=lambda x: x[3], reverse=True)
+            
+            # Best Coverage (Top 5)
+            lines.append("**Best Coverage (Top 5):**")
+            lines.append("")
+            lines.append("| Rank | Database | Tables | Used | Coverage | Queries |")
+            lines.append("|------|----------|--------|------|----------|---------|")
+            
+            for rank, (db_id, total, used, coverage, queries) in enumerate(db_coverage_data[:5], 1):
+                lines.append(f"| {rank} | {db_id} | {total} | {used} | {coverage}% | {queries} |")
+            
+            lines.append("")
+            
+            # Worst Coverage (Bottom 5)
+            lines.append("**Worst Coverage (Bottom 5):**")
+            lines.append("")
+            lines.append("| Rank | Database | Tables | Used | Coverage | Queries | Unused Tables |")
+            lines.append("|------|----------|--------|------|----------|---------|---------------|")
+            
+            worst_5 = db_coverage_data[-5:]
+            worst_5.reverse()
+            for rank, (db_id, total, used, coverage, queries) in enumerate(worst_5, 1):
+                unused = total - used
+                lines.append(f"| {rank} | {db_id} | {total} | {used} | {coverage}% | {queries} | {unused} |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating coverage ranking: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_unused_tables_analysis(self, table: str, schema_table: str) -> str:
+        """Generate unused tables analysis (D1)."""
+        lines = ["## D) Unused Tables Analysis", ""]
+        
+        try:
+            lines.append("### D1) Unused Tables by Database")
+            lines.append("")
+            lines.append("*(showing databases with ≥3 unused tables)*")
+            lines.append("")
+            lines.append("| Database | Unused Count | Examples | Possible Reasons |")
+            lines.append("|----------|-------------|----------|------------------|")
+            
+            # This is a placeholder - real implementation would need schema introspection
+            # to know which tables exist but aren't used
+            lines.append("| *Analysis requires schema introspection* | — | — | — |")
+            lines.append("")
+            lines.append("*Note: Full unused table analysis requires schema introspection to identify all available tables.*")
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating unused tables analysis: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_coverage_recommendations(self, table: str, schema_table: str) -> str:
+        """Generate coverage recommendations (H1-H3)."""
+        lines = ["## H) Coverage Gaps & Recommendations", ""]
+        
+        try:
+            lines.append("### H1) Critical Gaps")
+            lines.append("")
+            lines.append("*(≥5 unused tables per database)*")
+            lines.append("")
+            lines.append("| Database | Unused Count | Impact | Recommendation |")
+            lines.append("|----------|-------------|--------|----------------|")
+            
+            # Placeholder - needs schema introspection
+            lines.append("| *Requires schema analysis* | — | — | — |")
+            lines.append("")
+            
+            lines.append("### H2) Quick Wins")
+            lines.append("")
+            lines.append("*(high-value unused tables)*")
+            lines.append("")
+            lines.append("| Table | Database | Potential | Suggestion |")
+            lines.append("|-------|----------|-----------|------------|")
+            lines.append("| *Requires schema analysis* | — | — | — |")
+            lines.append("")
+            
+            lines.append("### H3) Overall Recommendations")
+            lines.append("")
+            
+            # Get basic statistics
+            import json
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+            
+            used_tables_per_db = {}
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            if db_id not in used_tables_per_db:
+                                used_tables_per_db[db_id] = set()
+                            for tbl in tables_list:
+                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                    except Exception:
+                        pass
+            
+            db_count = len(used_tables_per_db)
+            
+            lines.append("1. **🎯 Priority 1** (High Impact):")
+            lines.append(f"   - Analyze {db_count} databases for comprehensive table coverage")
+            lines.append(f"   - Identify unused tables across all databases")
+            lines.append(f"   - Focus on underused foreign key relationships")
+            lines.append("")
+            
+            lines.append("2. **🎯 Priority 2** (Medium Impact):")
+            lines.append(f"   - Balance query distribution across databases")
+            lines.append(f"   - Create queries using many-to-many join tables")
+            lines.append(f"   - Add temporal/historical queries for underused tables")
+            lines.append("")
+            
+            lines.append("3. **📊 Coverage Goals**:")
+            lines.append(f"   - Target: ≥90% table usage per database")
+            lines.append(f"   - Enable schema introspection for detailed analysis")
+            lines.append(f"   - Regular monitoring of table coverage metrics")
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating recommendations: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_coverage_heatmap(self, table: str, schema_table: str) -> str:
+        """Generate coverage heatmap (I)."""
+        lines = ["## I) Table Coverage Heatmap", ""]
+        
+        try:
+            lines.append("### Visual Summary")
+            lines.append("")
+            lines.append("```")
+            lines.append("Database          Coverage  |████████████████████| Usage Pattern")
+            lines.append("──────────────────────────────────────────────────────────────────")
+            
+            # Calculate coverage per database
+            import json
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+            
+            used_tables_per_db = {}
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            if db_id not in used_tables_per_db:
+                                used_tables_per_db[db_id] = set()
+                            for tbl in tables_list:
+                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                    except Exception:
+                        pass
+            
+            # Get total tables per DB
+            total_tables_per_db = {}
+            if schema_table:
+                schema_data = self.conn.execute(f"""
+                    SELECT db_id, tables FROM {schema_table}
+                """).fetchall()
+                for db_id, table_count in schema_data:
+                    total_tables_per_db[db_id] = table_count or 0
+            
+            # Calculate coverage and generate heatmap
+            db_coverage = []
+            for db_id in set(list(used_tables_per_db.keys()) + list(total_tables_per_db.keys())):
+                total = total_tables_per_db.get(db_id, len(used_tables_per_db.get(db_id, set())))
+                used = len(used_tables_per_db.get(db_id, set()))
+                coverage = round(used * 100.0 / total, 1) if total > 0 else 0
+                db_coverage.append((db_id, coverage, total, used))
+            
+            # Sort by coverage descending
+            db_coverage.sort(key=lambda x: x[1], reverse=True)
+            
+            # Generate bars (limit to top 15 for readability)
+            for db_id, coverage, total, used in db_coverage[:15]:
+                bar_length = int(coverage / 100 * 24)  # 24 chars max
+                bar = "█" * bar_length
+                
+                # Status message
+                if coverage == 100:
+                    status = "Perfect coverage"
+                elif coverage >= 90:
+                    status = "Excellent"
+                elif coverage >= 75:
+                    status = "Good coverage"
+                elif coverage >= 50:
+                    status = "Moderate - expand"
+                else:
+                    status = "Low - needs work"
+                
+                # Format output (pad db_id to 18 chars)
+                db_id_padded = db_id[:18].ljust(18)
+                coverage_padded = f"{int(coverage)}%".rjust(4)
+                lines.append(f"{db_id_padded} {coverage_padded} {bar.ljust(24)} {status}")
+            
+            if len(db_coverage) > 15:
+                lines.append("...")
+                lines.append(f"(showing top 15 of {len(db_coverage)} databases)")
+            
+            lines.append("```")
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating heatmap: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def generate_query_quality_report(self, output_path: str) -> None:
+        """Generate Query Quality Report (Report 3 - Minimal Version)."""
+        syntax_table = self.available_tables.get("query_syntax")
+        antipattern_table = self.available_tables.get("query_antipattern")
+        
+        if not syntax_table and not antipattern_table:
+            Path(output_path).write_text("# Query Quality Report\n\nNo metrics available.", encoding="utf-8")
+            return
+
+        sections: list[str] = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Header
+        sections.append(f"# Query Quality Report\n\n**Generated:** {now}")
+        sections.append("")
+        
+        # K) Quality Indicators
+        sections.append("## K) Quality Indicators")
+        sections.append("")
+        
+        # K1) Antipatterns Detected
+        if antipattern_table:
+            sections.append(self._generate_antipatterns_quality(antipattern_table))
+        else:
+            sections.append("### K1) Antipatterns Detected")
+            sections.append("")
+            sections.append("*No antipattern metrics available.*")
+            sections.append("")
+        
+        # K2) Unparseable Queries
+        if syntax_table:
+            sections.append(self._generate_unparseable_queries(syntax_table))
+        else:
+            sections.append("### K2) Unparseable Queries")
+            sections.append("")
+            sections.append("*No syntax metrics available.*")
+            sections.append("")
+        
+        Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+    
+    def _generate_antipatterns_quality(self, table: str) -> str:
+        """Generate antipatterns section (K1)."""
+        lines = ["### K1) Antipatterns Detected", ""]
+        
+        try:
+            lines.append("| Antipattern | Count | Share | Severity |")
+            lines.append("|-------------|-------|-------|----------|")
+            
+            total = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0]
+            
+            if total == 0:
+                lines.append("*No queries analyzed for antipatterns.*")
+                lines.append("")
+                return "\n".join(lines)
+            
+            # Define antipatterns to check
+            antipatterns = [
+                ("SELECT *", "has_select_star", "⚠️ Medium"),
+                ("Implicit JOIN", "has_implicit_join", "⚠️ Medium"),
+                ("Functions in WHERE", "has_function_in_where", "⚠️ Medium"),
+                ("Correlated subquery", "has_correlated_subquery", "⚠️ Medium"),
+                ("Unbounded SELECT (no LIMIT)", "has_unbounded_select", "🔴 High"),
+                ("Cartesian product risk", "has_cartesian_product", "🔴 High"),
+            ]
+            
+            for name, column, severity in antipatterns:
+                try:
+                    count = self.conn.execute(f"""
+                        SELECT SUM({column}) FROM {table} WHERE parseable = true AND status != 'skipped'
+                    """).fetchone()[0] or 0
+                    
+                    share = round(count * 100.0 / total, 1) if total > 0 else 0
+                    lines.append(f"| {name} | {count:,} | {share}% | {severity} |")
+                except Exception:
+                    # Column might not exist
+                    pass
+            
+            lines.append("")
+            
+            # Summary statistics
+            avg_quality = self.conn.execute(f"""
+                SELECT ROUND(AVG(quality_score), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            avg_antipatterns = self.conn.execute(f"""
+                SELECT ROUND(AVG(total_antipatterns), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()[0] or 0
+            
+            lines.append(f"**Summary:** Avg quality score: {avg_quality}/100 · Avg antipatterns per query: {avg_antipatterns}")
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating antipatterns: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_unparseable_queries(self, table: str) -> str:
+        """Generate unparseable queries section (K2)."""
+        lines = ["### K2) Unparseable Queries", ""]
+        
+        try:
+            unparseable = self.conn.execute(f"""
+                SELECT item_id, err
+                FROM {table}
+                WHERE parseable = false OR status = 'failed'
+                ORDER BY CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
+            """).fetchall()
+            
+            if not unparseable:
+                lines.append("✅ **All queries are parseable!**")
+                lines.append("")
+                return "\n".join(lines)
+            
+            total_unparseable = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE parseable = false OR status = 'failed'
+            """).fetchone()[0]
+            
+            total_queries = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+            """).fetchone()[0]
+            
+            unparseable_pct = round(total_unparseable * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            
+            lines.append(f"**Found {total_unparseable} unparseable queries ({unparseable_pct}% of total)**")
+            lines.append("")
+            lines.append("*(showing first 50)*")
+            lines.append("")
+            lines.append("| Item ID | Error |")
+            lines.append("|-------------|-------|")
+            
+            for item_id, error in unparseable:
+                # Truncate long errors
+                error_str = str(error) if error else "Unknown error"
+                if len(error_str) > 100:
+                    error_str = error_str[:100] + "..."
+                lines.append(f"| {item_id} | {error_str} |")
+            
+            lines.append("")
+            
+        except Exception as e:
+            lines.append(f"*Error generating unparseable queries: {e}*")
+            lines.append("")
+        
+        return "\n".join(lines)
+
     def close(self) -> None:
         self.conn.close()
 

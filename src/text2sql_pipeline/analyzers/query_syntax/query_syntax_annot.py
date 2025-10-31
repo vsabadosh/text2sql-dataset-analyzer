@@ -113,13 +113,14 @@ class QuerySyntaxAnnot(AnnotatingAnalyzer):
             return features, stats, tags, False, "Empty or null SQL"
 
         try:
-            features = collect_features(item.sql, self.db_dialect)
+            features, parse_error = collect_features(item.sql, self.db_dialect)
             ok = features.parseable
-            return features, stats, tags, ok, None if ok else "Unparseable"
+            # Use the actual parse error from collect_features
+            return features, stats, tags, ok, parse_error
         except Exception as e:
             features = QuerySyntaxFeatures(parseable=False)
             stats.errors.append({"kind": "parse_error", "message": str(e)})
-            return features, stats, tags, False, f"Parse error: {e}"
+            return features, stats, tags, False, f"Unparsable error: {str(e)}"
 
     def _annotate_item_skipped(self, item: DataItem) -> None:
         """Annotate item with skipped status due to previous failures."""

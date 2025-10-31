@@ -23,23 +23,26 @@ class TestCollectFeaturesBasic:
 
     def test_empty_sql(self):
         """Test that empty SQL returns unparseable features."""
-        result = collect_features("")
+        result, error = collect_features("")
         assert result.parseable is False
+        assert error is not None
         
     def test_whitespace_only_sql(self):
         """Test that whitespace-only SQL returns unparseable features."""
-        result = collect_features("   \n\t  ")
+        result, error = collect_features("   \n\t  ")
         assert result.parseable is False
+        assert error is not None
 
     def test_unparseable_sql(self):
         """Test that invalid SQL returns unparseable features."""
-        result = collect_features("SELECT FROM WHERE")
+        result, error = collect_features("SELECT FROM WHERE")
         assert result.parseable is False
+        assert error is not None
 
     def test_simple_select(self):
         """Test basic SELECT query."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.is_select is True
@@ -57,7 +60,7 @@ class TestTableExtraction:
     def test_single_table(self):
         """Test extraction of single table."""
         sql = "SELECT id FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.table_count == 1
         assert "users" in result.tables
@@ -65,7 +68,7 @@ class TestTableExtraction:
     def test_multiple_tables(self):
         """Test extraction of multiple tables."""
         sql = "SELECT * FROM users, orders, products"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.table_count == 3
         assert "users" in result.tables
@@ -77,7 +80,7 @@ class TestTableExtraction:
     def test_table_with_alias(self):
         """Test table with alias."""
         sql = "SELECT u.name FROM users AS u"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.table_count == 1
         assert "users" in result.tables
@@ -89,14 +92,14 @@ class TestColumnExtraction:
     def test_wildcard_select(self):
         """Test SELECT * detection."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.uses_wildcard is True
 
     def test_specific_columns(self):
         """Test SELECT with specific columns."""
         sql = "SELECT id, name, email FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.column_count == 3
         assert result.uses_wildcard is False
@@ -104,7 +107,7 @@ class TestColumnExtraction:
     def test_distinct(self):
         """Test DISTINCT detection."""
         sql = "SELECT DISTINCT name FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_distinct is True
 
@@ -115,7 +118,7 @@ class TestJoinExtraction:
     def test_inner_join(self):
         """Test INNER JOIN detection."""
         sql = "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.join_count == 1
         assert "INNER" in result.join_types
@@ -123,7 +126,7 @@ class TestJoinExtraction:
     def test_left_join(self):
         """Test LEFT JOIN detection."""
         sql = "SELECT * FROM users LEFT OUTER JOIN orders ON users.id = orders.user_id"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.join_count == 1
         # SQLite may interpret LEFT JOIN differently, just verify join exists
@@ -136,7 +139,7 @@ class TestJoinExtraction:
         INNER JOIN orders ON users.id = orders.user_id
         LEFT OUTER JOIN products ON orders.product_id = products.id
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.join_count == 2
         assert len(result.join_types) == 2
@@ -145,7 +148,7 @@ class TestJoinExtraction:
     def test_cross_join(self):
         """Test CROSS JOIN detection."""
         sql = "SELECT * FROM users CROSS JOIN orders"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.join_count == 1
         assert "CROSS" in result.join_types
@@ -157,7 +160,7 @@ class TestSubqueryExtraction:
     def test_simple_subquery(self):
         """Test simple subquery in WHERE clause."""
         sql = "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.subquery_count == 1
         assert result.max_subquery_depth == 1
@@ -171,7 +174,7 @@ class TestSubqueryExtraction:
             WHERE product_id IN (SELECT id FROM products WHERE price > 100)
         )
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.subquery_count == 2
         assert result.max_subquery_depth == 2
@@ -179,7 +182,7 @@ class TestSubqueryExtraction:
     def test_subquery_in_from(self):
         """Test subquery in FROM clause."""
         sql = "SELECT * FROM (SELECT id, name FROM users) AS u"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.subquery_count == 1
 
@@ -190,7 +193,7 @@ class TestSubqueryExtraction:
         WHERE id IN (SELECT user_id FROM orders)
         AND status IN (SELECT status FROM valid_statuses)
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.subquery_count == 2
         assert result.max_subquery_depth == 1
@@ -202,7 +205,7 @@ class TestAggregationExtraction:
     def test_count_aggregate(self):
         """Test COUNT aggregate function."""
         sql = "SELECT COUNT(*) FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.aggregate_count == 1
         assert "COUNT" in result.aggregate_types
@@ -210,7 +213,7 @@ class TestAggregationExtraction:
     def test_multiple_aggregates(self):
         """Test multiple aggregate functions."""
         sql = "SELECT COUNT(*), SUM(price), AVG(price), MAX(price), MIN(price) FROM orders"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.aggregate_count == 5
         assert "COUNT" in result.aggregate_types
@@ -222,7 +225,7 @@ class TestAggregationExtraction:
     def test_group_by(self):
         """Test GROUP BY detection."""
         sql = "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_group_by is True
         assert result.aggregate_count == 1
@@ -230,7 +233,7 @@ class TestAggregationExtraction:
     def test_having_clause(self):
         """Test HAVING clause detection."""
         sql = "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id HAVING COUNT(*) > 5"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_group_by is True
         assert result.has_having is True
@@ -243,7 +246,7 @@ class TestFilteringExtraction:
     def test_simple_where(self):
         """Test simple WHERE clause."""
         sql = "SELECT * FROM users WHERE id = 1"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_where is True
         assert result.where_condition_count >= 1
@@ -251,7 +254,7 @@ class TestFilteringExtraction:
     def test_where_with_and(self):
         """Test WHERE with AND conditions."""
         sql = "SELECT * FROM users WHERE id = 1 AND status = 'active' AND age > 18"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_where is True
         assert result.where_condition_count >= 3
@@ -259,7 +262,7 @@ class TestFilteringExtraction:
     def test_where_with_or(self):
         """Test WHERE with OR conditions."""
         sql = "SELECT * FROM users WHERE status = 'active' OR status = 'pending'"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_where is True
         assert result.where_condition_count >= 2
@@ -267,7 +270,7 @@ class TestFilteringExtraction:
     def test_where_complex_conditions(self):
         """Test WHERE with complex AND/OR combinations."""
         sql = "SELECT * FROM users WHERE (status = 'active' OR status = 'pending') AND age > 18 AND country = 'US'"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_where is True
         assert result.where_condition_count >= 3
@@ -275,7 +278,7 @@ class TestFilteringExtraction:
     def test_no_where(self):
         """Test query without WHERE clause."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_where is False
         assert result.where_condition_count == 0
@@ -287,7 +290,7 @@ class TestOrderingExtraction:
     def test_order_by(self):
         """Test ORDER BY detection."""
         sql = "SELECT * FROM users ORDER BY name"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_order_by is True
         assert result.order_by_columns == 1
@@ -295,7 +298,7 @@ class TestOrderingExtraction:
     def test_order_by_multiple_columns(self):
         """Test ORDER BY with multiple columns."""
         sql = "SELECT * FROM users ORDER BY name ASC, age DESC, created_at"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_order_by is True
         assert result.order_by_columns == 3
@@ -303,14 +306,14 @@ class TestOrderingExtraction:
     def test_limit(self):
         """Test LIMIT detection."""
         sql = "SELECT * FROM users LIMIT 10"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_limit is True
 
     def test_offset(self):
         """Test OFFSET detection."""
         sql = "SELECT * FROM users LIMIT 10 OFFSET 20"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_limit is True
         assert result.has_offset is True
@@ -327,7 +330,7 @@ class TestAdvancedFeatures:
         )
         SELECT * FROM active_users
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.cte_count == 1
         assert result.has_recursive_cte is False
@@ -340,7 +343,7 @@ class TestAdvancedFeatures:
         recent_orders AS (SELECT * FROM orders WHERE created_at > '2024-01-01')
         SELECT * FROM active_users JOIN recent_orders ON active_users.id = recent_orders.user_id
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.cte_count == 2
 
@@ -354,7 +357,7 @@ class TestAdvancedFeatures:
         )
         SELECT * FROM cte
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.cte_count >= 1
         assert result.has_recursive_cte is True
@@ -362,7 +365,7 @@ class TestAdvancedFeatures:
     def test_window_function(self):
         """Test window function detection."""
         sql = "SELECT id, name, ROW_NUMBER() OVER (ORDER BY created_at) AS row_num FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.window_fn_count >= 1
         # Window function types are extracted
@@ -378,7 +381,7 @@ class TestAdvancedFeatures:
             LAG(value) OVER (ORDER BY date) AS prev_value
         FROM users
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.window_fn_count >= 3
         # Multiple window function types should be detected
@@ -387,7 +390,7 @@ class TestAdvancedFeatures:
     def test_union(self):
         """Test UNION set operation."""
         sql = "SELECT id FROM users UNION SELECT id FROM admins"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.set_op_count == 1
         assert "UNION" in result.set_op_types
@@ -395,7 +398,7 @@ class TestAdvancedFeatures:
     def test_union_all(self):
         """Test UNION ALL set operation."""
         sql = "SELECT id FROM users UNION ALL SELECT id FROM admins"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.set_op_count == 1
         assert "UNION_ALL" in result.set_op_types
@@ -403,7 +406,7 @@ class TestAdvancedFeatures:
     def test_intersect(self):
         """Test INTERSECT set operation."""
         sql = "SELECT id FROM users INTERSECT SELECT id FROM active_users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.set_op_count == 1
         assert "INTERSECT" in result.set_op_types
@@ -411,7 +414,7 @@ class TestAdvancedFeatures:
     def test_except(self):
         """Test EXCEPT set operation."""
         sql = "SELECT id FROM users EXCEPT SELECT id FROM inactive_users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.set_op_count == 1
         assert "EXCEPT" in result.set_op_types
@@ -423,7 +426,7 @@ class TestAdvancedFeatures:
         UNION SELECT id FROM admins
         UNION ALL SELECT id FROM guests
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.set_op_count == 2
 
@@ -434,21 +437,21 @@ class TestSpecialOperators:
     def test_like_operator(self):
         """Test LIKE operator detection."""
         sql = "SELECT * FROM users WHERE name LIKE '%john%'"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_like is True
 
     def test_in_operator(self):
         """Test IN operator detection."""
         sql = "SELECT * FROM users WHERE status IN ('active', 'pending', 'verified')"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_in is True
 
     def test_between_operator(self):
         """Test BETWEEN operator detection."""
         sql = "SELECT * FROM users WHERE age BETWEEN 18 AND 65"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_between is True
 
@@ -464,7 +467,7 @@ class TestSpecialOperators:
             END AS age_group
         FROM users
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_case is True
 
@@ -476,7 +479,7 @@ class TestSpecialOperators:
         AND status IN ('active', 'pending')
         AND age BETWEEN 18 AND 65
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.has_like is True
         assert result.has_in is True
@@ -489,7 +492,7 @@ class TestStatementTypes:
     def test_select_statement(self):
         """Test SELECT statement type."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.is_select is True
         assert result.is_read_only is True
@@ -497,21 +500,21 @@ class TestStatementTypes:
     def test_insert_statement(self):
         """Test INSERT statement type."""
         sql = "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.is_read_only is False
 
     def test_update_statement(self):
         """Test UPDATE statement type."""
         sql = "UPDATE users SET status = 'active' WHERE id = 1"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.is_read_only is False
 
     def test_delete_statement(self):
         """Test DELETE statement type."""
         sql = "DELETE FROM users WHERE id = 1"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.is_read_only is False
 
@@ -537,7 +540,7 @@ class TestComplexQueries:
         ORDER BY total_spent DESC
         LIMIT 10
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.table_count == 2
@@ -565,7 +568,7 @@ class TestComplexQueries:
         )
         SELECT * FROM ranked_users WHERE rank <= 10
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.cte_count == 1
@@ -609,7 +612,7 @@ class TestComplexQueries:
         WHERE ct.level <= 3
         ORDER BY ct.level, ss.total_sales DESC NULLS LAST
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.has_recursive_cte is True
@@ -628,14 +631,14 @@ class TestDialectSupport:
     def test_sqlite_dialect(self):
         """Test SQLite dialect (default)."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql, dialect="sqlite")
+        result, error = collect_features(sql, dialect="sqlite")
         
         assert result.parseable is True
 
     def test_postgres_dialect(self):
         """Test PostgreSQL dialect."""
         sql = "SELECT * FROM users LIMIT 10"
-        result = collect_features(sql, dialect="postgres")
+        result, error = collect_features(sql, dialect="postgres")
         
         assert result.parseable is True
         assert result.has_limit is True
@@ -643,7 +646,7 @@ class TestDialectSupport:
     def test_none_dialect_uses_default(self):
         """Test that None dialect uses default (sqlite)."""
         sql = "SELECT * FROM users"
-        result = collect_features(sql, dialect=None)
+        result, error = collect_features(sql, dialect=None)
         
         assert result.parseable is True
 
@@ -688,7 +691,7 @@ class TestComplexityAndDifficulty:
     def test_easy_query(self):
         """Test that simple queries are classified as easy."""
         sql = "SELECT * FROM users WHERE status = 'active'"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.difficulty_level == "easy"
         assert 10 <= result.complexity_score <= 19
@@ -701,7 +704,7 @@ class TestComplexityAndDifficulty:
         INNER JOIN orders o ON u.id = o.user_id
         GROUP BY u.name
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.difficulty_level == "medium"
         assert 40 <= result.complexity_score <= 49
@@ -712,7 +715,7 @@ class TestComplexityAndDifficulty:
         SELECT * FROM users 
         WHERE id IN (SELECT user_id FROM orders WHERE total > 100)
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.difficulty_level == "hard"
         assert 70 <= result.complexity_score <= 79
@@ -727,7 +730,7 @@ class TestComplexityAndDifficulty:
         )
         SELECT * FROM cte
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.difficulty_level == "expert"
         assert 90 <= result.complexity_score <= 99
@@ -741,7 +744,7 @@ class TestEdgeCases:
         # Generate a query with many columns
         columns = ", ".join([f"col{i}" for i in range(100)])
         sql = f"SELECT {columns} FROM users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.column_count == 100
@@ -753,7 +756,7 @@ class TestEdgeCases:
         SELECT * FROM users
         WHERE status = 'active' /* inline comment */
         """
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.table_count == 1
@@ -761,7 +764,7 @@ class TestEdgeCases:
     def test_case_insensitive_keywords(self):
         """Test that SQL keywords are case-insensitive."""
         sql = "select * from users where status = 'active'"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.is_select is True
@@ -769,7 +772,7 @@ class TestEdgeCases:
     def test_query_with_schema_prefix(self):
         """Test query with schema.table notation."""
         sql = "SELECT * FROM public.users"
-        result = collect_features(sql)
+        result, error = collect_features(sql)
         
         assert result.parseable is True
         assert result.table_count == 1
