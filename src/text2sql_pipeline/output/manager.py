@@ -13,13 +13,16 @@ class RunOutputManager:
         ts = now_ts()
         self.root_dir = f"{dataset_name}_{ts}"
         ensure_dir(self.root_dir)
-        
+
         # prepare fixed file paths
         self.annotated_path = os.path.join(self.root_dir, "annotatedOutputDataset.jsonl")
-        
-        # DuckDB configuration
+
+        # Output configuration
         output_cfg = config.get("output", {})
-        self.use_duckdb = output_cfg.get("duckdb_enabled", False)
+        self.use_jsonl = output_cfg.get("jsonl_enabled", True)  # Default to True for backward compatibility
+        self.jsonl_path = output_cfg.get("jsonl_path") or self.root_dir
+
+        # DuckDB configuration (always enabled)
         self.duckdb_path = output_cfg.get("duckdb_path") or os.path.join(self.root_dir, "metrics.duckdb")
 
     def annotated_writer(self) -> AbstractContextManager[JsonlWriter]:
@@ -29,32 +32,34 @@ class RunOutputManager:
     def metric_sink_context(self) -> AbstractContextManager[MetricsSink]:
         """
         Create a single metric sink for the entire pipeline with proper cleanup.
-        
-        Both JSONL and DuckDB sinks route internally based on event.name,
-        so we only need ONE sink instance shared across all analyzers.
-        
+
+        JSONL sink is optional, DuckDB sink is always required.
+        Both sinks route internally based on event.name, so we only need ONE sink instance shared across all analyzers.
+
         This context manager ensures the sink is properly closed even if
         an exception occurs during pipeline execution.
-        
+
         Yields:
             CompositeMetricsSink that writes to multiple backends
         """
-        from .sinks.jsonl import JsonlMetricsSink
         from .sinks.composite import CompositeMetricsSink
-        
-        # Create JSONL sink
-        jsonl_sink = JsonlMetricsSink(self.root_dir)
-        sinks = [jsonl_sink]
-        
-        # Create DuckDB sink if enabled
-        if self.use_duckdb:
-            from .sinks.duckdb import DuckDBMetricsSink
-            duckdb_sink = DuckDBMetricsSink(self.duckdb_path)
-            sinks.append(duckdb_sink)
-        
+
+        sinks = []
+
+        # Create JSONL sink if enabled (optional)
+        if self.use_jsonl:
+            from .sinks.jsonl import JsonlMetricsSink
+            jsonl_sink = JsonlMetricsSink(self.jsonl_path)
+            sinks.append(jsonl_sink)
+
+        # Create DuckDB sink (always enabled)
+        from .sinks.duckdb import DuckDBMetricsSink
+        duckdb_sink = DuckDBMetricsSink(self.duckdb_path)
+        sinks.append(duckdb_sink)
+
         # Create composite sink
         composite = CompositeMetricsSink(sinks)
-        
+
         try:
             yield composite
         finally:

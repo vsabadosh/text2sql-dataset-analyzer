@@ -2406,7 +2406,7 @@ class MarkdownReportGenerator:
                 ("Implicit JOIN", "has_implicit_join", "⚠️ Medium"),
                 ("Functions in WHERE", "has_function_in_where", "⚠️ Medium"),
                 ("Correlated subquery", "has_correlated_subquery", "⚠️ Medium"),
-                ("Unbounded SELECT (no LIMIT)", "has_unbounded_select", "🔴 High"),
+                ("Unbounded SELECT (no LIMIT)", "has_unbounded_query", "🔴 High"),
                 ("Cartesian product risk", "has_cartesian_product", "🔴 High"),
             ]
             

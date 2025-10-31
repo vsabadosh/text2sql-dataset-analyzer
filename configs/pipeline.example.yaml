@@ -10,7 +10,7 @@ sourceDb:
 load:
   name: jsonl
   params:
-    path: data_examples/spider_tiny.jsonl
+    path: data_examples/spider-tiny-9.jsonl
 # Progress tracking configuration
 progress:
   expected_items: 2         # Optional: Expected number of items for percentage tracking
@@ -104,11 +104,25 @@ analyze:
 
 output:
   dataset_name: Spider Dataset
-  
-  # DuckDB Configuration (optional)
-  duckdb_enabled: true                 # Enable DuckDB metrics storage
+
+  # JSONL Metrics Configuration (optional)
+  jsonl_enabled: true                  # Enable JSONL metrics storage
+  # jsonl_path: "./custom/metrics"     # Optional: custom directory path
+
+  # DuckDB Configuration (always enabled)
   # duckdb_path: "./custom/metrics.duckdb"  # Optional: custom path
-  
-  # Report Generation (optional, requires duckdb_enabled: true)
-  auto_generate_report: true           # Auto-generate markdown report after pipeline completes
+
+  # Report Generation Configuration (optional, requires DuckDB which is always enabled)
+  reports:
+    enabled: true                      # Master switch for all report generation
+    output_dir: "all_reports"          # Subfolder for reports (relative to output root)
+
+    # Individual report toggles
+    summary_report: true              # Main comprehensive report
+    schema_validation: true           # Schema validation details
+    llm_judge_issues: true            # LLM judge warnings/errors only
+    query_execution_issues: true      # Failed executions only
+    query_structure_profile: true     # Query structure analysis
+    table_coverage: true              # Table usage coverage
+    query_quality: true               # Quality assessment
   

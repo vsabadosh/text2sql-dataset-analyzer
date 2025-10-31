@@ -52,41 +52,64 @@ def generate_query_quality_report(duckdb_path: str, output_path: str) -> None:
     finally:
         gen.close()
 
-def generate_all_reports(output_dir: str, duckdb_path: str) -> None:
-    """Generate all analysis reports from DuckDB metrics.
+def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None) -> None:
+    """Generate analysis reports from DuckDB metrics based on configuration.
 
     Args:
         output_dir: Directory where reports should be saved
         duckdb_path: Path to the DuckDB database file
+        config: Report configuration dict. If None, generates all reports.
     """
     import os
     from ...core.utils import get_logger
 
     logger = get_logger("text2sql.report_generator")
 
+    # Default configuration - generate all reports if no config provided
+    if config is None:
+        config = {
+            "enabled": True,
+            "output_dir": "all_reports",
+            "summary_report": True,
+            "schema_validation": True,
+            "llm_judge_issues": True,
+            "query_execution_issues": True,
+            "query_structure_profile": True,
+            "table_coverage": True,
+            "query_quality": True,
+        }
+
+    # Check if reports are enabled
+    if not config.get("enabled", False):
+        logger.info("report generation disabled")
+        return
+
     # Create dedicated reports subfolder
-    reports_dir = os.path.join(output_dir, "all_reports")
+    reports_subdir = config.get("output_dir", "all_reports")
+    reports_dir = os.path.join(output_dir, reports_subdir)
     os.makedirs(reports_dir, exist_ok=True)
 
-    # Define all report configurations
-    reports = [
-        ("summary_report.md", "generating summary report", generate_summary_report),
-        ("schema_validation_report.md", "generating schema report", generate_schema_details_report),
-        ("llm_judge_issues_report.md", "generating LLM judge issues report", generate_llm_judge_issues_report),
-        ("query_execution_issues_report.md", "generating Query Execution issues report", generate_query_execution_issues_report),
-        ("query_structure_profile_report.md", "generating Query Structure Profile report", generate_query_structure_profile_report),
-        ("table_coverage_report.md", "generating Table Coverage report", generate_table_coverage_report),
-        ("query_quality_report.md", "generating Query Quality report", generate_query_quality_report),
+    # Define all available report configurations with their toggle keys
+    available_reports = [
+        ("summary_report", "summary_report.md", "generating summary report", generate_summary_report),
+        ("schema_validation", "schema_validation_report.md", "generating schema report", generate_schema_details_report),
+        ("llm_judge_issues", "llm_judge_issues_report.md", "generating LLM judge issues report", generate_llm_judge_issues_report),
+        ("query_execution_issues", "query_execution_issues_report.md", "generating Query Execution issues report", generate_query_execution_issues_report),
+        ("query_structure_profile", "query_structure_profile_report.md", "generating Query Structure Profile report", generate_query_structure_profile_report),
+        ("table_coverage", "table_coverage_report.md", "generating Table Coverage report", generate_table_coverage_report),
+        ("query_quality", "query_quality_report.md", "generating Query Quality report", generate_query_quality_report),
     ]
 
-    for filename, log_message, generator_func in reports:
-        report_path = os.path.join(reports_dir, filename)
-        logger.info(log_message, extra={"report_path": report_path})
-        try:
-            generator_func(duckdb_path, report_path)
-            logger.info(f"{log_message.replace('generating', '')} generated", extra={"report_path": report_path})
-        except Exception as e:
-            logger.warning(f"{log_message.replace('generating', '')} generation failed", extra={"error": str(e), "report_path": report_path})
+    # Generate only enabled reports
+    for toggle_key, filename, log_message, generator_func in available_reports:
+        if config.get(toggle_key, False):
+            report_path = os.path.join(reports_dir, filename)
+            logger.info(log_message, extra={"report_path": report_path})
+            try:
+                generator_func(duckdb_path, report_path)
+                logger.info(f"{log_message.replace('generating', '')} generated", extra={"report_path": report_path})
+            except Exception as e:
+                logger.warning(f"{log_message.replace('generating', '')} generation failed", extra={"error": str(e), "report_path": report_path})
 
 
 __all__ = [

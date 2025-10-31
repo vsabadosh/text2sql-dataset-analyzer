@@ -76,15 +76,30 @@ def run_pipeline(config_path: str) -> str:
 
     logger.info("done", extra={"total_items": count, "output_dir": output.root_dir})
     
-    # Generate report if enabled
+    # Generate reports if enabled
     output_cfg = cfg.get("output", {})
-    auto_generate_report = output_cfg.get("auto_generate_report", False)
-    
-    if auto_generate_report and output.use_duckdb and os.path.exists(output.duckdb_path):
+    reports_cfg = output_cfg.get("reports", {})
+
+    # Backward compatibility: check for legacy auto_generate_report option
+    if output_cfg.get("auto_generate_report", False):
+        # Use default config if legacy option is enabled
+        reports_cfg = {
+            "enabled": True,
+            "output_dir": "all_reports",
+            "summary_report": True,
+            "schema_validation": True,
+            "llm_judge_issues": True,
+            "query_execution_issues": True,
+            "query_structure_profile": True,
+            "table_coverage": True,
+            "query_quality": True,
+        }
+
+    if reports_cfg.get("enabled", False) and os.path.exists(output.duckdb_path):
         try:
-            # Import here to make DuckDB optional
+            # Import here to make DuckDB optional (though it's now always created)
             from ..output.report import generate_all_reports
-            generate_all_reports(output.root_dir, output.duckdb_path)
+            generate_all_reports(output.root_dir, output.duckdb_path, reports_cfg)
         except ImportError:
             logger.warning("report generation skipped - duckdb not installed")
         except Exception as e:

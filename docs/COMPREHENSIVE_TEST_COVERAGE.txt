@@ -79,12 +79,19 @@ HOW TO RUN
 2. Check the output directory:
    comprehensive_test_<timestamp>/
    ├── metrics.duckdb           ← All metrics in DuckDB
-   ├── analysis_report.md       ← Auto-generated report
+   ├── all_reports/
+   │   ├── summary_report.md       ← Auto-generated comprehensive report
+   │   ├── schema_validation_report.md
+   │   ├── llm_judge_issues_report.md
+   │   ├── query_execution_issues_report.md
+   │   ├── query_structure_profile_report.md
+   │   ├── table_coverage_report.md
+   │   └── query_quality_report.md
    ├── annotatedOutputDataset.jsonl
    └── *_metrics.jsonl files
 
 3. View the report:
-   cat comprehensive_test_*/analysis_report.md
+   cat comprehensive_test_*/all_reports/summary_report.md
 
 4. Query metrics directly:
    duckdb comprehensive_test_*/metrics.duckdb

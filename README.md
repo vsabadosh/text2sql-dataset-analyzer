@@ -127,7 +127,7 @@ analyze:
 # Output configuration
 output:
   dataset_name: my_analysis
-  duckdb_enabled: true         # Enable DuckDB + auto-reports
+  # DuckDB is always enabled for metrics storage and reports
 ```
 
 ---
@@ -233,17 +233,21 @@ analyses_spider_dataset_20251021_143022/
 
 ## 📊 DuckDB Metrics & Advanced Querying
 
-Enable DuckDB for queryable metrics storage:
+Metrics are automatically stored in DuckDB with configurable reports:
 
 ```yaml
 output:
-  duckdb_enabled: true           # Store metrics in DuckDB
-  auto_generate_report: true     # Auto-generate markdown report (optional)
+  jsonl_enabled: true            # Store metrics in JSONL files (optional)
+  reports:
+    enabled: true                # Generate analysis reports
+    summary_report: true         # Main comprehensive report
+    # ... other report toggles
 ```
 
 **Configuration Options:**
-- **`duckdb_enabled`** - Store all metrics in queryable DuckDB database
-- **`auto_generate_report`** - Automatically generate markdown report after pipeline completes (requires `duckdb_enabled: true`)
+- **`jsonl_enabled`** - Store metrics in JSONL files (optional, default: true)
+- **`reports.enabled`** - Generate analysis reports (requires DuckDB, which is always enabled)
+- **Individual report toggles** - Control which specific reports are generated
 
 **Benefits:**
 - 📊 Query metrics with SQL
@@ -341,7 +345,6 @@ sourceDb:
 ```yaml
 output:
   dataset_name: my_custom_analysis
-  duckdb_enabled: true
   duckdb_path: "./metrics/run1.duckdb"
 ```
 

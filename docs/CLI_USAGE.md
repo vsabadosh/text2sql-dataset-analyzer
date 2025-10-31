@@ -103,7 +103,7 @@ text2sql report \
 
 **Requirements:**
 - DuckDB must be installed: `pip install duckdb`
-- Metrics database must exist (created by `text2sql run` with `duckdb_enabled: true`)
+- Metrics database is automatically created by `text2sql run`
 
 ---
 
@@ -177,9 +177,10 @@ analyze:
 # Output configuration
 output:
   dataset_name: my_analysis
-  duckdb_enabled: true           # Enable DuckDB metrics storage
-  auto_generate_report: true     # Auto-generate report after pipeline
+  jsonl_enabled: true            # Enable JSONL metrics storage (optional)
   # duckdb_path: "./custom.duckdb"  # Optional custom path
+  reports:
+    enabled: true                # Auto-generate reports after pipeline
 ```
 
 ---
@@ -276,18 +277,20 @@ OUTPUT=$(text2sql run --config config.yaml | grep "Output directory" | awk '{pri
 text2sql report --database "$OUTPUT/metrics.duckdb" --output report.md
 ```
 
-### DuckDB with Auto-Reports
+### Automatic Reports
 ```yaml
 output:
-  duckdb_enabled: true
-  auto_generate_report: true    # Report auto-generated after pipeline
+  reports:
+    enabled: true              # Reports auto-generated after pipeline
+    summary_report: true       # Generate main report
+    # ... other report toggles
 ```
 
-### DuckDB Without Auto-Reports (Manual Only)
+### Manual Reports Only
 ```yaml
 output:
-  duckdb_enabled: true
-  auto_generate_report: false   # Store metrics, skip auto-report
+  reports:
+    enabled: false             # Skip auto-reports, generate manually
 ```
 
 Then generate report manually when needed:
@@ -300,8 +303,8 @@ text2sql report --database path/to/metrics.duckdb --output report.md
 ## Tips & Best Practices
 
 1. **Set `expected_items`** for accurate progress percentages
-2. **Enable DuckDB** (`duckdb_enabled: true`) for queryable metrics storage
-3. **Use `auto_generate_report`** for automatic reports (or `false` for manual generation)
+2. **Configure reports** in the `output.reports` section for automatic report generation
+3. **Use `jsonl_enabled: false`** to disable JSONL metrics storage if not needed
 4. **Use `select_only` mode** for query execution to avoid data modification
 5. **Keep configs in version control** for reproducibility
 6. **Use absolute paths** for production runs
