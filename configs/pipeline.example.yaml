@@ -70,7 +70,7 @@ analyze:
           api_key: "${OPENAI_API_KEY}"  # Or set in environment
           # api_key: ""  #  Or set in environment
           models:
-            - name: gpt-5-nano
+            - name: gpt-5-mini
               weight: 1.0
               temperature: 1.0 
             # - name: gpt-5-mini
@@ -90,7 +90,13 @@ analyze:
         #       weight: 1.0
         #       temperature: 0.0
         - name: gemini
-          api_key: "${GEMINI_API_KEY}"  # Or GOOGLE_API_KEY
+          # Primary API key (required)
+          api_key: "${GEMINI_API_KEY}"
+
+          # Fallback keys for rate limit handling (optional)
+          fallback_keys:
+            - ${GEMINI_API_KEY_1}
+            - ${GEMINI_API_KEY_2}
           models:
             - name: gemini-2.5-pro
               weight: 1.0

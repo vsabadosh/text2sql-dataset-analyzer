@@ -933,11 +933,12 @@ class MarkdownReportGenerator:
         
         try:
             items = self.conn.execute(f"""
-                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -997,6 +998,7 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -1173,6 +1175,7 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE status = 'failed'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+                LIMIT 50
             """).fetchall()
             
             if not failed:
