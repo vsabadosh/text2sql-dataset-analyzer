@@ -696,7 +696,7 @@ class MarkdownReportGenerator:
             
             sections.append("## Summary")
             sections.append("")
-            sections.append(f"- **Total Executions:** {total:,} · **Analyzed:** {analyzed:,}")
+            sections.append(f"- **Total Executions:** {total:,} · **Analyzed:** {analyzed:,} · **Skipped:** {skipped:,}")
             if analyzed:
                 sections.append(f"- **Failures:** {failed:,} ({(failed/analyzed*100):.1f}%)")
             sections.append("")
@@ -879,7 +879,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'CORRECT' AND is_unanimous = false AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -934,12 +933,11 @@ class MarkdownReportGenerator:
         
         try:
             items = self.conn.execute(f"""
-                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct, 
+                SELECT item_id, db_id, weighted_score, voters_correct, voters_partially_correct,
                        voters_incorrect, voters_unanswerable, total_voters, voter_results
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -999,7 +997,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -1059,7 +1056,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = false AND status NOT IN ('failed','skipped')
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -1119,7 +1115,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -1178,7 +1173,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE status = 'failed'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not failed:
@@ -2358,7 +2352,47 @@ class MarkdownReportGenerator:
         # Header
         sections.append(f"# Query Quality Report\n\n**Generated:** {now}")
         sections.append("")
-        
+
+        # Calculate summary statistics
+        total_queries = 0
+        analyzed_queries = 0
+        quality_score_sum = 0
+        antipatterns_sum = 0
+
+        if antipattern_table:
+            # Get total queries from antipattern table
+            total_result = self.conn.execute(f"SELECT COUNT(*) FROM {antipattern_table}").fetchone()
+            total_queries = total_result[0] or 0
+
+            # Get skipped queries
+            skipped_result = self.conn.execute(f"SELECT COUNT(*) FROM {antipattern_table} WHERE status = 'skipped'").fetchone()
+            skipped_queries = skipped_result[0] or 0
+
+            # Get analyzed queries (parseable and not skipped)
+            analyzed_queries = (total_queries or 0) - (skipped_queries or 0)
+
+            # Get average quality score and antipatterns
+            stats_result = self.conn.execute(f"""
+                SELECT AVG(quality_score), AVG(total_antipatterns)
+                FROM {antipattern_table}
+                WHERE parseable = true AND status != 'skipped'
+            """).fetchone()
+            if stats_result:
+                quality_score_sum = stats_result[0] or 0
+                antipatterns_sum = stats_result[1] or 0
+
+        # Summary section
+        sections.append("## Summary")
+        sections.append("")
+        if total_queries > 0:
+            skipped_count = total_queries - analyzed_queries
+            sections.append(f"- **Total Queries:** {total_queries:,} · **Analyzed:** {analyzed_queries:,} · **Skipped:** {skipped_count:,}")
+            if analyzed_queries > 0:
+                sections.append(f"- **Avg Quality Score:** {quality_score_sum:.1f}/100 · **Avg Antipatterns:** {antipatterns_sum:.1f}")
+        else:
+            sections.append("- **Total Queries:** 0")
+        sections.append("")
+
         # K) Quality Indicators
         sections.append("## K) Quality Indicators")
         sections.append("")
@@ -2452,7 +2486,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE parseable = false OR status = 'failed'
                 ORDER BY CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not unparseable:
@@ -2472,8 +2505,6 @@ class MarkdownReportGenerator:
             unparseable_pct = round(total_unparseable * 100.0 / total_queries, 1) if total_queries > 0 else 0
             
             lines.append(f"**Found {total_unparseable} unparseable queries ({unparseable_pct}% of total)**")
-            lines.append("")
-            lines.append("*(showing first 50)*")
             lines.append("")
             lines.append("| Item ID | Error |")
             lines.append("|-------------|-------|")
