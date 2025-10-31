@@ -62,7 +62,14 @@ analyses_<dataset>_<timestamp>/
 ├── query_execution_metrics.jsonl
 ├── query_antipattern_metrics.jsonl
 ├── metrics.duckdb (if enabled)
-├── analysis_report.md (if enabled)
+├── all_reports/
+│   ├── summary_report.md (comprehensive report)
+│   ├── schema_validation_report.md
+│   ├── llm_judge_issues_report.md
+│   ├── query_execution_issues_report.md
+│   ├── query_structure_profile_report.md
+│   ├── table_coverage_report.md
+│   └── query_quality_report.md
 └── _run_info.json
 ```
 

@@ -57,7 +57,7 @@ def main():
     elif args.command == "report":
         try:
             from text2sql_pipeline.output.report import (
-                generate_report_from_db,
+                generate_summary_report,
                 generate_query_structure_profile_report,
                 generate_table_coverage_report,
                 generate_query_quality_report,
@@ -66,7 +66,7 @@ def main():
             report_type = args.type
             
             if report_type == "full":
-                generate_report_from_db(args.database, args.output)
+                generate_summary_report(args.database, args.output)
                 print(f"✅ Report generated: {args.output}")
             elif report_type == "query-structure":
                 generate_query_structure_profile_report(args.database, args.output)

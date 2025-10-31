@@ -2497,7 +2497,7 @@ class MarkdownReportGenerator:
         self.conn.close()
 
 
-def generate_report_from_db(duckdb_path: str, output_path: str) -> None:
+def generate_summary_report(duckdb_path: str, output_path: str) -> None:
     """Generate report from DuckDB database."""
     generator = MarkdownReportGenerator(duckdb_path)
     try:

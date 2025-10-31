@@ -65,7 +65,7 @@ Creates a timestamped directory like `analyses_spider_dataset_20251021_143022/` 
 - `annotatedOutputDataset.jsonl` - Enriched dataset with analysis results
 - `*_metrics.jsonl` - Per-analyzer metric files
 - `metrics.duckdb` - DuckDB database (if enabled)
-- `analysis_report.md` - Comprehensive markdown report (if enabled)
+- `summary_report.md` - Comprehensive markdown report (if enabled)
 - `_run_info.json` - Run configuration and metadata
 
 ---
@@ -177,7 +177,14 @@ analyses_spider_dataset_20251021_143022/
 ├── query_execution_metrics.jsonl     # ⚡ Execution test results  
 ├── query_antipattern_metrics.jsonl   # 🚨 Antipattern detections
 ├── metrics.duckdb                    # 📊 DuckDB metrics database
-├── analysis_report.md                # 📄 Comprehensive report
+├── all_reports/
+│   ├── summary_report.md                # 📄 Comprehensive report
+│   ├── schema_validation_report.md      # Schema validation details
+│   ├── llm_judge_issues_report.md       # LLM judge issues (warnings/errors)
+│   ├── query_execution_issues_report.md # Query execution failures
+│   ├── query_structure_profile_report.md # Query structure analysis
+│   ├── table_coverage_report.md         # Table coverage metrics
+│   └── query_quality_report.md          # Query quality assessment
 └── _run_info.json                    # ⚙️  Run configuration
 ```
 
