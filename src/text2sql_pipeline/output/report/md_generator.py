@@ -2396,11 +2396,11 @@ class MarkdownReportGenerator:
             sections.append("- **Total Queries:** 0")
         sections.append("")
 
-        # K) Quality Indicators
+        # A) Quality Indicators
         sections.append("## K) Quality Indicators")
         sections.append("")
         
-        # K1) Antipatterns Detected
+        # A1) Antipatterns Detected
         if antipattern_table:
             sections.append(self._generate_antipatterns_quality(antipattern_table))
         else:
@@ -2409,7 +2409,7 @@ class MarkdownReportGenerator:
             sections.append("*No antipattern metrics available.*")
             sections.append("")
         
-        # K2) Unparseable Queries
+        # A2) Unparseable Queries
         if syntax_table:
             sections.append(self._generate_unparseable_queries(syntax_table))
         else:

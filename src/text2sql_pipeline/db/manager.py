@@ -36,13 +36,14 @@ class DbManager:
         self._engines: Dict[str, Engine] = {}
 
     # ---------- identity path ----------
-    def identity_from_schema(self, schema: str) -> str:
+    def identity_from_schema(self, schema: str, db_id: str | None = None) -> str:
         """
-        Call adapter.identity_from_schema(schema), cache OK/ERROR result, and return db_id.
+        Call adapter.identity_from_schema(schema, db_id), cache OK/ERROR result, and return db_id.
+        If db_id is provided, use it instead of generating from schema.
         Never raises (catches AdapterError and records as ERROR).
         """
         try:
-            db_id = self._adapter.identity_from_schema(schema)
+            db_id = self._adapter.identity_from_schema(schema, db_id)
             url = self._safe_url(db_id)
             self._records[db_id] = DbRecord(
                 db_id=db_id, dialect=self._adapter.name, db_url=url,

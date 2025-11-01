@@ -22,6 +22,7 @@ class HFDatasetLoader(Loader):
       - columns: Optional[list[str]] = None   # keep only these fields
       - trust_remote_code: bool = False  # if dataset requires custom code
       - keep_in_memory: bool = False     # useful if streaming=False
+      - token: Optional[str] = None      # HuggingFace API token for private repos
 
     Usage:
       rows = HFDatasetLoader(...).load()  # iterator of dicts
@@ -38,6 +39,7 @@ class HFDatasetLoader(Loader):
         columns: Optional[list[str]] = None,
         trust_remote_code: bool = False,
         keep_in_memory: bool = False,
+        token: Optional[str] = None,
     ) -> None:
         self.name = name
         self.config_name = config_name
@@ -48,6 +50,7 @@ class HFDatasetLoader(Loader):
         self.columns = columns
         self.trust_remote_code = trust_remote_code
         self.keep_in_memory = keep_in_memory
+        self.token = token
 
     def load(self) -> Iterator[Dict[str, Any]]:
         try:
@@ -66,6 +69,7 @@ class HFDatasetLoader(Loader):
             "streaming": self.streaming,
             "trust_remote_code": self.trust_remote_code,
             "keep_in_memory": self.keep_in_memory,
+            "token": self.token,
         }
         # remove None to not annoy the API
         kwargs = {k: v for k, v in kwargs.items() if v is not None}

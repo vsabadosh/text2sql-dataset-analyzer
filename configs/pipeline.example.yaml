@@ -8,9 +8,17 @@ sourceDb:
   # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
 
 load:
-  name: jsonl
+  name: jsonl # jsonl | json | csv | hf
   params:
     path: data_examples/spider-tiny-9.jsonl
+# # Example using HuggingFace datasets (with optional token for private repos)
+# load:
+#   name: hf
+#   params:
+#     name: "koookiy/spider-SQL-data-train"
+#     split: "train"
+#     token: "${HF_TOKEN}"  # Optional: HuggingFace API token for private datasets
+
 # Progress tracking configuration
 progress:
   expected_items: 2         # Optional: Expected number of items for percentage tracking
@@ -95,8 +103,22 @@ analyze:
 
           # Fallback keys for rate limit handling (optional)
           fallback_keys:
-            - ${GEMINI_API_KEY_1}
-            - ${GEMINI_API_KEY_2}
+            - "GEMINI_KEY"
+            - "AIzaSyAPuwY4qoRyY_Fkec_N6w7fa4GD8WyVFys"
+            - "AIzaSyAQpCewLlVgRY-q4Bwf_5CAX9Fos1TQ6sM"
+            - "AIzaSyAFxIJvdXXrIBng92mXFfNvy1uI21cIpdo"
+            - "AIzaSyAKYsEOXisk_5mlYq3pc8rr03U20ppkWcs"
+            - "AIzaSyBiYf-E95RSI7bUeZL-3JyPd16N2Fd1YF8"
+            - "AIzaSyDDlvzdRBfFmZpP0aXGoGxzXzq3oj-dUvE"
+            - "AIzaSyC2Hb9X--ouPkxBwee1-RoVzcv3HCjz5Lg"
+            - "AIzaSyCXCVNNHi1SY-FEdPrTu6T9fH2tTw2ZKWs"
+            - "AIzaSyB0AdTfrCZlkEaPFac8VoS55DUKfP5cyeE"
+            - "AIzaSyD1cywzeNaWD60YG7C7uw5rOL3AYo2-rsw"
+            - "AIzaSyCTtyGkuuMRmB7HEz42WVRxUZE6RyXJvE8"
+            - "AIzaSyBy4TChPPK4nn-3IWRidnZqmQ7Qx5jvoIU"
+            - "AIzaSyDn080J0aFun1wCQoM-O8SU-qySW3oSm6M"
+            - "AIzaSyDSVfQoiYGvmORKAOn1zoS3orliCExiVcM"
+            - "AIzaSyCI_e1wo0T-SUbjKJU0LzI1kGOYvEDTnSE"
           models:
             - name: gemini-2.5-pro
               weight: 1.0

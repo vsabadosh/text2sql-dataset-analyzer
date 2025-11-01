@@ -24,14 +24,17 @@ class FileDBAdapterBase(SAAdapterABC, SAExecMixin, ABC):
         self.identity = identity
 
     # ---- Template Method (already implemented) ----
-    def identity_from_schema(self, schema: str) -> str:
+    def identity_from_schema(self, schema: str, db_id: str | None = None) -> str:
         try:
             ast_list = self._ddl_to_ast_list(schema, read=self._sqlglot_read_dialect())
             ir = self._canonical_ir(ast_list)
         except ParseError as e:
-            raise InvalidSchemaError(self.identity.bad_db_id(self.name, schema), f"Invalid {self.name} DDL: {e}") from e
+            bad_db_id = db_id if db_id is not None else self.identity.bad_db_id(self.name, schema)
+            raise InvalidSchemaError(bad_db_id, f"Invalid {self.name} DDL: {e}") from e
 
-        db_id = self.identity.good_db_id(self.name, ir)
+        # Use provided db_id or generate from schema
+        if db_id is None:
+            db_id = self.identity.good_db_id(self.name, ir)
         db_url, db_path = self._db_url_and_path(db_id)
 
         p = Path(db_path)

@@ -4,10 +4,11 @@ class SAAdapter(Protocol):
     name: str   # "sqlite" | "postgresql"
     kind: str   # "file"   | "server"
 
-    def identity_from_schema(self, schema: str) -> str:
+    def identity_from_schema(self, schema: str, db_id: str | None = None) -> str:
         """
-        Parse schema (dialect-strict) → build canonical IR → compute db_id →
+        Parse schema (dialect-strict) → build canonical IR → compute db_id (or use provided) →
         materialize (create-if-missing + apply DDL) → return db_id.
+        If db_id is provided, use it instead of generating from schema.
         May raise AdapterError (InvalidSchemaError / ProvisioningError / DDLApplyError).
         """
         ...
