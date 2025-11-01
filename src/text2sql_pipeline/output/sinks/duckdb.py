@@ -99,6 +99,7 @@ class DuckDBMetricsSink(MetricsSink):
             parsed BOOLEAN,
             tables INTEGER,
             columns INTEGER,
+            table_names JSON,
             fk_total INTEGER,
             fk_valid INTEGER,
             fk_invalid INTEGER,
@@ -457,7 +458,7 @@ class DuckDBMetricsSink(MetricsSink):
                 INSERT INTO {table_name} VALUES (
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
@@ -476,6 +477,7 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("parsed"),
                 features.get("tables"),
                 features.get("columns"),
+                json.dumps(features.get("table_names", [])),
                 features.get("fk_total"),
                 features.get("fk_valid"),
                 features.get("fk_invalid"),

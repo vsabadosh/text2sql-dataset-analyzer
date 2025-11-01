@@ -1937,7 +1937,9 @@ class MarkdownReportGenerator:
                             if db_id not in used_tables_per_db:
                                 used_tables_per_db[db_id] = set()
                             for tbl in tables_list:
-                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                normalized_tbl = tbl.strip().strip('"').strip("'").lower()
+                                used_tables_per_db[db_id].add(normalized_tbl)
                     except Exception:
                         pass
             
@@ -1994,19 +1996,19 @@ class MarkdownReportGenerator:
     def _generate_usage_distribution(self, table: str) -> str:
         """Generate table usage distribution (B1)."""
         lines = ["## B) Table Usage Distribution", ""]
-        
+
         try:
             lines.append("### B1) Usage Frequency")
             lines.append("")
             lines.append("| Usage count | Tables | Share | Description |")
             lines.append("|-------------|--------|-------|-------------|")
-            
+
             # Count how many times each table is used
             import json
             tables_data = self.conn.execute(f"""
                 SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
             """).fetchall()
-            
+
             table_usage = {}
             for db_id, tables_str in tables_data:
                 if tables_str:
@@ -2014,15 +2016,54 @@ class MarkdownReportGenerator:
                         tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
                         if isinstance(tables_list, list):
                             for tbl in tables_list:
-                                tbl_clean = tbl.strip().strip('"').strip("'")
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                tbl_clean = tbl.strip().strip('"').strip("'").lower()
                                 key = f"{db_id}.{tbl_clean}"
                                 table_usage[key] = table_usage.get(key, 0) + 1
                     except Exception:
                         pass
-            
+
+            # Calculate unused tables by comparing schema vs used tables
+            schema_table = self.available_tables.get("schema_validation")
+            unused_tables = 0
+            total_schema_tables = 0
+
+            if schema_table:
+                # Get schema table counts
+                schema_counts = {}
+                schema_data = self.conn.execute(f"""
+                    SELECT db_id, tables FROM {schema_table}
+                """).fetchall()
+
+                for db_id, table_count in schema_data:
+                    schema_counts[db_id] = table_count or 0
+                    total_schema_tables += table_count or 0
+
+                # Count unique used tables per database
+                used_per_db = {}
+                for db_id, tables_str in tables_data:
+                    if tables_str and db_id in schema_counts:
+                        try:
+                            tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                            if isinstance(tables_list, list):
+                                if db_id not in used_per_db:
+                                    used_per_db[db_id] = set()
+                                for tbl in tables_list:
+                                    # Normalize table names to lowercase
+                                    tbl_clean = tbl.strip().strip('"').strip("'").lower()
+                                    used_per_db[db_id].add(tbl_clean)
+                        except Exception:
+                            pass
+
+                # Calculate unused tables
+                for db_id, schema_count in schema_counts.items():
+                    used_count = len(used_per_db.get(db_id, set()))
+                    if used_count < schema_count:
+                        unused_tables += (schema_count - used_count)
+
             # Categorize by usage count
             usage_categories = {
-                '0 (unused)': 0,  # Will be calculated separately
+                '0 (unused)': unused_tables,
                 '1-2 times': 0,
                 '3-5 times': 0,
                 '6-10 times': 0,
@@ -2030,7 +2071,7 @@ class MarkdownReportGenerator:
                 '21-50 times': 0,
                 '51+ times': 0
             }
-            
+
             for count in table_usage.values():
                 if 1 <= count <= 2:
                     usage_categories['1-2 times'] += 1
@@ -2056,7 +2097,8 @@ class MarkdownReportGenerator:
                 '51+ times': 'Core tables'
             }
             
-            total_tables = sum(usage_categories.values())
+            # Use schema table count if available, otherwise fall back to used tables
+            total_tables = total_schema_tables if total_schema_tables > 0 else sum(usage_categories.values())
             for category in ['0 (unused)', '1-2 times', '3-5 times', '6-10 times', '11-20 times', '21-50 times', '51+ times']:
                 count = usage_categories[category]
                 share = round(count * 100.0 / total_tables, 1) if total_tables > 0 else 0
@@ -2099,7 +2141,9 @@ class MarkdownReportGenerator:
                             if db_id not in used_tables_per_db:
                                 used_tables_per_db[db_id] = set()
                             for tbl in tables_list:
-                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                normalized_tbl = tbl.strip().strip('"').strip("'").lower()
+                                used_tables_per_db[db_id].add(normalized_tbl)
                     except Exception:
                         pass
             
@@ -2185,26 +2229,109 @@ class MarkdownReportGenerator:
     def _generate_coverage_recommendations(self, table: str, schema_table: str) -> str:
         """Generate coverage recommendations (H1-H3)."""
         lines = ["## H) Coverage Gaps & Recommendations", ""]
-        
+
         try:
+            # Calculate database coverage data for recommendations
+            import json
+            tables_data = self.conn.execute(f"""
+                SELECT db_id, tables FROM {table} WHERE parseable = true AND tables IS NOT NULL
+            """).fetchall()
+
+            used_tables_per_db = {}
+            for db_id, tables_str in tables_data:
+                if tables_str:
+                    try:
+                        tables_list = json.loads(tables_str) if isinstance(tables_str, str) else tables_str
+                        if isinstance(tables_list, list):
+                            if db_id not in used_tables_per_db:
+                                used_tables_per_db[db_id] = set()
+                            for tbl in tables_list:
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                normalized_tbl = tbl.strip().strip('"').strip("'").lower()
+                                used_tables_per_db[db_id].add(normalized_tbl)
+                    except Exception:
+                        pass
+
+            # Get schema table information if available
+            schema_counts = {}
+            schema_table_names = {}
+            if schema_table:
+                schema_data = self.conn.execute(f"""
+                    SELECT db_id, tables, table_names FROM {schema_table}
+                """).fetchall()
+                for db_id, table_count, table_names_json in schema_data:
+                    schema_counts[db_id] = table_count or 0
+                    # Parse table names if available
+                    if table_names_json:
+                        try:
+                            import json
+                            table_names_list = json.loads(table_names_json) if isinstance(table_names_json, str) else table_names_json
+                            if isinstance(table_names_list, list):
+                                # Normalize table names to lowercase for consistent comparison
+                                schema_table_names[db_id] = [name.lower() for name in table_names_list]
+                        except Exception:
+                            pass
+
+            # Calculate coverage per database
+            db_coverage = []
+            unused_tables_per_db = {}
+            for db_id in used_tables_per_db:
+                used_count = len(used_tables_per_db[db_id])
+                schema_count = schema_counts.get(db_id, used_count)
+
+                # Identify unused tables if we have schema table names
+                unused_tables = []
+                if db_id in schema_table_names and db_id in used_tables_per_db:
+                    schema_tables = set(schema_table_names[db_id])
+                    used_tables = set(used_tables_per_db[db_id])
+                    unused_tables = list(schema_tables - used_tables)
+                    unused_tables_per_db[db_id] = unused_tables
+
+                unused_count = len(unused_tables) if unused_tables else max(0, schema_count - used_count)
+                coverage_pct = round(used_count * 100.0 / schema_count, 1) if schema_count > 0 else 100.0
+                db_coverage.append((db_id, coverage_pct, schema_count, used_count, unused_count, unused_tables))
+
+            # Sort by coverage ascending (worst first)
+            db_coverage.sort(key=lambda x: x[1])
+
             lines.append("### H1) Critical Gaps")
             lines.append("")
-            lines.append("*(≥5 unused tables per database)*")
+            lines.append("*(Databases with significant unused tables)*")
             lines.append("")
-            lines.append("| Database | Unused Count | Impact | Recommendation |")
-            lines.append("|----------|-------------|--------|----------------|")
-            
-            # Placeholder - needs schema introspection
-            lines.append("| *Requires schema analysis* | — | — | — |")
+            lines.append("| Database | Unused Count | Coverage | Impact | Recommendation |")
+            lines.append("|----------|-------------|----------|--------|----------------|")
+
+            # Show databases with unused tables
+            critical_gaps = [(db, unused, coverage, schema, used, unused_tables) for db, coverage, schema, used, unused, unused_tables in db_coverage if unused > 0]
+            if critical_gaps:
+                for db_id, unused_count, coverage_pct, schema_count, used_count, unused_tables in critical_gaps[:5]:  # Top 5 worst
+                    impact = "High" if unused_count >= 3 else "Medium"
+                    # Format unused tables as a comma-separated list in brackets
+                    unused_tables_str = f"[{', '.join(sorted(unused_tables))}]" if unused_tables else f"{unused_count} tables"
+                    recommendation = f"Add queries using: {unused_tables_str}"
+                    lines.append(f"| {db_id} | {unused_count} | {coverage_pct}% | {impact} | {recommendation} |")
+            else:
+                lines.append("| All databases | 0 | 100% | None | Perfect coverage achieved |")
             lines.append("")
-            
+
             lines.append("### H2) Quick Wins")
             lines.append("")
-            lines.append("*(high-value unused tables)*")
+            lines.append("*(Databases needing coverage improvement)*")
             lines.append("")
-            lines.append("| Table | Database | Potential | Suggestion |")
-            lines.append("|-------|----------|-----------|------------|")
-            lines.append("| *Requires schema analysis* | — | — | — |")
+            lines.append("| Database | Current Coverage | Tables Used | Potential Improvement | Suggestion |")
+            lines.append("|----------|------------------|-------------|----------------------|------------|")
+
+            # Show databases with coverage below 95%
+            quick_wins = [(db, coverage, used, schema, unused_tables) for db, coverage, schema, used, unused, unused_tables in db_coverage if coverage < 95.0]
+            if quick_wins:
+                for db_id, coverage_pct, used_count, schema_count, unused_tables in quick_wins[:5]:  # Top 5 opportunities
+                    improvement = f"{95.0 - coverage_pct:.1f}%"
+                    # Use specific unused tables if available, otherwise count
+                    unused_count = len(unused_tables) if unused_tables else (schema_count - used_count)
+                    suggestion = f"Add queries for {unused_count} unused tables"
+                    lines.append(f"| {db_id} | {coverage_pct}% | {used_count}/{schema_count} | {improvement} | {suggestion} |")
+            else:
+                lines.append("| All databases | ≥95% | — | None needed | Excellent coverage |")
             lines.append("")
             
             lines.append("### H3) Overall Recommendations")
@@ -2225,7 +2352,9 @@ class MarkdownReportGenerator:
                             if db_id not in used_tables_per_db:
                                 used_tables_per_db[db_id] = set()
                             for tbl in tables_list:
-                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                normalized_tbl = tbl.strip().strip('"').strip("'").lower()
+                                used_tables_per_db[db_id].add(normalized_tbl)
                     except Exception:
                         pass
             
@@ -2281,7 +2410,9 @@ class MarkdownReportGenerator:
                             if db_id not in used_tables_per_db:
                                 used_tables_per_db[db_id] = set()
                             for tbl in tables_list:
-                                used_tables_per_db[db_id].add(tbl.strip().strip('"').strip("'"))
+                                # Normalize table names to lowercase for case-insensitive comparison (SQLite standard)
+                                normalized_tbl = tbl.strip().strip('"').strip("'").lower()
+                                used_tables_per_db[db_id].add(normalized_tbl)
                     except Exception:
                         pass
             
@@ -2306,7 +2437,7 @@ class MarkdownReportGenerator:
             db_coverage.sort(key=lambda x: x[1], reverse=True)
             
             # Generate bars (limit to top 15 for readability)
-            for db_id, coverage, total, used in db_coverage[:15]:
+            for db_id, coverage, total, used in db_coverage:
                 bar_length = int(coverage / 100 * 24)  # 24 chars max
                 bar = "█" * bar_length
                 
@@ -2327,9 +2458,9 @@ class MarkdownReportGenerator:
                 coverage_padded = f"{int(coverage)}%".rjust(4)
                 lines.append(f"{db_id_padded} {coverage_padded} {bar.ljust(24)} {status}")
             
-            if len(db_coverage) > 15:
-                lines.append("...")
-                lines.append(f"(showing top 15 of {len(db_coverage)} databases)")
+            # if len(db_coverage) > 15:
+            #     lines.append("...")
+            #     lines.append(f"(showing top 15 of {len(db_coverage)} databases)")
             
             lines.append("```")
             lines.append("")

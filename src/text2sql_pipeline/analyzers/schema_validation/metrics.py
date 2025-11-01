@@ -97,6 +97,7 @@ class SchemaAnalysisFeatures(BaseModel):
     # Basic counts
     tables: int = 0
     columns: int = 0
+    table_names: List[str] = Field(default_factory=list)  # List of all table names in the database
     
     # Foreign key metrics
     fk_total: int = 0

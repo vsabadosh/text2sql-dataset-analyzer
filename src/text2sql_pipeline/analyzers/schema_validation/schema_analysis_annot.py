@@ -248,6 +248,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
                 parsed=True,
                 tables=len(tables),
                 columns=total_columns,
+                table_names=tables,  # Store the actual table names
                 fk_total=validation_result["fk_total"],
                 fk_valid=validation_result["fk_valid"],
                 fk_invalid=validation_result["fk_invalid"],
