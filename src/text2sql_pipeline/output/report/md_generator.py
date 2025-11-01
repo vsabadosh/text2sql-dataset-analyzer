@@ -1943,30 +1943,21 @@ class MarkdownReportGenerator:
                     except Exception:
                         pass
             
-            # Get total tables and table names from schema_validation (dedup by db_id)
+            # Get total tables per DB from schema_validation (authoritative count)
             schema_data = self.conn.execute(f"""
-                SELECT db_id, tables, table_names FROM {schema_table}
+                SELECT db_id, tables FROM {schema_table}
             """).fetchall()
 
-            schema_table_names = {}
-            for db_id, table_count, table_names_json in schema_data:
+            for db_id, table_count in schema_data:
                 all_tables_per_db[db_id] = table_count or 0
-                try:
-                    import json
-                    names_list = json.loads(table_names_json) if isinstance(table_names_json, str) else (table_names_json or [])
-                    if isinstance(names_list, list):
-                        # Normalize to lowercase for consistent comparison
-                        schema_table_names[db_id] = [str(n).strip().strip('"').strip("'").lower() for n in names_list]
-                except Exception:
-                    pass
             
-            # Calculate totals (align used count strictly to DBs present in schema and intersect with schema tables)
+            # Calculate totals: use authoritative per-DB table counts (features.tables)
+            # and cap used tables by that count (avoid overcount due to parser noise)
             total_tables = sum(all_tables_per_db.values())
             total_used = 0
-            for db_id in all_tables_per_db:
-                used_set = used_tables_per_db.get(db_id, set())
-                schema_set = set(schema_table_names.get(db_id, []))
-                total_used += len(used_set & schema_set)
+            for db_id, total_db_tables in all_tables_per_db.items():
+                used_count = len(used_tables_per_db.get(db_id, set()))
+                total_used += min(used_count, total_db_tables)
             
             lines.append(f"| Total tables across all DBs | {total_tables} | Sum of all tables |")
             
@@ -1984,7 +1975,7 @@ class MarkdownReportGenerator:
             db_coverages = []
             for db_id in all_tables_per_db:
                 total_db_tables = all_tables_per_db[db_id]
-                used_db_tables = len(used_tables_per_db.get(db_id, set()))
+                used_db_tables = min(len(used_tables_per_db.get(db_id, set())), total_db_tables)
                 if total_db_tables > 0:
                     cov = used_db_tables * 100.0 / total_db_tables
                     db_coverages.append(cov)
@@ -2034,20 +2025,13 @@ class MarkdownReportGenerator:
             # Get schema information for consistent totals (dedup by db_id)
             schema_table = self.available_tables.get("schema_validation")
             schema_counts = {}
-            schema_table_names = {}
 
             if schema_table:
                 schema_data = self.conn.execute(f"""
-                    SELECT db_id, tables, table_names FROM {schema_table}
+                    SELECT db_id, tables FROM {schema_table}
                 """).fetchall()
-                for db_id, table_count, table_names_json in schema_data:
+                for db_id, table_count in schema_data:
                     schema_counts[db_id] = table_count or 0
-                    try:
-                        names_list = json.loads(table_names_json) if isinstance(table_names_json, str) else (table_names_json or [])
-                        if isinstance(names_list, list):
-                            schema_table_names[db_id] = [str(n).strip().strip('"').strip("'").lower() for n in names_list]
-                    except Exception:
-                        pass
 
             # Use schema counts (unique DBs)
             total_tables = sum(schema_counts.values())
@@ -2069,10 +2053,11 @@ class MarkdownReportGenerator:
                     except Exception:
                         pass
 
-            # Calculate unused tables (count only used tables that exist in schema)
+            # Calculate unused tables using authoritative per-DB table counts
             for db_id, schema_count in schema_counts.items():
-                schema_set = set(schema_table_names.get(db_id, []))
-                used_count = len(used_per_db.get(db_id, set()) & schema_set)
+                used_count = len(used_per_db.get(db_id, set()))
+                # Cap used by schema_count to avoid negative unused due to parser noise
+                used_count = min(used_count, schema_count)
                 unused_tables += max(0, schema_count - used_count)
 
             # Categorize by usage count
@@ -2178,7 +2163,7 @@ class MarkdownReportGenerator:
             db_coverage_data = []
             for db_id in set(list(used_tables_per_db.keys()) + list(total_tables_per_db.keys())):
                 total = total_tables_per_db.get(db_id, len(used_tables_per_db.get(db_id, set())))
-                used = len(used_tables_per_db.get(db_id, set()))
+                used = min(len(used_tables_per_db.get(db_id, set())), total)
                 coverage = round(used * 100.0 / total, 1) if total > 0 else 0
                 queries = query_count_per_db.get(db_id, 0)
                 
