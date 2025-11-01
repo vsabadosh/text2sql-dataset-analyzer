@@ -1255,30 +1255,45 @@ class MarkdownReportGenerator:
             lines.append("")
             lines.append("| Joins per query | Count | Share |")
             lines.append("|----------------|-------|-------|")
-            
-            join_dist = self.conn.execute(f"""
-                SELECT 
-                    CASE 
-                        WHEN join_count = 0 THEN '0 (single-table)'
-                        WHEN join_count = 1 THEN '1 join'
-                        WHEN join_count = 2 THEN '2 joins'
-                        WHEN join_count = 3 THEN '3 joins'
-                        WHEN join_count = 4 THEN '4 joins'
-                        WHEN join_count >= 5 THEN '5+ joins'
-                    END as join_category,
-                    COUNT(*) as count,
-                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) as share
+
+            # Fetch raw distribution by join_count and aggregate into labeled buckets to avoid duplicates
+            raw_join_dist = self.conn.execute(f"""
+                SELECT join_count, COUNT(*) as count
                 FROM {table}
                 WHERE parseable = true AND status != 'skipped'
                 GROUP BY join_count
                 ORDER BY join_count
             """).fetchall()
-            
-            total_count = 0
-            for category, count, share in join_dist:
-                lines.append(f"| {category} | {count:,} | {share}% |")
-                total_count += count
-            
+
+            # Build dynamic buckets based on observed distribution
+            counts_by = {jc: cnt for jc, cnt in raw_join_dist}
+            max_join = max(counts_by.keys()) if counts_by else 0
+
+            rows = []
+            # 0 (single-table)
+            if 0 in counts_by:
+                rows.append(("0 (single-table)", counts_by.get(0, 0)))
+            # 1..4 exact buckets if present within range
+            upper_basic = min(4, max_join)
+            for j in range(1, upper_basic + 1):
+                if j in counts_by:
+                    label = f"{j} join" if j == 1 else f"{j} joins"
+                    rows.append((label, counts_by[j]))
+            # exact 5 and 6 if present
+            for j in [5, 6]:
+                if j <= max_join and j in counts_by:
+                    rows.append((f"{j} joins", counts_by[j]))
+            # 7+ aggregated tail
+            if max_join >= 7:
+                tail = sum(cnt for jc, cnt in counts_by.items() if jc >= 7)
+                if tail > 0:
+                    rows.append(("7+ joins", tail))
+
+            total_count = sum(cnt for _, cnt in rows)
+            for label, count in rows:
+                share = round(count * 100.0 / total_count, 2) if total_count > 0 else 0
+                lines.append(f"| {label} | {count:,} | {share}% |")
+
             lines.append(f"| **Total** | **{total_count:,}** | **100%** |")
             lines.append("")
             
@@ -1364,7 +1379,7 @@ class MarkdownReportGenerator:
                 SELECT COUNT(*) FROM {table}
                 WHERE subquery_count >= 1 AND parseable = true AND status != 'skipped'
             """).fetchone()[0]
-            share = round(has_subq * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            share = round(has_subq * 100.0 / total_queries, 2) if total_queries > 0 else 0
             lines.append(f"| Has ≥1 subquery | {has_subq:,} | {share}% | At least one subquery |")
             
             # Has correlated subquery (approximation - would need specific detection)
@@ -1373,7 +1388,7 @@ class MarkdownReportGenerator:
                 SELECT COUNT(*) FROM {table}
                 WHERE subquery_count >= 1 AND (has_in = true OR has_where = true) AND parseable = true AND status != 'skipped'
             """).fetchone()[0]
-            share = round(correlated * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            share = round(correlated * 100.0 / total_queries, 2) if total_queries > 0 else 0
             lines.append(f"| Has correlated subquery | {correlated:,} | {share}% | Uses outer reference (EXISTS/IN) |")
             
             # Nested subquery depth
@@ -1381,7 +1396,7 @@ class MarkdownReportGenerator:
                 SELECT COUNT(*) FROM {table}
                 WHERE max_subquery_depth >= 2 AND parseable = true AND status != 'skipped'
             """).fetchone()[0]
-            share = round(depth_2 * 100.0 / total_queries, 1) if total_queries > 0 else 0
+            share = round(depth_2 * 100.0 / total_queries, 2) if total_queries > 0 else 0
             lines.append(f"| Has nested subquery (depth ≥2) | {depth_2:,} | {share}% | Subquery within subquery |")
             
             # Max depth breakdown
@@ -1395,16 +1410,25 @@ class MarkdownReportGenerator:
                 ORDER BY max_subquery_depth
             """).fetchall()
             
+            # Aggregate depths: 1, 2, and all ≥3 into a single bucket
+            depth_counts = {1: 0, 2: 0, 3: 0}
             for depth, count in depth_dist:
                 if depth == 1:
-                    share = round(count * 100.0 / total_queries, 1)
-                    lines.append(f"| Max depth = 1 | {count:,} | {share}% | Simple subqueries only |")
+                    depth_counts[1] += count
                 elif depth == 2:
-                    share = round(count * 100.0 / total_queries, 1)
-                    lines.append(f"| Max depth = 2 | {count:,} | {share}% | Two-level nesting |")
+                    depth_counts[2] += count
                 elif depth >= 3:
-                    share = round(count * 100.0 / total_queries, 1)
-                    lines.append(f"| Max depth ≥ 3 | {count:,} | {share}% | Deep nesting (complex) |")
+                    depth_counts[3] += count
+
+            if depth_counts[1] > 0:
+                share = round(depth_counts[1] * 100.0 / total_queries, 2)
+                lines.append(f"| Max depth = 1 | {depth_counts[1]:,} | {share}% | Simple subqueries only |")
+            if depth_counts[2] > 0:
+                share = round(depth_counts[2] * 100.0 / total_queries, 2)
+                lines.append(f"| Max depth = 2 | {depth_counts[2]:,} | {share}% | Two-level nesting |")
+            if depth_counts[3] > 0:
+                share = round(depth_counts[3] * 100.0 / total_queries, 2)
+                lines.append(f"| Max depth ≥ 3 | {depth_counts[3]:,} | {share}% | Deep nesting (complex) |")
             
             lines.append("")
             
