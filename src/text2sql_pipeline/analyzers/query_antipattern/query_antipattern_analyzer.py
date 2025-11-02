@@ -17,8 +17,8 @@ from .metrics import (
 )
 
 
-@register_analyzer("query_antipattern_annot")
-class QueryAntipatternAnnot(AnnotatingAnalyzer):
+@register_analyzer("query_antipattern_analyzer")
+class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
     """
     SQL antipattern detector and code quality analyzer.
     
@@ -41,16 +41,16 @@ class QueryAntipatternAnnot(AnnotatingAnalyzer):
     - Quality classification (excellent/good/fair/poor)
     """
     
-    name = "query_antipattern_annot"
+    name = "query_antipattern_analyzer"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
-    
+
     def __init__(self, db_manager: DbManager, enabled: bool) -> None:
         self.db_dialect = db_manager.get_sqlglot_dialect()
         self.enabled = enabled
-    
+
     # --------------------------- public API ---------------------------
-    
-    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+
+    def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit antipattern detection metrics."""
         for item in items:
             if not self.enabled:

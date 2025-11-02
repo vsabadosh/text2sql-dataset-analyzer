@@ -16,7 +16,7 @@
                             │
                             ▼
 ┌───────────────────────────────────────────────────────────────────┐
-│              SemanticLLMAnnot (Analyzer)                          │
+│              SemanticLLMAnalyzer (Analyzer)                       │
 │                                                                   │
 │  1. Validate required fields (question, sql, dbId)                │
 │  2. Get smart DDL schema with examples                            │
@@ -143,7 +143,7 @@
 
 ## Component Responsibilities
 
-### SemanticLLMAnnot (Main Analyzer)
+### SemanticLLMAnalyzer (Main Analyzer)
 - **Input**: DataItem stream with question, sql, dbId
 - **Output**: Annotated DataItem + MetricEvent
 - **Responsibilities**:

@@ -58,7 +58,7 @@ def run_pipeline(config_path: str) -> str:
         # Analyze (stream with shared metrics sink)
         def _apply(an, upstream: Iterable[DataItem]) -> Iterable[DataItem]:
             def gen() -> Iterator[DataItem]:
-                for it in an.transform(upstream, metric_sink, dataset_name):
+                for it in an.analyze(upstream, metric_sink, dataset_name):
                     yield it
             return gen()
 

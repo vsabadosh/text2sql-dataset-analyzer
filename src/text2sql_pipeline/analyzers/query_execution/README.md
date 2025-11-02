@@ -51,25 +51,25 @@ Dialect-agnostic query execution analyzer with safety features.
 ## Usage
 
 ```python
-from text2sql_pipeline.analyzers.query_execution.query_execution_annot import QueryExecutionAnnot
+from text2sql_pipeline.analyzers.query_execution.query_execution_analyzer import QueryExecutionAnalyzer
 from text2sql_pipeline.db.manager import DbManager
 
 # Safe mode (SELECT only)
-analyzer = QueryExecutionAnnot(
+analyzer = QueryExecutionAnalyzer(
     db_manager=db_manager,
     mode="select_only",
     safety_limit=1
 )
 
 # Test mode (with rollback for mutations)
-analyzer = QueryExecutionAnnot(
+analyzer = QueryExecutionAnalyzer(
     db_manager=db_manager,
     mode="all",
     safety_limit=1
 )
 
 # Process items
-for item in analyzer.transform(items, sink=metrics_sink):
+for item in analyzer.analyze(items, sink=metrics_sink):
     # Item metadata contains analysisSteps
     print(item.metadata["analysisSteps"])
 ```

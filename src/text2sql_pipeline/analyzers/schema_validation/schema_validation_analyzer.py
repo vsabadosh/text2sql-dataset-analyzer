@@ -24,8 +24,8 @@ from .metrics import (
 )
 
 
-@register_analyzer("schema_analysis_annot")
-class SchemaAnalysisAnnot(AnnotatingAnalyzer):
+@register_analyzer("schema_validation_analyzer")
+class SchemaValidationAnalyzer(AnnotatingAnalyzer):
     """
     Schema validation analyzer with comprehensive checks.
     
@@ -42,7 +42,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
     - Subsequent items with same db_id only get annotated, no metric emission
     """
     
-    name = "schema_analysis_annot"
+    name = "schema_validation_analyzer"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
 
     def __init__(self, db_manager: DbManager, enabled: bool) -> None:
@@ -54,7 +54,7 @@ class SchemaAnalysisAnnot(AnnotatingAnalyzer):
         # Status preserves full outcome: "ok" | "errors" | "warns" | "failed"
         self._analyzed_dbs: Dict[str, Tuple[str, str]] = {}
 
-    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+    def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit schema validation metrics."""
         for item in items:
             if not self.enabled:

@@ -135,7 +135,7 @@ HOW TO RUN
      blocking_errors_total,
      fk_invalid,
      duplicate_columns_count
-   FROM metrics_schema_analysis_annot
+   FROM metrics_schema_validation_analyzer
    WHERE blocking_errors_total > 0;
 
 

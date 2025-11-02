@@ -123,7 +123,7 @@ load:
     path: data/train.jsonl
 
 analyze:
-  - name: schema_analysis_annot
+  - name: schema_validation_analyzer
   - name: query_syntax_annot
   - name: query_execution_annot
   - name: query_antipattern_annot
@@ -167,7 +167,7 @@ normalize:
 
 # Analyzers to run
 analyze:
-  - name: schema_analysis_annot
+  - name: schema_validation_analyzer
   - name: query_syntax_annot
   - name: query_execution_annot
     params:

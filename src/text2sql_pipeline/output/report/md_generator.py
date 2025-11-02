@@ -393,7 +393,7 @@ class MarkdownReportGenerator:
                     total, successful, skipped = result
                     analyzed = (total or 0) - (skipped or 0)
                     success_rate = (successful / analyzed * 100) if analyzed > 0 else 0
-                    display_name = analyzer_name.replace("_annot", "").replace("_", " ").title()
+                    display_name = analyzer_name.replace("_analyzer", "").replace("_", " ").title()
                     # Items Analyzed reflects analyzed events (excludes skipped)
                     lines.append(f"| {display_name} | {analyzed:,} | {skipped or 0:,} | {success_rate:.2f}% |")
             except Exception:
@@ -659,7 +659,7 @@ class MarkdownReportGenerator:
             lines.append("| Analyzer | Avg Duration (ms) |")
             lines.append("|----------|-------------------|")
             for analyzer, avg_dur in perf_data:
-                display_name = analyzer.replace("_annot", "").replace("_", " ").title()
+                display_name = analyzer.replace("_analyzer", "").replace("_", " ").title()
                 lines.append(f"| {display_name} | {avg_dur:.2f} |")
             lines.append("")
         

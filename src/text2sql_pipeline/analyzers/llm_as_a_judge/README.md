@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `semantic_llm_annot` analyzer uses multiple LLM voters to evaluate whether a SQL query semantically answers the given natural language question for a specific database schema. This provides human-like semantic validation beyond syntax and execution checks.
+The `semantic_llm_analyzer` analyzer uses multiple LLM voters to evaluate whether a SQL query semantically answers the given natural language question for a specific database schema. This provides human-like semantic validation beyond syntax and execution checks.
 
 ## Features
 
@@ -16,7 +16,7 @@ The `semantic_llm_annot` analyzer uses multiple LLM voters to evaluate whether a
 
 ### Components
 
-1. **SemanticLLMAnnot** - Main analyzer implementing `AnnotatingAnalyzer` protocol
+1. **SemanticLLMAnalyzer** - Main analyzer implementing `AnnotatingAnalyzer` protocol
 2. **PromptTemplateResolver** - Resolves prompt templates with dynamic parameters
 3. **Provider System** - Abstraction layer for different LLM providers
 4. **Metrics** - Structured metric events with voter results and features
@@ -47,7 +47,7 @@ Add to your `configs/pipeline.example.yaml`:
 
 ```yaml
 analyze:
-  - name: semantic_llm_annot
+  - name: semantic_llm_analyzer
     params:
       prompt_variant: default  # Options: variant_1, variant_2, default
       temperature: 0.0
@@ -156,7 +156,7 @@ Assumes SQL is parseable and executable, focuses only on semantic correctness wi
 #### Custom Prompt
 
 ```yaml
-- name: semantic_llm_annot
+- name: semantic_llm_analyzer
   params:
     custom_prompt: |
       Your custom prompt here with placeholders:
@@ -232,7 +232,7 @@ The analyzer adds metadata to each item:
 ### Example 1: Single Provider
 
 ```yaml
-- name: semantic_llm_annot
+- name: semantic_llm_analyzer
   params:
     providers:
       - name: openai
@@ -245,7 +245,7 @@ The analyzer adds metadata to each item:
 ### Example 2: Multi-Provider Consensus
 
 ```yaml
-- name: semantic_llm_annot
+- name: semantic_llm_analyzer
   params:
     providers:
       - name: openai
@@ -270,7 +270,7 @@ The analyzer adds metadata to each item:
 ### Example 3: Weighted Voting
 
 ```yaml
-- name: semantic_llm_annot
+- name: semantic_llm_analyzer
   params:
     providers:
       - name: openai

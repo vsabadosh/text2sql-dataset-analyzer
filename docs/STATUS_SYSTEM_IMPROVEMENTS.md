@@ -84,7 +84,7 @@ Improved compact format:
    - Added `build_with_status()` method for explicit status control
    - Success field now only True when status='ok'
 
-2. `src/text2sql_pipeline/analyzers/schema_validation/schema_analysis_annot.py`
+2. `src/text2sql_pipeline/analyzers/schema_validation/schema_validation_analyzer.py`
    - Implements granular status logic
    - Returns 'failed', 'errors', 'warns', or 'ok' based on validation results
 

@@ -45,5 +45,5 @@ class MetricsSink(Protocol):
 class AnnotatingAnalyzer(Protocol):
     name: str
 
-    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+    def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
          ...

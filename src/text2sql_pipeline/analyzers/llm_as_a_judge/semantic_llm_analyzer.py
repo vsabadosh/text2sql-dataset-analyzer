@@ -24,8 +24,8 @@ from .llm_providers.base import Provider
 logger = logging.getLogger(__name__)
 
 
-@register_analyzer("semantic_llm_annot")
-class SemanticLLMAnnot(AnnotatingAnalyzer):
+@register_analyzer("semantic_llm_analyzer")
+class SemanticLLMAnalyzer(AnnotatingAnalyzer):
     """
     LLM-as-a-Judge semantic validation analyzer.
     
@@ -45,7 +45,7 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
     - failed: Unable to evaluate (missing data, LLM failures, etc.)
     """
     
-    name = "semantic_llm_annot"
+    name = "semantic_llm_analyzer"
     INJECT = ["db_manager"]
     
     def __init__(
@@ -92,13 +92,13 @@ class SemanticLLMAnnot(AnnotatingAnalyzer):
         self.providers: List[Provider] = build_providers(config)
         
         if not self.providers:
-            logger.warning("No LLM providers configured for semantic_llm_annot analyzer")
+            logger.warning("No LLM providers configured for semantic_llm_analyzer analyzer")
     
-    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+    def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit semantic validation metrics."""
         # Check if providers are available
         if not self.providers:
-            logger.info("No LLM providers configured, skipping semantic_llm_annot analyzer")
+            logger.info("No LLM providers configured, skipping semantic_llm_analyzer analyzer")
             # Just pass through items without analysis
             for item in items:
                 yield item

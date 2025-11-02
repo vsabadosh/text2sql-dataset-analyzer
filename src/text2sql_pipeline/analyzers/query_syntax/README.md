@@ -427,7 +427,7 @@ All features are aggregatable for dataset-level statistics:
 
 ```yaml
 analyze:
-  - name: query_syntax_annot
+  - name: query_syntax_analyzer
     params: {}
 ```
 
@@ -609,7 +609,7 @@ query_syntax/
 ├── README.md                      # This file
 ├── query_metrics.py               # Pydantic metric models
 ├── query_feature_collect.py       # Core feature extraction (pure functions)
-└── query_syntax_annot.py          # Pipeline analyzer (AnnotatingAnalyzer)
+└── query_syntax_analyzer.py       # Pipeline analyzer (AnnotatingAnalyzer)
 ```
 
 ### Design Principles

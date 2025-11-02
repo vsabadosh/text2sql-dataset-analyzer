@@ -41,26 +41,26 @@ normalize:
     params: {}             
 
 analyze:
-  - name: schema_analysis_annot
-    params: 
-      enabled: true
-    
-  - name: query_syntax_annot
+  - name: schema_validation_analyzer
     params:
       enabled: true
 
-  - name: query_execution_annot
+  - name: query_syntax_analyzer
+    params:
+      enabled: true
+
+  - name: query_execution_analyzer
     params:
       enabled: true
       mode: all
-          
-  - name: query_antipattern_annot
+
+  - name: query_antipattern_analyzer
     params:
       enabled: true
-  
+
   # LLM-as-a-Judge semantic validation (optional)
   # Uncomment and configure providers to enable semantic validation
-  - name: semantic_llm_annot
+  - name: semantic_llm_analyzer
     params:
       enabled: false
       # Prompt configuration
@@ -103,22 +103,9 @@ analyze:
 
           # Fallback keys for rate limit handling (optional)
           fallback_keys:
-            - "GEMINI_KEY"
-            - "AIzaSyAPuwY4qoRyY_Fkec_N6w7fa4GD8WyVFys"
-            - "AIzaSyAQpCewLlVgRY-q4Bwf_5CAX9Fos1TQ6sM"
-            - "AIzaSyAFxIJvdXXrIBng92mXFfNvy1uI21cIpdo"
-            - "AIzaSyAKYsEOXisk_5mlYq3pc8rr03U20ppkWcs"
-            - "AIzaSyBiYf-E95RSI7bUeZL-3JyPd16N2Fd1YF8"
-            - "AIzaSyDDlvzdRBfFmZpP0aXGoGxzXzq3oj-dUvE"
-            - "AIzaSyC2Hb9X--ouPkxBwee1-RoVzcv3HCjz5Lg"
-            - "AIzaSyCXCVNNHi1SY-FEdPrTu6T9fH2tTw2ZKWs"
-            - "AIzaSyB0AdTfrCZlkEaPFac8VoS55DUKfP5cyeE"
-            - "AIzaSyD1cywzeNaWD60YG7C7uw5rOL3AYo2-rsw"
-            - "AIzaSyCTtyGkuuMRmB7HEz42WVRxUZE6RyXJvE8"
-            - "AIzaSyBy4TChPPK4nn-3IWRidnZqmQ7Qx5jvoIU"
-            - "AIzaSyDn080J0aFun1wCQoM-O8SU-qySW3oSm6M"
-            - "AIzaSyDSVfQoiYGvmORKAOn1zoS3orliCExiVcM"
-            - "AIzaSyCI_e1wo0T-SUbjKJU0LzI1kGOYvEDTnSE"
+            - "${GEMINI_API_KEY_1}"
+            - "${GEMINI_API_KEY_2}"
+            - "${GEMINI_API_KEY_3}"
           models:
             - name: gemini-2.5-pro
               weight: 1.0

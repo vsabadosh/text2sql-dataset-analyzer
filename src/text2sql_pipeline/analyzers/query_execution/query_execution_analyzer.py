@@ -18,8 +18,8 @@ from .metrics import (
 )
 
 
-@register_analyzer("query_execution_annot")
-class QueryExecutionAnnot(AnnotatingAnalyzer):
+@register_analyzer("query_execution_analyzer")
+class QueryExecutionAnalyzer(AnnotatingAnalyzer):
     """
     Dialect-agnostic query execution analyzer.
     
@@ -34,7 +34,7 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
     - all: Execute any safe query (UPDATE/DELETE/INSERT in rollback transaction)
     """
     
-    name = "query_execution_annot"
+    name = "query_execution_analyzer"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
 
     def __init__(
@@ -49,7 +49,7 @@ class QueryExecutionAnnot(AnnotatingAnalyzer):
         self.safety_limit = safety_limit
         self.enabled = enabled
 
-    def transform(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
+    def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query execution metrics."""
         for item in items:
             if not self.enabled:

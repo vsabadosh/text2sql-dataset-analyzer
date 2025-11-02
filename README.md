@@ -117,12 +117,12 @@ progress:
 
 # Configure analyzers
 analyze:
-  - name: schema_analysis_annot
-  - name: query_syntax_annot
-  - name: query_execution_annot
+  - name: schema_validation_analyzer
+  - name: query_syntax_analyzer
+  - name: query_execution_analyzer
     params:
       mode: select_only        # Only run SELECT queries
-  - name: query_antipattern_annot
+  - name: query_antipattern_analyzer
 
 # Output configuration
 output:

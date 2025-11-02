@@ -393,17 +393,17 @@ evidence = {
 ## Usage
 
 ```python
-from text2sql_pipeline.analyzers.schema_validation.schema_analysis_annot import SchemaAnalysisAnnot
+from text2sql_pipeline.analyzers.schema_validation.schema_validation_analyzer import SchemaValidationAnalyzer
 from text2sql_pipeline.db.manager import DbManager
 
 # Create analyzer
-analyzer = SchemaAnalysisAnnot(
+analyzer = SchemaValidationAnalyzer(
     db_manager=db_manager,
     run_id="run_1234567890"
 )
 
 # Process items
-for item in analyzer.transform(items, sink=metrics_sink):
+for item in analyzer.analyze(items, sink=metrics_sink):
     # Check analysis result in metadata
     steps = item.metadata["analysisSteps"]
     schema_step = next(s for s in steps if s["name"] == "schema_analysis")
@@ -450,7 +450,7 @@ Schema validation succeeds when:
 ```yaml
 # config.yaml
 analyzers:
-  - name: schema_analysis_annot
+  - name: schema_validation_analyzer
     db_manager: !ref db_manager
     run_id: !ref run_id
 

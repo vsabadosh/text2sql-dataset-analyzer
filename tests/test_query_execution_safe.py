@@ -1,10 +1,10 @@
 """
-Test QueryExecutionAnnot with safety features and rollback support.
+Test QueryExecutionAnalyzer with safety features and rollback support.
 """
 from text2sql_pipeline.core.models import DataItem
 from text2sql_pipeline.core.contracts import MetricsSink
 from text2sql_pipeline.core.metric import MetricEvent
-from text2sql_pipeline.analyzers.query_execution.query_execution_annot import QueryExecutionAnnot
+from text2sql_pipeline.analyzers.query_execution.query_execution_analyzer import QueryExecutionAnalyzer
 from text2sql_pipeline.analyzers.query_execution.metrics import QueryExecutionMetricEvent
 from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.db.adapters.factory import make_adapter
@@ -33,7 +33,7 @@ def test_select_with_limit_added():
     """Test that SELECT without LIMIT gets LIMIT added."""
     adapter = make_adapter(dialect="sqlite", kind="file", endpoint="./data_examples/databases", identity=SchemaIdentity())
     db_manager = DbManager(adapter=adapter)
-    analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="select_only", safety_limit=1)
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True, mode="select_only", safety_limit=1)
     
     sink = MockSink()
     
@@ -43,7 +43,7 @@ def test_select_with_limit_added():
         sql="SELECT * FROM users"
     )
     
-    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
+    result = list(analyzer.analyze([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     assert len(sink.metrics) == 1
@@ -62,7 +62,7 @@ def test_update_with_rollback():
     """Test that UPDATE is executed in transaction with rollback."""
     adapter = make_adapter(dialect="sqlite", kind="file", endpoint="./data_examples/databases", identity=SchemaIdentity())
     db_manager = DbManager(adapter=adapter)
-    analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="all")
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True, mode="all")
     
     sink = MockSink()
     
@@ -73,7 +73,7 @@ def test_update_with_rollback():
     )
     
     # Execute analyzer
-    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
+    result = list(analyzer.analyze([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     assert len(sink.metrics) == 1
@@ -96,7 +96,7 @@ def test_destructive_blocked():
     """Test that destructive operations are blocked."""
     adapter = make_adapter(dialect="sqlite", kind="file", endpoint="./data_examples/databases", identity=SchemaIdentity())
     db_manager = DbManager(adapter=adapter)
-    analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="all")
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True, mode="all")
     
     sink = MockSink()
     
@@ -108,7 +108,7 @@ def test_destructive_blocked():
     
     for i, sql in enumerate(destructive_queries):
         item = DataItem(id=f"test_{i}", dbId="toydb", sql=sql)
-        list(analyzer.transform([item], sink=sink))
+        list(analyzer.analyze([item], sink=sink))
     
     assert len(sink.metrics) == 3
     for event in sink.metrics:
@@ -122,7 +122,7 @@ def test_select_only_mode():
     """Test that select_only mode blocks non-SELECT."""
     adapter = make_adapter(dialect="sqlite", kind="file", endpoint="./data_examples/databases", identity=SchemaIdentity())
     db_manager = DbManager(adapter=adapter)
-    analyzer = QueryExecutionAnnot(db_manager=db_manager, mode="select_only")
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True, mode="select_only")
     
     sink = MockSink()
     
@@ -132,7 +132,7 @@ def test_select_only_mode():
         sql="DELETE FROM users WHERE id = 999"
     )
     
-    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
+    result = list(analyzer.analyze([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     assert len(sink.metrics) == 1
@@ -147,7 +147,7 @@ def test_metadata_annotation():
     """Test that analysisSteps metadata is properly added."""
     adapter = make_adapter(dialect="sqlite", kind="file", endpoint="./data_examples/databases", identity=SchemaIdentity())
     db_manager = DbManager(adapter=adapter)
-    analyzer = QueryExecutionAnnot(db_manager=db_manager)
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True)
     
     sink = MockSink()
     
@@ -157,7 +157,7 @@ def test_metadata_annotation():
         sql="SELECT * FROM users LIMIT 1"
     )
     
-    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
+    result = list(analyzer.analyze([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     item = result[0]
@@ -180,7 +180,7 @@ def test_dialect_agnostic():
     dialect = db_manager.get_sqlglot_dialect()
     assert dialect == "sqlite"
     
-    analyzer = QueryExecutionAnnot(db_manager=db_manager)
+    analyzer = QueryExecutionAnalyzer(db_manager=db_manager, enabled=True)
     sink = MockSink()
     
     item = DataItem(
@@ -189,7 +189,7 @@ def test_dialect_agnostic():
         sql="SELECT * FROM users"
     )
     
-    result = list(analyzer.transform([item], sink=sink, dataset_id="test"))
+    result = list(analyzer.analyze([item], sink=sink, dataset_id="test"))
     
     assert len(result) == 1
     metric = sink.metrics[0].model_dump()

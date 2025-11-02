@@ -3,7 +3,7 @@ Tests for LLM-as-a-Judge semantic validation analyzer.
 """
 import pytest
 from unittest.mock import Mock
-from text2sql_pipeline.analyzers.llm_as_a_judge.semantic_llm_annot import SemanticLLMAnnot
+from text2sql_pipeline.analyzers.llm_as_a_judge.semantic_llm_analyzer import SemanticLLMAnalyzer
 from text2sql_pipeline.analyzers.llm_as_a_judge.prompt_template import PromptTemplateResolver
 from text2sql_pipeline.analyzers.llm_as_a_judge.metrics import VoterResult, LLMJudgeFeatures
 from text2sql_pipeline.core.models import DataItem
@@ -49,7 +49,7 @@ SQL: {{sql_to_revise}}
         assert "CREATE TABLE test" in result
 
 
-class TestSemanticLLMAnnot:
+class TestSemanticLLMAnalyzer:
     """Test semantic LLM analyzer."""
     
     def test_init_without_providers(self):
@@ -57,8 +57,9 @@ class TestSemanticLLMAnnot:
         mock_db_manager = Mock()
         mock_db_manager.get_sqlglot_dialect.return_value = "sqlite"
         
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"  # Required since built-in templates removed
         )
@@ -80,8 +81,9 @@ class TestSemanticLLMAnnot:
             }
         ]
         
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=providers_config,
             custom_prompt="Test prompt {{dialect}}"  # Required since built-in templates removed
         )
@@ -92,8 +94,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_all_correct(self):
         """Test result aggregation when all voters say CORRECT."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -127,8 +130,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_mixed_verdicts(self):
         """Test result aggregation with mixed verdicts."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -171,8 +175,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_with_failed_voter(self):
         """Test result aggregation with failed voters."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -207,8 +212,9 @@ class TestSemanticLLMAnnot:
     def test_determine_status_all_correct(self):
         """Test status determination when all voters correct."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -232,8 +238,9 @@ class TestSemanticLLMAnnot:
     def test_determine_status_majority_incorrect(self):
         """Test status determination when majority say incorrect."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -257,8 +264,9 @@ class TestSemanticLLMAnnot:
     def test_determine_status_mixed(self):
         """Test status determination with mixed verdicts."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -280,8 +288,9 @@ class TestSemanticLLMAnnot:
     def test_determine_status_all_failed(self):
         """Test status determination when all voters failed."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -303,8 +312,9 @@ class TestSemanticLLMAnnot:
     def test_determine_status_majority_unanswerable(self):
         """Test status determination when majority say unanswerable."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -328,8 +338,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_with_unanswerable(self):
         """Test result aggregation with UNANSWERABLE verdicts."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -370,8 +381,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_unanimous(self):
         """Test unanimous consensus detection."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -412,8 +424,9 @@ class TestSemanticLLMAnnot:
     def test_aggregate_results_majority_not_unanimous(self):
         """Test majority consensus without unanimity."""
         mock_db_manager = Mock()
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -451,13 +464,14 @@ class TestSemanticLLMAnnot:
         assert features.consensus_verdict == "CORRECT"
         assert features.is_unanimous is False  # Not all voters agree
     
-    def test_transform_without_providers(self):
-        """Test transform when no providers configured (should pass through)."""
+    def test_analyze_without_providers(self):
+        """Test analyze when no providers configured (should pass through)."""
         mock_db_manager = Mock()
         mock_db_manager.get_sqlglot_dialect.return_value = "sqlite"
         
-        analyzer = SemanticLLMAnnot(
+        analyzer = SemanticLLMAnalyzer(
             db_manager=mock_db_manager,
+            enabled=True,
             providers=[],
             custom_prompt="Test prompt {{dialect}}"
         )
@@ -474,7 +488,7 @@ class TestSemanticLLMAnnot:
         ]
         
         # Should pass through without calling sink
-        result = list(analyzer.transform(items, mock_sink, "test_dataset"))
+        result = list(analyzer.analyze(items, mock_sink, "test_dataset"))
         
         assert len(result) == 1
         assert result[0].id == "1"

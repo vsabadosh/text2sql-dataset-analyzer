@@ -115,7 +115,7 @@ This analyzer detects common SQL antipatterns and code smells that may indicate:
 
 ```yaml
 analyze:
-  - name: query_antipattern_annot
+  - name: query_antipattern_analyzer
     params: {}
 ```
 
@@ -223,7 +223,7 @@ query_antipattern/
 ├── README.md                      # This file
 ├── metrics.py                     # Pydantic metric models
 ├── antipattern_detector.py        # Core detection logic (pure functions)
-└── query_antipattern_annot.py     # Pipeline analyzer (AnnotatingAnalyzer)
+└── query_antipattern_analyzer.py  # Pipeline analyzer (AnnotatingAnalyzer)
 ```
 
 ### Design Principles
