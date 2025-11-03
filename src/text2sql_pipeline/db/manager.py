@@ -431,10 +431,15 @@ class DbManager:
             local_cols = fk.get("local", [])
             parent_table = fk.get("parent_table", "")
             parent_cols = fk.get("parent_columns", [])
-            
-            if local_cols and parent_table and parent_cols:
-                fk_def = f"    FOREIGN KEY ({', '.join(local_cols)}) REFERENCES {parent_table} ({', '.join(parent_cols)})"
-                col_lines.append(fk_def)
+            # stringify everything so join won't fail, even with None values
+            local_cols_str = [str(c) for c in local_cols]
+            parent_cols_str = [("None" if c is None else str(c)) for c in parent_cols]
+
+            fk_def = (
+                f"    FOREIGN KEY ({', '.join(local_cols_str)}) "
+                f"REFERENCES {parent_table} ({', '.join(parent_cols_str)})"
+            )
+            col_lines.append(fk_def)
         
         lines.append(",\n".join(col_lines))
         lines.append(");")
