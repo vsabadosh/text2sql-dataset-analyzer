@@ -33,7 +33,7 @@ class QuerySyntaxAnalyzer(AnnotatingAnalyzer):
     """
 
     name = "query_syntax_analyzer"
-    INJECT = ["db_manager"]
+    INJECT = ["db_manager"]  
 
     def __init__(self, db_manager: DbManager, enabled: bool) -> None:
         self.enabled = enabled

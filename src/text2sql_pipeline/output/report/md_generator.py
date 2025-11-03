@@ -813,17 +813,33 @@ class MarkdownReportGenerator:
                 SELECT COUNT(*) FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND status != 'skipped'
             """).fetchone()[0]
+
+            unanimous_partial = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'PARTIALLY_CORRECT' AND is_unanimous = true AND status != 'skipped'
+            """).fetchone()[0]
+
             majority_partial_pct = (majority_partial / analyzed * 100) if analyzed else 0
+            unanimous_partial_pct = (unanimous_partial / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority PARTIALLY_CORRECT:** {majority_partial:,} ({majority_partial_pct:.1f}%)")
-            
+            sections.append(f"    *of which Unanimous PARTIALLY_CORRECT: {unanimous_partial:,} ({unanimous_partial_pct:.1f}%)*")
+
             # Majority INCORRECT
             majority_incorrect = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
             """).fetchone()[0]
+
+            unanimous_incorrect = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND is_unanimous = true AND status != 'skipped'
+            """).fetchone()[0]
+
             majority_incorrect_pct = (majority_incorrect / analyzed * 100) if analyzed else 0
+            unanimous_incorrect_pct = (unanimous_incorrect / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority INCORRECT:** {majority_incorrect:,} ({majority_incorrect_pct:.1f}%)")
-            
+            sections.append(f"    *of which Unanimous INCORRECT: {unanimous_incorrect:,} ({unanimous_incorrect_pct:.1f}%)*")
+
             # Mixed (No Majority)
             mixed = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
@@ -831,14 +847,23 @@ class MarkdownReportGenerator:
             """).fetchone()[0]
             mixed_pct = (mixed / analyzed * 100) if analyzed else 0
             sections.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
-            
+            sections.append("    *(Mixed results have no consensus by definition)*")
+
             # Majority UNANSWERABLE
             majority_unanswerable = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND status != 'skipped'
             """).fetchone()[0]
+
+            unanimous_unanswerable = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+                WHERE consensus_reached = true AND consensus_verdict = 'UNANSWERABLE' AND is_unanimous = true AND status != 'skipped'
+            """).fetchone()[0]
+
             majority_unanswerable_pct = (majority_unanswerable / analyzed * 100) if analyzed else 0
+            unanimous_unanswerable_pct = (unanimous_unanswerable / analyzed * 100) if analyzed else 0
             sections.append(f"- **Majority UNANSWERABLE:** {majority_unanswerable:,} ({majority_unanswerable_pct:.1f}%)")
+            sections.append(f"    *of which Unanimous UNANSWERABLE: {unanimous_unanswerable:,} ({unanimous_unanswerable_pct:.1f}%)*")
             
             # Failed evaluations
             failed = self.conn.execute(f"""

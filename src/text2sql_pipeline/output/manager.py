@@ -11,7 +11,12 @@ from ..core.contracts import MetricsSink
 class RunOutputManager:
     def __init__(self, dataset_name: str, config: Dict[str, Any]):
         ts = now_ts()
-        self.root_dir = f"{dataset_name}_{ts}"
+
+        # Allow custom base output directory
+        output_cfg = config.get("output", {})
+        base_dir = output_cfg.get("base_dir", ".")
+
+        self.root_dir = os.path.join(base_dir, f"{dataset_name}_{ts}")
         ensure_dir(self.root_dir)
 
         # prepare fixed file paths

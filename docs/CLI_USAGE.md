@@ -9,8 +9,17 @@ text2sql --help
 # Run pipeline
 text2sql run --config <config.yaml>
 
-# Generate report
+# Generate reports (from pipeline config)
+text2sql report --config <config.yaml>
+
+# Generate report (summary)
 text2sql report --database <metrics.duckdb> --output <report.md>
+
+# Generate specific report type
+text2sql report --database <metrics.duckdb> --output <report.md> --type llm-judge-issues
+
+# Generate all reports
+text2sql report --database <metrics.duckdb> --output <reports.md> --type all
 ```
 
 ---
@@ -55,7 +64,7 @@ text2sql run --config /path/to/config.yaml
 
 **Output directory:**
 ```
-analyses_<dataset>_<timestamp>/
+<base_dir>/<dataset>_<timestamp>/
 ├── annotatedOutputDataset.jsonl
 ├── schema_validation_metrics.jsonl
 ├── query_syntax_metrics.jsonl
@@ -73,33 +82,76 @@ analyses_<dataset>_<timestamp>/
 └── _run_info.json
 ```
 
+**Control output location:**
+```yaml
+output:
+  base_dir: "/path/to/output"  # Where to create timestamped directories
+  dataset_name: "My Dataset"
+```
+
 ---
 
 ### `text2sql report`
 
-Generate markdown report from existing metrics database.
+Generate markdown reports from metrics database. Can use pipeline configuration or generate individual reports.
 
 **Syntax:**
 ```bash
-text2sql report --database <path-to-duckdb> --output <output-file>
+# Generate reports using pipeline configuration
+text2sql report --config <config.yaml>
+
+# Generate individual reports
+text2sql report --database <path-to-duckdb> --output <output-file> [--type <type>]
 ```
 
 **Examples:**
 ```bash
+# Generate all enabled reports using pipeline config
+text2sql report --config configs/pipeline.example.yaml
+
 # Generate report from recent run
 text2sql report \
   --database analyses_spider_dataset_20251021/metrics.duckdb \
   --output report.md
 
-# Custom output location
+# Generate specific report type
 text2sql report \
-  --database ./old-runs/metrics.duckdb \
-  --output reports/analysis-$(date +%Y%m%d).md
+  --database analyses_spider_dataset_20251021/metrics.duckdb \
+  --output llm_report.md \
+  --type llm-judge-issues
+
+# Generate all report types at once
+text2sql report \
+  --database analyses_spider_dataset_20251021/metrics.duckdb \
+  --output all_reports.md \
+  --type all
 ```
 
 **Options:**
-- `--database` (required): Path to DuckDB metrics database
-- `--output` (required): Path for output markdown file
+- `--config`: Path to pipeline configuration YAML (uses reports config to generate enabled reports)
+- `--database`: Path to DuckDB metrics database (for individual reports)
+- `--output`: Path for output markdown file (required with --database)
+- `--type` (optional): Type of report to generate (only used with --database)
+  - `summary` (default): Summary report with all metrics
+  - `schema-validation`: Schema validation analysis report
+  - `llm-judge-issues`: LLM judge semantic validation issues report
+  - `query-execution-issues`: Query execution failures report
+  - `query-structure`: Query structure profile analysis report
+  - `table-coverage`: Table usage coverage analysis report
+  - `query-quality`: Query quality assessment report
+  - `all`: Generate all 7 reports with auto-generated filenames
+
+**Examples:**
+```bash
+# Generate summary report (default)
+text2sql report --database metrics.duckdb --output report.md
+
+# Generate specific report type
+text2sql report --database metrics.duckdb --output llm_report.md --type llm-judge-issues
+
+# Generate all reports
+text2sql report --database metrics.duckdb --output all_reports.md --type all
+```
 
 **Requirements:**
 - DuckDB must be installed: `pip install duckdb`
@@ -281,9 +333,17 @@ text2sql report --database "$OUTPUT/metrics.duckdb" --output report.md
 ```yaml
 output:
   reports:
-    enabled: true              # Reports auto-generated after pipeline
-    summary_report: true       # Generate main report
-    # ... other report toggles
+    enabled: true                      # Master switch for all report generation
+    output_dir: "all_reports"          # Subfolder for reports (relative to output root)
+
+    # Individual report toggles
+    summary_report: true              # Main comprehensive report
+    schema_validation: true           # Schema validation details
+    llm_judge_issues: true            # LLM judge warnings/errors only
+    query_execution_issues: true      # Failed executions only
+    query_structure_profile: true     # Query structure analysis
+    table_coverage: true              # Table usage coverage
+    query_quality: true               # Quality assessment
 ```
 
 ### Manual Reports Only
@@ -293,9 +353,31 @@ output:
     enabled: false             # Skip auto-reports, generate manually
 ```
 
-Then generate report manually when needed:
+### Generate Reports from Pipeline Config
+Generate reports using the same configuration as the pipeline:
+
 ```bash
-text2sql report --database path/to/metrics.duckdb --output report.md
+# Generate reports based on pipeline configuration
+text2sql report --config configs/pipeline.example.yaml
+
+# The command will:
+# 1. Read the reports configuration from pipeline config
+# 2. Automatically find the most recent output directory for the dataset
+# 3. Generate only the enabled reports to the configured subfolder
+```
+
+### Generate Individual Reports
+Generate specific report types manually:
+
+```bash
+# Generate summary report
+text2sql report --database path/to/metrics.duckdb --output report.md --type summary
+
+# Generate LLM judge issues report
+text2sql report --database path/to/metrics.duckdb --output llm_report.md --type llm-judge-issues
+
+# Generate all reports at once
+text2sql report --database path/to/metrics.duckdb --output reports.md --type all
 ```
 
 ---

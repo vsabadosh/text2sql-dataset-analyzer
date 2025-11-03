@@ -70,25 +70,55 @@ Creates a timestamped directory like `analyses_spider_dataset_20251021_143022/` 
 
 ---
 
-### `text2sql report` - Generate Markdown Report
+### `text2sql report` - Generate Markdown Reports
 
-Generate or regenerate a markdown report from existing metrics.
+Generate or regenerate markdown reports from existing metrics. Supports 7 different report types.
 
 **Usage:**
 ```bash
-text2sql report --database <path-to-metrics.duckdb> --output <output-report.md>
+# Generate summary report (default)
+text2sql report --database <metrics.duckdb> --output <report.md>
+
+# Generate specific report type
+text2sql report --database <metrics.duckdb> --output <report.md> --type <report-type>
+
+# Generate all reports
+text2sql report --database <metrics.duckdb> --output <reports.md> --type all
 ```
 
-**Example:**
+**Available Report Types:**
+- `full` (default): Complete summary with all metrics
+- `schema-validation`: Schema validation analysis
+- `llm-judge-issues`: LLM semantic validation issues
+- `query-execution-issues`: Query execution failures
+- `query-structure`: Query structure analysis
+- `table-coverage`: Table usage coverage
+- `query-quality`: Query quality assessment
+
+**Examples:**
 ```bash
+# Generate summary report
 text2sql report \
   --database analyses_spider_dataset_20251021/metrics.duckdb \
   --output custom_report.md
+
+# Generate LLM judge issues report
+text2sql report \
+  --database analyses_spider_dataset_20251021/metrics.duckdb \
+  --output llm_issues.md \
+  --type llm-judge-issues
+
+# Generate all 7 reports
+text2sql report \
+  --database analyses_spider_dataset_20251021/metrics.duckdb \
+  --output all_reports.md \
+  --type all
 ```
 
 **Use cases:**
 - Regenerate report with updated formatting
 - Create custom reports from old runs
+- Generate specific analysis reports
 - Generate reports on different machines
 
 ---
@@ -127,6 +157,7 @@ analyze:
 # Output configuration
 output:
   dataset_name: my_analysis
+  base_dir: "./results"          # Optional: base directory for output
   # DuckDB is always enabled for metrics storage and reports
 ```
 

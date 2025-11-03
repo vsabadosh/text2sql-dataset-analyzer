@@ -119,13 +119,14 @@ analyze:
 
 output:
   dataset_name: Spider Dataset
+  # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)
   jsonl_enabled: true                  # Enable JSONL metrics storage
   # jsonl_path: "./custom/metrics"     # Optional: custom directory path
 
   # DuckDB Configuration (always enabled)
-  # duckdb_path: "./custom/metrics.duckdb"  # Optional: custom path
+  # duckdb_path: "Spider_Test_Dataset_Revisit/metrics.duckdb"  # Optional: custom path
 
   # Report Generation Configuration (optional, requires DuckDB which is always enabled)
   reports:
