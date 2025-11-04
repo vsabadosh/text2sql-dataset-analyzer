@@ -87,13 +87,14 @@ text2sql report --database <metrics.duckdb> --output <reports.md> --type all
 ```
 
 **Available Report Types:**
-- `full` (default): Complete summary with all metrics
+- `summary` (default): Complete summary with all metrics
 - `schema-validation`: Schema validation analysis
 - `llm-judge-issues`: LLM semantic validation issues
 - `query-execution-issues`: Query execution failures
 - `query-structure`: Query structure analysis
 - `table-coverage`: Table usage coverage
 - `query-quality`: Query quality assessment
+- `all`: Generate all 7 reports at once
 
 **Examples:**
 ```bash
