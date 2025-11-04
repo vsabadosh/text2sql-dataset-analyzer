@@ -21,7 +21,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 
 **A1) Joins per Query Distribution**
 
-| Joins per query | Count | Share | Cumulative | (==Don't include Cumulative columns==)
+| Joins per query | Count | Share | Cumulative | 
 |----------------|-------|-------|------------|
 | 0 (single-table) | 412 | 27.5% | 27.5% |
 | 1 join | 530 | 35.4% | 62.9% |
@@ -53,7 +53,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | Implicit joins | 123 | 11.3% | Uses WHERE for joins (antipattern) |
 | Complex join chains | 87 | 8.0% | 3+ tables in join chain |
 
-**A4) By Split** (train/val/test distribution check) (==Don't Include THIS===)
+**A4) By Split** (train/val/test distribution check)
 
 | Split | Avg joins/query | 0 joins | 1-2 joins | 3+ joins | Max joins |
 |-------|----------------|---------|-----------|----------|-----------|
@@ -78,7 +78,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | Max depth = 2 | 110 | 7.4% | Two-level nesting |
 | Max depth ≥ 3 | 16 | 1.1% | Deep nesting (complex) |
 
-**B2) Subquery Location** (==Don't Include THIS===)
+**B2) Subquery Location** 
 
 | Location | Count | Share | Example Context |
 |----------|-------|-------|-----------------|
@@ -97,7 +97,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | Has 3+ CTEs | 18 | 1.2% | 3 |
 | Has recursive CTE | 12 | 0.8% | — |
 
-**B4) Subquery vs CTE Usage** (==for now don't inlcude this section==)
+**B4) Subquery vs CTE Usage** 
 
 | Pattern | Count | Share |
 |---------|-------|-------|
@@ -108,7 +108,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 
 ---
 
-#### C) **Set Operations** (==for now don't inlcude this section==)
+#### C) **Set Operations** 
 
 | Set operation | Count | Share | Avg # of sets combined |
 |---------------|-------|-------|----------------------|
@@ -164,8 +164,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | With ORDER BY | 65 | 4.3% | 90.3% of window queries |
 | With frame spec (ROWS/RANGE) | 23 | 1.5% | 31.9% of window queries |
 
-**Window Function Types** (==for now don't inlcude this section==)
-
+**Window Function Types** 
 | Function | Count | Share of window queries |
 |----------|-------|------------------------|
 | ROW_NUMBER | 34 | 47.2% |
@@ -177,7 +176,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 
 ---
 
-#### F) **Filtering & Predicates** (==for now don't inlcude this section==)
+#### F) **Filtering & Predicates** 
 
 **F1) WHERE Clause Complexity** 
 
@@ -189,7 +188,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | 4-5 conditions | 234 | 15.6% | Complex filtering |
 | 6+ conditions | 96 | 6.4% | Very complex |
 
-**F2) Predicate Types** (==Don't include this==)
+**F2) Predicate Types** 
 
 | Predicate | Count | Share |
 |-----------|-------|-------|
@@ -200,7 +199,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | IS NULL / IS NOT NULL | 145 | 9.7% |
 | EXISTS | 87 | 5.8% |
 
-**F3) Logical Operators** (==Don't include this==)
+**F3) Logical Operators** 
 
 | Operator | Avg per query (when used) | Queries using |
 |----------|---------------------------|---------------|
@@ -210,7 +209,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 
 ---
 
-#### G) **Sorting & Limiting** (==Don't include this==)
+#### G) **Sorting & Limiting** 
 
 | Feature | Count | Share | Avg columns (when used) |
 |---------|-------|-------|------------------------|
@@ -221,7 +220,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 
 ---
 
-#### H) **Special Features** (==Don't include this==)
+#### H) **Special Features** 
 
 | Feature | Count | Share | Notes |
 |---------|-------|-------|-------|
@@ -254,7 +253,7 @@ Provide a detailed statistical breakdown of SQL query structural patterns to und
 | Hard | 3.4 | 2.6 | 1.2 | 1.8 | 68.3 |
 | Expert | 4.8 | 3.9 | 2.4 | 2.1 | 87.6 |
 
-**I3) Complexity Histogram** (==for now don't inlcude this section==)
+**I3) Complexity Histogram** 
 
 ```
 Score  Count  ████████████████████████
@@ -353,7 +352,7 @@ Analyze how comprehensively dataset queries utilize available database tables, i
 | 21-50 times | 32 | 6.6% | Very popular |
 | 51+ times | 8 | 1.6% | Core tables |
 
-**B2) Usage Statistics** ((==for now don't inlcude this section==))
+**B2) Usage Statistics** 
 
 | Statistic | Value |
 |-----------|-------|
@@ -387,7 +386,7 @@ Analyze how comprehensively dataset queries utilize available database tables, i
 | 22 | retail | 38 | 19 | 50.0% | 36 | 19 (promotions, gift_cards, ...) |
 | 23 | city_data | 52 | 23 | 44.2% | 29 | 29 (neighborhoods, landmarks, ...) |
 
-**C2) Coverage Histogram** ((==for now don't inlcude this section==))
+**C2) Coverage Histogram** 
 
 ```
 Coverage   DBs  ████████████
@@ -412,7 +411,7 @@ Coverage   DBs  ████████████
 | hospital | 13 | patient_insurance, appointments | Privacy/compliance limited |
 | insurance | 14 | claim_history, policy_notes | Complexity limitation |
 
-**D2) Table Categories Most Underused** (==for now don't inlcude this section==)
+**D2) Table Categories Most Underused** 
 
 | Category Pattern | Unused Count | Share | Examples |
 |-----------------|-------------|-------|----------|
@@ -425,7 +424,7 @@ Coverage   DBs  ████████████
 
 ---
 
-#### E) **High-Usage Tables** (Hot Spots) ((==for now don't inlcude this section==))
+#### E) **High-Usage Tables** (Hot Spots) 
 
 **Top 20 Most Referenced Tables:**
 
@@ -446,7 +445,7 @@ Coverage   DBs  ████████████
 
 ---
 
-#### F) **Join Coverage Analysis** (==for now don't inlcude this section==)
+#### F) **Join Coverage Analysis** 
 
 **F1) Table Relationships**
 
@@ -457,7 +456,7 @@ Coverage   DBs  ████████████
 | FKs never used | 45 | 14.4% unused |
 | Implicit joins (no FK) | 89 | Ad-hoc relationships |
 
-**F2) Most Common Join Pairs** (Top 15) (==for now don't inlcude this section==)
+**F2) Most Common Join Pairs** (Top 15) 
 
 | Rank | Table 1 | Table 2 | Database | Count | Has FK? |
 |------|---------|---------|----------|-------|---------|
@@ -468,7 +467,7 @@ Coverage   DBs  ████████████
 | 5 | products | orders | retail | 52 | ✅ Yes |
 | ... | ... | ... | ... | ... | ... |
 
-**F3) Unused Foreign Keys** (==for now don't inlcude this section==)
+**F3) Unused Foreign Keys** 
 
 | Database | From Table | To Table | FK Name | Reason |
 |----------|-----------|----------|---------|--------|
@@ -557,7 +556,7 @@ insurance         56%  █████████████            Missin
 
 ---
 
-#### J) **Cross-Split Coverage Consistency** ((==for now don't inlcude this section==))
+#### J) **Cross-Split Coverage Consistency** 
 
 **Coverage by Dataset Split:**
 
@@ -576,7 +575,7 @@ insurance         56%  █████████████            Missin
 
 ---
 
-## 📈 Report 3: Combined Structure × Coverage Analysis (==for now don't inlcude this report==)
+## 📈 Report 3: Combined Structure × Coverage Analysis
 
 ### Purpose
 Cross-analyze query structure patterns with table coverage to identify correlations and optimization opportunities.
@@ -625,7 +624,7 @@ Tables used in ≤5 queries, broken down by query difficulty:
 
 #### K) **Quality Indicators** 
 
-**K1) Best Practices** (==for now don't inlcude this section==)
+**K1) Best Practices** 
 
 | Pattern | Count | Share | Assessment |
 |---------|-------|-------|-----------|
