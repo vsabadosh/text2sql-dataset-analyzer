@@ -173,6 +173,34 @@ HuggingFace  Fields    Analyzers   Dataset   DuckDB
 
 ---
 
+#### DbIdentityAssign: Database Materialization (DDL → Database)
+
+The `DbIdentityAssign` normalizer is responsible not only for verifying database availability, but also for materializing a database from a provided DDL schema when needed.
+
+Behavior by scenario:
+
+1) Item has `dbId` and database is healthy
+   - Action: Pass through (no creation needed)
+
+2) Item has `dbId`, database is unhealthy, and `schema` is provided
+   - Action: Re-materialize the database at the same `dbId` using the provided DDL
+   - API: `DbManager.identity_from_schema(schema, db_id=item.dbId)` (idempotent)
+
+3) Item has `schema` but no `dbId`
+   - Action: Materialize a new database from DDL and assign a deterministic `dbId`
+   - API: `DbManager.identity_from_schema(schema)` → returns generated `dbId`
+   - Determinism: When not provided, `dbId` is derived from the schema (e.g., stable hash)
+
+4) Item has neither `dbId` nor `schema`
+   - Action: Raise error (cannot determine target database)
+
+Notes:
+- Materialization is adapter-specific:
+  - SQLite: creates a file-based database under the configured endpoint path
+  - PostgreSQL: creates/initializes a server database using the adapter’s connection
+- The operation is idempotent: re-running with the same inputs yields the same `dbId` and state
+- Health status is tracked and cached by `DbManager`; probing uses a lightweight `SELECT 1`
+
 ### 3. Analysis Layer
 
 ```
@@ -442,7 +470,8 @@ Output: LLM judge metric
                             ▼
            Step 3: DbIdentityAssign
                  Verify DB health
-                 Create from schema if needed
+                 Materialize DB from DDL (create if missing,
+                 or re-create at same dbId if unhealthy and schema provided)
                             │
                             ▼
                  ┌──────────────────┐
