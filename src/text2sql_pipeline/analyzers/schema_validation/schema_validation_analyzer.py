@@ -196,7 +196,7 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
             if fk_violations_opt is not None:
                 fk_violations_count = fk_violations_opt
                 if fk_violations_count > 0:
-                    stats.warnings.append(ErrorDetail(
+                    stats.errors.append(ErrorDetail(
                         kind="fk_data_violation",
                         message=f"Found {fk_violations_count} FK data violation(s)"
                     ))
@@ -273,12 +273,17 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
             )
             
             # Determine status based on errors and warnings
-            has_errors = validation_result["blocking_errors_total"] > 0
+            # Include FK violations as blocking errors (count as 1)
+            total_blocking_errors = validation_result["blocking_errors_total"]
+            if fk_violations_count > 0:
+                total_blocking_errors += 1
+
+            has_errors = total_blocking_errors > 0
             has_warnings = len(stats.warnings) > 0
-            
+
             if has_errors:
                 status = "errors"
-                error_msg = f"{validation_result['blocking_errors_total']} schema error(s)"
+                error_msg = f"{total_blocking_errors} error type(s)"
             elif has_warnings:
                 status = "warns"
                 error_msg = None
