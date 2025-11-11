@@ -80,7 +80,8 @@ class MarkdownReportGenerator:
             """).fetchone()
             totals = self.conn.execute(f"""
                 SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_invalid),0),
-                       SUM(CASE WHEN fk_data_violations_count > 0 THEN 1 ELSE 0 END)
+                       SUM(CASE WHEN fk_data_violations_count > 0 THEN 1 ELSE 0 END),
+                       COALESCE(SUM(tables - tables_non_empty),0)
                 FROM {table}
             """).fetchone()
             # Count total warnings across all databases
@@ -91,7 +92,7 @@ class MarkdownReportGenerator:
             """).fetchone()
             
             total, clean, failed, errors, warns = status_counts if status_counts else (0, 0, 0, 0, 0)
-            total_tables, invalid_fks, dbs_with_violations = totals if totals else (0, 0, 0)
+            total_tables, invalid_fks, dbs_with_violations, empty_tables = totals if totals else (0, 0, 0, 0)
             total_warnings = warning_counts[0] if warning_counts and warning_counts[0] else 0
             
             clean_pct = (clean / total * 100) if total > 0 else 0
@@ -100,7 +101,7 @@ class MarkdownReportGenerator:
             sections.append("")
             sections.append(f"**Databases:** {total} · **Clean:** {clean} ({clean_pct:.1f}%) · **Fatal Errors:** {failed} · **Errors:** {errors} · **Warnings:** {warns}")
             sections.append("")
-            sections.append(f"**Tables scanned:** {total_tables:,} · **Invalid FKs:** {invalid_fks}")
+            sections.append(f"**Tables scanned:** {total_tables:,} · **Empty tables:** {empty_tables:,} · **Invalid FKs:** {invalid_fks}")
             sections.append("")
             sections.append(f"**Total warnings:** {total_warnings:,} · **DBs with FK data violations:** {dbs_with_violations}")
 
@@ -911,7 +912,7 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(items):,} queries where majority (but not all) voters said CORRECT** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries where majority (but not all) voters said CORRECT** (showing ALL)")
             lines.append("")
             lines.append("These queries are likely correct but had some voter disagreement.")
             lines.append("")
@@ -1023,7 +1024,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE consensus_reached = true AND consensus_verdict = 'INCORRECT' AND status != 'skipped'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not items:
@@ -1031,7 +1031,7 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(items):,} queries where majority of voters said INCORRECT** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries where majority of voters said INCORRECT** (showing ALL)")
             lines.append("")
             lines.append("These queries are likely semantically incorrect and need review.")
             lines.append("")
@@ -1090,7 +1090,7 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(items):,} queries with mixed voter verdicts (no majority)** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries with mixed voter verdicts (no majority)** (showing ALL)")
             lines.append("")
             lines.append("These queries have no clear majority verdict and require manual review.")
             lines.append("")
@@ -1149,7 +1149,7 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(items):,} queries where majority of voters said UNANSWERABLE** (showing up to 50)")
+            lines.append(f"**Found {len(items):,} queries where majority of voters said UNANSWERABLE** (showing ALL)")
             lines.append("")
             lines.append("These queries cannot be answered from the schema (missing data, ambiguous question, etc.).")
             lines.append("")
@@ -1200,7 +1200,6 @@ class MarkdownReportGenerator:
                 FROM {table}
                 WHERE status = 'failed'
                 ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
-                LIMIT 50
             """).fetchall()
             
             if not failed:
@@ -1208,7 +1207,7 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            lines.append(f"**Found {len(failed):,} queries that could not be evaluated** (showing up to 50)")
+            lines.append(f"**Found {len(failed):,} queries that could not be evaluated** (showing ALL)")
             lines.append("")
             lines.append("These queries failed due to missing data, LLM errors, or other issues.")
             lines.append("")

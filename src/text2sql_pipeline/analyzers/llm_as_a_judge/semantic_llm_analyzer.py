@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Iterable, Iterator, List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import json
 import logging
@@ -58,6 +59,8 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
         prompt_file: str | None = None,
         num_examples: int = 2,
         schema_mode: str = "query_derived",
+        parallel_voters: bool = True,
+        max_workers: int = 2,
     ) -> None:
         """
         Initialize semantic LLM analyzer.
@@ -79,6 +82,8 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
         self.enabled = enabled
         self.num_examples = num_examples
         self.schema_mode = schema_mode
+        self.parallel_voters = bool(parallel_voters)
+        self.max_workers = max_workers
         
         # Build prompt template resolver
         self.prompt_resolver = PromptTemplateResolver(
@@ -230,11 +235,11 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
         except Exception as e:
             return self._build_failed_result(f"Failed to resolve prompt: {str(e)}", stats, tags)
         
-        # Query all LLM voters
-        voter_results: List[VoterResult] = []
-        for provider in self.providers:
-            result = self._query_voter(provider, prompt)
-            voter_results.append(result)
+        # Query all LLM voters (optionally in parallel)
+        if self.parallel_voters and len(self.providers) > 1:
+            voter_results = self._query_voters_parallel(prompt)
+        else:
+            voter_results = [self._query_voter(provider, prompt) for provider in self.providers]
         
         stats.voter_results = voter_results
         
@@ -244,6 +249,38 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
         
         return features, stats, tags, status, error
     
+    def _query_voters_parallel(self, prompt: str) -> List[VoterResult]:
+        """
+        Query all configured voters concurrently using a thread pool.
+
+        Returns: List[VoterResult]
+        """
+        results: List[VoterResult] = []
+        max_workers = self.max_workers or len(self.providers)
+
+        # Protect against edge cases
+        if max_workers < 1:
+            max_workers = 1
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_provider = {executor.submit(self._query_voter, provider, prompt): provider for provider in self.providers}
+            for future in as_completed(future_to_provider):
+                provider = future_to_provider[future]
+                try:
+                    res = future.result()
+                except Exception as e:
+                    logger.warning(f"Provider {provider.name}/{provider.model_name} failed in parallel execution: {e}")
+                    res = VoterResult(
+                        model=provider.model_name,
+                        provider=provider.name,
+                        verdict="FAILED",
+                        explanation="",
+                        weight=provider.weight,
+                        error=str(e),
+                    )
+                results.append(res)
+        return results
+
     def _query_voter(self, provider: Provider, prompt: str) -> VoterResult:
         """
         Query a single LLM voter.

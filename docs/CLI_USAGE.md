@@ -109,6 +109,9 @@ text2sql report --database <path-to-duckdb> --output <output-file> [--type <type
 # Generate all enabled reports using pipeline config
 text2sql report --config configs/pipeline.example.yaml
 
+# Generate all enabled reports using pipeline config
+text2sql report --database Spider_Test_Dataset_Rev_NEW/metrics.duckdb --type all --output Spider_Test_Dataset_Rev_NEW/all_reports/report
+
 # Generate report from recent run
 text2sql report \
   --database analyses_spider_dataset_20251021/metrics.duckdb \

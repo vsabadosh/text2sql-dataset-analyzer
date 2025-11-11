@@ -225,6 +225,7 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                         message=f"Failed to get info for table '{table}': {str(e)}"
                     ))
             # Count non-empty tables (fast existence check)
+            empty_tables = []
             try:
                 eng = self.db_manager.engine(item.dbId)
                 with eng.connect() as conn:
@@ -234,11 +235,21 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                             res = conn.exec_driver_sql(f'SELECT 1 FROM "{t}" LIMIT 1').fetchone()
                             if res is not None:
                                 tables_non_empty += 1
+                            else:
+                                empty_tables.append(t)
                         except Exception:
                             # If table access fails, treat as empty for purposes of this metric
-                            pass
+                            empty_tables.append(t)
             except Exception:
                 pass
+
+            # Add warnings for empty tables
+            if empty_tables:
+                empty_table_list = ", ".join(f'"{t}"' for t in empty_tables)
+                stats.warnings.append(ErrorDetail(
+                    kind="empty_tables",
+                    message=f"Found {len(empty_tables)} empty table(s): {empty_table_list}"
+                ))
             
             # Step 3: Run validation checks
             validation_result = self._validate_schema(schema_info, evidence, stats)
