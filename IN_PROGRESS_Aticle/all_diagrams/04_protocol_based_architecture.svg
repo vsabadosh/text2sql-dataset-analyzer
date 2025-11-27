@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 900">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #4a4a4a; }
+      .label { font-family: Arial, sans-serif; font-size: 13px; fill: #2c3e50; font-weight: 500; }
+      .small-text { font-family: Arial, sans-serif; font-size: 11px; fill: #34495e; }
+      .protocol-box { fill: #9b59b6; stroke: #8e44ad; stroke-width: 3; }
+      .implementation { fill: #3498db; stroke: #2980b9; stroke-width: 2; }
+      .container-box { fill: #e8f4f8; stroke: #3498db; stroke-width: 3; }
+      .config-box { fill: #fef9e7; stroke: #f39c12; stroke-width: 3; }
+      .code-text { font-family: 'Courier New', monospace; font-size: 10px; fill: white; }
+      .code-dark { font-family: 'Courier New', monospace; font-size: 10px; fill: #2c3e50; }
+      .code-orange { font-family: 'Courier New', monospace; font-size: 10px; fill: #d68910; }
+      .arrow { stroke: #2c3e50; stroke-width: 2; fill: none; marker-end: url(#arrowhead4); }
+      .config-arrow { stroke: #f39c12; stroke-width: 3; fill: none; marker-end: url(#config-arrowhead); }
+      .implements { stroke: #9b59b6; stroke-width: 2; stroke-dasharray: 5,5; fill: none; marker-end: url(#implements-arrow); }
+    </style>
+    <marker id="arrowhead4" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#2c3e50" />
+    </marker>
+    <marker id="config-arrowhead" markerWidth="12" markerHeight="12" refX="11" refY="3" orient="auto">
+      <polygon points="0 0, 12 3, 0 6" fill="#f39c12" />
+    </marker>
+    <marker id="implements-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#9b59b6" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="700" y="30" text-anchor="middle" class="title">Protocol-Based Architecture з Dependency Injection</text>
+  <text x="700" y="50" text-anchor="middle" class="subtitle">Модульна розширювана архітектура з автоматичним впровадженням залежностей</text>
+  
+  <!-- Config block (left side) -->
+  <rect x="80" y="80" width="320" height="120" class="config-box" rx="8"/>
+  <text x="240" y="105" text-anchor="middle" class="label" font-weight="bold" font-size="16px" fill="#d68910">📄 Configuration (YAML)</text>
+  <text x="100" y="130" text-anchor="start" class="code-orange">pipeline.yaml:</text>
+  <text x="110" y="148" text-anchor="start" class="code-orange">sourceDb: {dialect: sqlite, ...}</text>
+  <text x="110" y="166" text-anchor="start" class="code-orange">analyze: [schema, syntax, ...]</text>
+  <text x="110" y="184" text-anchor="start" class="code-orange">output: {reports: {enabled: ...}}</text>
+  
+  <!-- Arrow from Config to DI Container -->
+  <path d="M 400 140 L 560 140" class="config-arrow"/>
+  <text x="480" y="130" text-anchor="middle" class="label" fill="#d68910" font-weight="bold">reads</text>
+  
+  <!-- DI Container (right side) -->
+  <rect x="560" y="80" width="560" height="120" class="container-box" rx="8"/>
+  <text x="840" y="105" text-anchor="middle" class="label" font-weight="bold" font-size="16px">🔧 PipelineContainer (Dependency Injection)</text>
+  <text x="580" y="130" text-anchor="start" class="code-dark">db_manager = providers.Singleton(DbManager, config.sourceDb)</text>
+  <text x="580" y="148" text-anchor="start" class="code-dark">output_manager = providers.Singleton(OutputManager, config.output)</text>
+  <text x="580" y="166" text-anchor="start" class="code-dark">analyzers = providers.List(schema_analyzer, query_analyzer, ...)</text>
+  <text x="580" y="184" text-anchor="start" class="code-dark">normalizers = providers.List(alias_mapper, id_assign, ...)</text>
+  
+  <!-- Arrow down -->
+  <path d="M 700 200 L 700 250" class="arrow"/>
+  <text x="730" y="230" text-anchor="start" class="label">Auto-injection</text>
+  
+  <!-- Protocol Layer -->
+  <rect x="50" y="250" width="1300" height="280" fill="#f8f9fa" stroke="#9b59b6" stroke-width="4" rx="10"/>
+  <text x="700" y="280" text-anchor="middle" class="label" font-weight="bold" font-size="18px">PROTOCOL LAYER (Interfaces)</text>
+  
+  <!-- Protocol 1: AnnotatingAnalyzer -->
+  <rect x="80" y="300" width="280" height="210" class="protocol-box" rx="8"/>
+  <text x="220" y="325" text-anchor="middle" class="label" fill="white" font-weight="bold">Protocol: AnnotatingAnalyzer</text>
+  <text x="100" y="350" text-anchor="start" class="code-text">@runtime_checkable</text>
+  <text x="100" y="367" text-anchor="start" class="code-text">class AnnotatingAnalyzer(Protocol):</text>
+  <text x="110" y="384" text-anchor="start" class="code-text">  name: str</text>
+  <text x="110" y="401" text-anchor="start" class="code-text">  enabled: bool</text>
+  <text x="110" y="418" text-anchor="start" class="code-text"></text>
+  <text x="110" y="435" text-anchor="start" class="code-text">  def analyze(</text>
+  <text x="120" y="452" text-anchor="start" class="code-text">    items: Iterable[DataItem],</text>
+  <text x="120" y="469" text-anchor="start" class="code-text">    sink: MetricsSink,</text>
+  <text x="120" y="486" text-anchor="start" class="code-text">    dataset_id: str</text>
+  <text x="110" y="503" text-anchor="start" class="code-text">  ) -> Iterator[DataItem]</text>
+  
+  <!-- Protocol 2: MetricsSink -->
+  <rect x="390" y="300" width="280" height="210" class="protocol-box" rx="8"/>
+  <text x="530" y="325" text-anchor="middle" class="label" fill="white" font-weight="bold">Protocol: MetricsSink</text>
+  <text x="410" y="350" text-anchor="start" class="code-text">@runtime_checkable</text>
+  <text x="410" y="367" text-anchor="start" class="code-text">class MetricsSink(Protocol):</text>
+  <text x="420" y="384" text-anchor="start" class="code-text"></text>
+  <text x="420" y="401" text-anchor="start" class="code-text">  def write(</text>
+  <text x="430" y="418" text-anchor="start" class="code-text">    event: MetricEvent</text>
+  <text x="420" y="435" text-anchor="start" class="code-text">  ) -> None</text>
+  <text x="420" y="452" text-anchor="start" class="code-text"></text>
+  <text x="420" y="469" text-anchor="start" class="code-text">  def flush() -> None</text>
+  <text x="420" y="486" text-anchor="start" class="code-text"></text>
+  <text x="420" y="503" text-anchor="start" class="code-text">  def close() -> None</text>
+  
+  <!-- Protocol 3: Normalizer -->
+  <rect x="700" y="300" width="280" height="210" class="protocol-box" rx="8"/>
+  <text x="840" y="325" text-anchor="middle" class="label" fill="white" font-weight="bold">Protocol: Normalizer</text>
+  <text x="720" y="350" text-anchor="start" class="code-text">@runtime_checkable</text>
+  <text x="720" y="367" text-anchor="start" class="code-text">class Normalizer(Protocol):</text>
+  <text x="730" y="384" text-anchor="start" class="code-text">  name: str</text>
+  <text x="730" y="401" text-anchor="start" class="code-text">  enabled: bool</text>
+  <text x="730" y="418" text-anchor="start" class="code-text"></text>
+  <text x="730" y="435" text-anchor="start" class="code-text">  def normalize(</text>
+  <text x="740" y="452" text-anchor="start" class="code-text">    items: Iterable[Dict]</text>
+  <text x="730" y="469" text-anchor="start" class="code-text">  ) -> Iterator[DataItem]</text>
+  
+  <!-- Protocol 4: DbAdapter -->
+  <rect x="1010" y="300" width="280" height="210" class="protocol-box" rx="8"/>
+  <text x="1150" y="325" text-anchor="middle" class="label" fill="white" font-weight="bold">Protocol: DbAdapter</text>
+  <text x="1030" y="350" text-anchor="start" class="code-text">@runtime_checkable</text>
+  <text x="1030" y="367" text-anchor="start" class="code-text">class DbAdapter(Protocol):</text>
+  <text x="1040" y="384" text-anchor="start" class="code-text"></text>
+  <text x="1040" y="401" text-anchor="start" class="code-text">  def execute_query(...)</text>
+  <text x="1040" y="418" text-anchor="start" class="code-text">  def get_schema(...)</text>
+  <text x="1040" y="435" text-anchor="start" class="code-text">  def health_check(...)</text>
+  <text x="1040" y="452" text-anchor="start" class="code-text">  def get_ddl(...)</text>
+  <text x="1040" y="469" text-anchor="start" class="code-text">  def create_from_ddl(...)</text>
+  
+  <!-- Implementation Layer -->
+  <text x="700" y="565" text-anchor="middle" class="label" font-weight="bold" font-size="18px">IMPLEMENTATION LAYER (Concrete Classes)</text>
+  
+  <!-- Implementations row 1 -->
+  <rect x="80" y="590" width="250" height="90" class="implementation" rx="8"/>
+  <text x="205" y="615" text-anchor="middle" class="label" fill="white" font-weight="bold">SchemaValidationAnalyzer</text>
+  <text x="100" y="640" text-anchor="start" class="small-text" fill="white">INJECT = ["db_manager"]</text>
+  <text x="100" y="658" text-anchor="start" class="small-text" fill="white">__init__(db_manager, enabled)</text>
+  <text x="100" y="675" text-anchor="start" class="small-text" fill="white">analyze(...) → Iterator</text>
+  <path d="M 220 510 L 205 590" class="implements"/>
+  
+  <rect x="360" y="590" width="250" height="90" class="implementation" rx="8"/>
+  <text x="485" y="615" text-anchor="middle" class="label" fill="white" font-weight="bold">QuerySyntaxAnalyzer</text>
+  <text x="380" y="640" text-anchor="start" class="small-text" fill="white">INJECT = []</text>
+  <text x="380" y="658" text-anchor="start" class="small-text" fill="white">__init__(enabled)</text>
+  <text x="380" y="675" text-anchor="start" class="small-text" fill="white">analyze(...) → Iterator</text>
+  <path d="M 220 510 L 485 590" class="implements"/>
+  
+  <rect x="640" y="590" width="250" height="90" class="implementation" rx="8"/>
+  <text x="765" y="615" text-anchor="middle" class="label" fill="white" font-weight="bold">SemanticLLMAnalyzer</text>
+  <text x="660" y="640" text-anchor="start" class="small-text" fill="white">INJECT = ["db_manager"]</text>
+  <text x="660" y="658" text-anchor="start" class="small-text" fill="white">__init__(db_manager, providers)</text>
+  <text x="660" y="675" text-anchor="start" class="small-text" fill="white">analyze(...) → Iterator</text>
+  <path d="M 220 510 L 765 590" class="implements"/>
+  
+  <rect x="920" y="590" width="250" height="90" class="implementation" rx="8"/>
+  <text x="1045" y="615" text-anchor="middle" class="label" fill="white" font-weight="bold">QueryExecutionAnalyzer</text>
+  <text x="940" y="640" text-anchor="start" class="small-text" fill="white">INJECT = ["db_manager"]</text>
+  <text x="940" y="658" text-anchor="start" class="small-text" fill="white">__init__(db_manager, mode)</text>
+  <text x="940" y="675" text-anchor="start" class="small-text" fill="white">analyze(...) → Iterator</text>
+  <path d="M 220 510 L 1045 590" class="implements"/>
+  
+  <!-- Implementations row 2 -->
+  <rect x="80" y="710" width="250" height="90" class="implementation" rx="8"/>
+  <text x="205" y="735" text-anchor="middle" class="label" fill="white" font-weight="bold">DuckDBSink</text>
+  <text x="100" y="760" text-anchor="start" class="small-text" fill="white">write(event) → batch</text>
+  <text x="100" y="778" text-anchor="start" class="small-text" fill="white">flush() → commit batch</text>
+  <path d="M 530 510 L 205 710" class="implements"/>
+  
+  <rect x="360" y="710" width="250" height="90" class="implementation" rx="8"/>
+  <text x="485" y="735" text-anchor="middle" class="label" fill="white" font-weight="bold">JsonlSink</text>
+  <text x="380" y="760" text-anchor="start" class="small-text" fill="white">write(event) → append line</text>
+  <text x="380" y="778" text-anchor="start" class="small-text" fill="white">flush() → sync file</text>
+  <path d="M 530 510 L 485 710" class="implements"/>
+  
+  <rect x="640" y="710" width="250" height="90" class="implementation" rx="8"/>
+  <text x="765" y="735" text-anchor="middle" class="label" fill="white" font-weight="bold">AliasMapper</text>
+  <text x="660" y="760" text-anchor="start" class="small-text" fill="white">normalize(items)</text>
+  <text x="660" y="778" text-anchor="start" class="small-text" fill="white">Map: query→sql, db_id→dbId</text>
+  <path d="M 840 510 L 765 710" class="implements"/>
+  
+  <rect x="920" y="710" width="250" height="90" class="implementation" rx="8"/>
+  <text x="1045" y="735" text-anchor="middle" class="label" fill="white" font-weight="bold">SQLiteAdapter</text>
+  <text x="940" y="760" text-anchor="start" class="small-text" fill="white">execute_query(...)</text>
+  <text x="940" y="778" text-anchor="start" class="small-text" fill="white">create_from_ddl(...)</text>
+  <path d="M 1150 510 L 1045 710" class="implements"/>
+  
+  <!-- Benefits box -->
+  <rect x="50" y="830" width="1300" height="50" fill="#2ecc71" stroke="#27ae60" stroke-width="2" rx="8"/>
+  <text x="700" y="850" text-anchor="middle" class="label" fill="white" font-weight="bold">✓ Переваги Protocol-Based Architecture</text>
+  <text x="100" y="868" text-anchor="start" class="small-text" fill="white">• Слабка зв'язаність • Легке тестування • Динамічне підключення компонентів • Type-safe через Protocol • Авто-впровадження залежностей • Runtime конфігурація через YAML</text>
+</svg>

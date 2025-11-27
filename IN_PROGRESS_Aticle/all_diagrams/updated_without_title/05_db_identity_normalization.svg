@@ -1,0 +1,481 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1200 850"
+   version="1.1"
+   id="svg44"
+   sodipodi:docname="05_db_identity_normalization.svg"
+   inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview44"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.70528561"
+     inkscape:cx="578.48905"
+     inkscape:cy="455.8437"
+     inkscape:window-width="1472"
+     inkscape:window-height="842"
+     inkscape:window-x="0"
+     inkscape:window-y="38"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg44" />
+  <defs
+     id="defs3">
+    <style
+       id="style1">
+      .title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #4a4a4a; }
+      .label { font-family: Arial, sans-serif; font-size: 13px; fill: #2c3e50; font-weight: 500; }
+      .small-text { font-family: Arial, sans-serif; font-size: 11px; fill: #34495e; }
+      .code-text { font-family: 'Courier New', monospace; font-size: 11px; fill: #2c3e50; }
+      .input-box { fill: #e8f4f8; stroke: #3498db; stroke-width: 3; }
+      .step-box { fill: #fff; stroke: #3498db; stroke-width: 2; }
+      .decision-box { fill: #fef9e7; stroke: #f39c12; stroke-width: 3; }
+      .success-box { fill: #d5f4e6; stroke: #27ae60; stroke-width: 3; }
+      .error-box { fill: #fadbd8; stroke: #e74c3c; stroke-width: 3; }
+      .output-box { fill: #d5f4e6; stroke: #27ae60; stroke-width: 3; }
+      .arrow { stroke: #2c3e50; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .yes-arrow { stroke: #27ae60; stroke-width: 3; fill: none; marker-end: url(#yes-arrowhead); }
+      .no-arrow { stroke: #e74c3c; stroke-width: 3; fill: none; marker-end: url(#no-arrowhead); }
+      .db-icon { fill: #3498db; }
+    </style>
+    <marker
+       id="arrowhead"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0 0, 10 3, 0 6"
+         fill="#2c3e50"
+         id="polygon1" />
+    </marker>
+    <marker
+       id="yes-arrowhead"
+       markerWidth="12"
+       markerHeight="12"
+       refX="11"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0 0, 12 3, 0 6"
+         fill="#27ae60"
+         id="polygon2" />
+    </marker>
+    <marker
+       id="no-arrowhead"
+       markerWidth="12"
+       markerHeight="12"
+       refX="11"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0 0, 12 3, 0 6"
+         fill="#e74c3c"
+         id="polygon3" />
+    </marker>
+  </defs>
+  <!-- Title -->
+  <text
+     x="600"
+     y="30"
+     text-anchor="middle"
+     class="title"
+     id="text3">DbIdentity Normalizer: Гарантоване заповнення dbId</text>
+  <text
+     x="600"
+     y="50"
+     text-anchor="middle"
+     class="subtitle"
+     id="text4">Перевірка здоров'я існуючих БД або автоматичне створення з DDL схем</text>
+  <!-- Input -->
+  <rect
+     x="450"
+     y="102"
+     width="300"
+     height="100"
+     class="input-box"
+     rx="8"
+     id="rect4" />
+  <text
+     x="600"
+     y="127"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     font-size="15px"
+     id="text5">📥 Вхідні дані (DataItem)</text>
+  <text
+     x="470"
+     y="152"
+     text-anchor="start"
+     class="code-text"
+     id="text6">db_id: &quot;university&quot;</text>
+  <text
+     x="470"
+     y="167"
+     text-anchor="start"
+     class="code-text"
+     id="text7">question: &quot;Show all students&quot;</text>
+  <text
+     x="470"
+     y="182"
+     text-anchor="start"
+     class="code-text"
+     id="text8">sql: &quot;SELECT * FROM students&quot;</text>
+  <text
+     x="470"
+     y="197"
+     text-anchor="start"
+     class="code-text"
+     fill="#e74c3c"
+     id="text9">schema: &quot;CREATE TABLE ...&quot; (optional)</text>
+  <!-- Arrow down -->
+  <path
+     d="m 600,203.59652 v 25.14617"
+     class="arrow"
+     id="path9" />
+  <!-- Step 1: Check DB Exists -->
+  <rect
+     x="425"
+     y="228"
+     width="350"
+     height="100"
+     class="step-box"
+     rx="8"
+     id="rect9" />
+  <text
+     x="600"
+     y="253"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     font-size="15px"
+     id="text10">🔍 Крок 1: Перевірка здоров'я БД</text>
+  <text
+     x="445"
+     y="278"
+     text-anchor="start"
+     class="code-text"
+     id="text11">if item.dbId is not None:</text>
+  <text
+     x="465"
+     y="296"
+     text-anchor="start"
+     class="code-text"
+     id="text12">health, error = db_manager</text>
+  <text
+     x="475"
+     y="314"
+     text-anchor="start"
+     class="code-text"
+     id="text13">.status(item.dbId)</text>
+  <!-- Arrow down to decision -->
+  <path
+     d="m 600,328 v 30.54756"
+     class="arrow"
+     id="path13" />
+  <!-- Decision 1: DB Exists? -->
+  <path
+     d="M 600 360 L 750 410 L 600 460 L 450 410 Z"
+     class="decision-box"
+     id="path14" />
+  <text
+     x="600"
+     y="405"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text14">dbId існує і</text>
+  <text
+     x="600"
+     y="423"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text15">health == &quot;ok&quot;?</text>
+  <!-- YES path (DB exists) -->
+  <path
+     d="M 750 410 L 900 410"
+     class="yes-arrow"
+     id="path15" />
+  <text
+     x="820"
+     y="400"
+     text-anchor="middle"
+     class="label"
+     fill="#27ae60"
+     font-weight="bold"
+     id="text16">ТАК ✓</text>
+  <rect
+     x="900"
+     y="370"
+     width="250"
+     height="80"
+     class="success-box"
+     rx="8"
+     id="rect16" />
+  <text
+     x="1025"
+     y="395"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text17">✅ БД готова</text>
+  <text
+     x="920"
+     y="420"
+     text-anchor="start"
+     class="small-text"
+     id="text18">БД існує і здорова</text>
+  <text
+     x="920"
+     y="438"
+     text-anchor="start"
+     class="small-text"
+     id="text19">item.dbId залишається без змін</text>
+  <!-- Arrow to output -->
+  <path
+     d="M 1025 450 L 1025 690 L 750 690"
+     class="arrow"
+     id="path19" />
+  <!-- NO path (DB doesn't exist) -->
+  <path
+     d="M 450 410 L 300 410"
+     class="no-arrow"
+     id="path20" />
+  <text
+     x="380"
+     y="400"
+     text-anchor="middle"
+     class="label"
+     fill="#e74c3c"
+     font-weight="bold"
+     id="text20">НІ ✗</text>
+  <!-- Decision 2: Has DDL? -->
+  <rect
+     x="50"
+     y="370"
+     width="250"
+     height="100"
+     class="decision-box"
+     rx="8"
+     id="rect20" />
+  <text
+     x="175"
+     y="395"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text21">Є DDL схема?</text>
+  <text
+     x="70"
+     y="420"
+     text-anchor="start"
+     class="small-text"
+     id="text22">item.schema is not None</text>
+  <text
+     x="70"
+     y="438"
+     text-anchor="start"
+     class="code-text"
+     id="text23">if item.schema:</text>
+  <text
+     x="90"
+     y="456"
+     text-anchor="start"
+     class="code-text"
+     id="text24">  # можна створити БД</text>
+  <!-- YES path (Has DDL) - create DB -->
+  <path
+     d="M 175 470 L 175 520"
+     class="yes-arrow"
+     id="path24" />
+  <text
+     x="190"
+     y="500"
+     text-anchor="start"
+     class="label"
+     fill="#27ae60"
+     font-weight="bold"
+     id="text25">ТАК ✓</text>
+  <rect
+     x="50"
+     y="520"
+     width="250"
+     height="120"
+     class="success-box"
+     rx="8"
+     id="rect25" />
+  <text
+     x="175"
+     y="545"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text26">🔨 Генерація dbId + створення БД</text>
+  <text
+     x="70"
+     y="565"
+     text-anchor="start"
+     class="small-text"
+     id="text27">1. dbId = hash(schema)</text>
+  <text
+     x="70"
+     y="580"
+     text-anchor="start"
+     class="small-text"
+     id="text28">2. Створення БД з DDL</text>
+  <text
+     x="70"
+     y="600"
+     text-anchor="start"
+     class="code-text"
+     id="text29">item.dbId = db_manager</text>
+  <text
+     x="80"
+     y="615"
+     text-anchor="start"
+     class="code-text"
+     id="text30">.identity_from_schema(</text>
+  <text
+     x="90"
+     y="630"
+     text-anchor="start"
+     class="code-text"
+     id="text31">item.schema)</text>
+  <!-- Arrow to success metadata -->
+  <path
+     d="M 175 640 L 175 690 L 450 690"
+     class="arrow"
+     id="path31" />
+  <!-- NO path (No DDL) - error -->
+  <path
+     d="M 175,370 V 223.70939"
+     class="no-arrow"
+     id="path32" />
+  <text
+     x="190"
+     y="310"
+     text-anchor="start"
+     class="label"
+     fill="#e74c3c"
+     font-weight="bold"
+     id="text32">НІ ✗</text>
+  <rect
+     x="50"
+     y="100"
+     width="250"
+     height="120"
+     class="error-box"
+     rx="8"
+     id="rect32" />
+  <text
+     x="175"
+     y="125"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text33">❌ ValueError</text>
+  <text
+     x="70"
+     y="150"
+     text-anchor="start"
+     class="small-text"
+     id="text34">raise ValueError(</text>
+  <text
+     x="80"
+     y="168"
+     text-anchor="start"
+     class="small-text"
+     id="text35">&quot;both dbId and schema&quot;</text>
+  <text
+     x="80"
+     y="186"
+     text-anchor="start"
+     class="small-text"
+     id="text36">&quot;are missing&quot;</text>
+  <text
+     x="70"
+     y="204"
+     text-anchor="start"
+     class="small-text"
+     id="text37">)</text>
+  <text
+     x="175"
+     y="215"
+     text-anchor="middle"
+     class="small-text"
+     fill="#e74c3c"
+     font-weight="bold"
+     id="text38">⛔ Обробка зупиняється</text>
+  <!-- Final Output -->
+  <rect
+     x="450"
+     y="670"
+     width="300"
+     height="100"
+     class="output-box"
+     rx="8"
+     id="rect38" />
+  <text
+     x="600"
+     y="695"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     font-size="15px"
+     id="text39">📤 Вихід (Normalized DataItem)</text>
+  <text
+     x="470"
+     y="720"
+     text-anchor="start"
+     class="code-text"
+     id="text40">question: &quot;Show all students&quot;</text>
+  <text
+     x="470"
+     y="738"
+     text-anchor="start"
+     class="code-text"
+     id="text41">sql: &quot;SELECT * FROM students&quot;</text>
+  <text
+     x="470"
+     y="756"
+     text-anchor="start"
+     class="code-text"
+     fill="#27ae60"
+     id="text42">dbId: &quot;university&quot; ✓ (гарантовано)</text>
+  <!-- Legend -->
+  <rect
+     x="50"
+     y="790"
+     width="1100"
+     height="50"
+     fill="#f8f9fa"
+     stroke="#bdc3c7"
+     stroke-width="2"
+     rx="8"
+     id="rect42" />
+  <text
+     x="600"
+     y="810"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text43">💡 Ключові переваги</text>
+  <text
+     x="70"
+     y="828"
+     text-anchor="start"
+     class="small-text"
+     id="text44">✓ Автоматичне створення БД з DDL схем • ✓ Валідація здоров'я БД • ✓ Гарантоване заповнення dbId • ✓ Підтримка існуючих і генерованих БД</text>
+</svg>

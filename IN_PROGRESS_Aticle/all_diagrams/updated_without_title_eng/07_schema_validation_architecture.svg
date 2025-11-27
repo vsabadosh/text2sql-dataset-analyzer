@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1100 600"
+   version="1.1"
+   id="svg49"
+   sodipodi:docname="07_schema_validation_architecture.svg"
+   inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview49"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.1059457"
+     inkscape:cx="457.97909"
+     inkscape:cy="239.16183"
+     inkscape:window-width="1416"
+     inkscape:window-height="808"
+     inkscape:window-x="0"
+     inkscape:window-y="38"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg49" />
+  <!-- Background -->
+  <rect
+     width="1100"
+     height="600"
+     fill="#ffffff"
+     id="rect1"
+     x="30.395683"
+     y="1217.8804" />
+  <!-- Title -->
+  <text
+     x="550"
+     y="30"
+     font-family="Arial, sans-serif"
+     font-size="20"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#2c3e50"
+     id="text1">
+    Schema Validation Architecture
+  </text>
+  <!-- Input: Database -->
+  <rect
+     x="64"
+     y="84"
+     width="180"
+     height="70"
+     fill="#3498db"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect2"
+     ry="5" />
+  <text
+     x="154"
+     y="115"
+     font-family="Arial"
+     font-size="14px"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text2">Database</text>
+  <text
+     x="152"
+     y="131"
+     font-family="Arial"
+     font-size="10px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text3">• Tables + Columns</text>
+  <text
+     x="154"
+     y="144"
+     font-family="Arial"
+     font-size="10px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text4">• Constraints + Data</text>
+  <!-- Arrow to split -->
+  <path
+     d="m 244,119 h 50"
+     stroke="#2c3e50"
+     stroke-width="2"
+     fill="none"
+     marker-end="url(#arrowhead)"
+     id="path4" />
+  <!-- Split into 3 branches -->
+  <circle
+     cx="300.82016"
+     cy="118.94284"
+     r="8"
+     fill="#2c3e50"
+     id="circle4" />
+  <path
+     d="M 300 120 L 300 280"
+     stroke="#2c3e50"
+     stroke-width="2"
+     id="path6" />
+  <path
+     d="M 300,120 V 376.63172"
+     stroke="#2c3e50"
+     stroke-width="2"
+     id="path7" />
+  <!-- Branch 1: FK Validation -->
+  <path
+     d="m 300.35966,118.40334 h 50"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path8" />
+  <!-- Constraint Inference -->
+  <rect
+     x="350"
+     y="85"
+     width="200"
+     height="70"
+     fill="#e74c3c"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect8" />
+  <text
+     x="450"
+     y="105"
+     font-family="Arial"
+     font-size="12"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="white"
+     id="text8">Constraint Inference</text>
+  <text
+     x="450"
+     y="122"
+     font-family="Arial"
+     font-size="9"
+     text-anchor="middle"
+     fill="white"
+     id="text9">• Database metadata</text>
+  <text
+     x="450"
+     y="135"
+     font-family="Arial"
+     font-size="9"
+     text-anchor="middle"
+     fill="white"
+     id="text10">• System catalogs</text>
+  <text
+     x="450"
+     y="148"
+     font-family="Arial"
+     font-size="9"
+     text-anchor="middle"
+     fill="white"
+     id="text11">• Schema files</text>
+  <path
+     d="M 550 120 L 600 120"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path11" />
+  <!-- FK Structural Validation -->
+  <rect
+     x="600"
+     y="70"
+     width="240"
+     height="100"
+     fill="#9b59b6"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect11" />
+  <text
+     x="720"
+     y="88"
+     font-family="Arial"
+     font-size="11"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="white"
+     id="text12">FK Structural Validation</text>
+  <rect
+     x="610"
+     y="95"
+     width="220"
+     height="14"
+     fill="#8e44ad"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect12" />
+  <text
+     x="720"
+     y="105"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text13">1. Missing Parent Table</text>
+  <rect
+     x="610"
+     y="111"
+     width="220"
+     height="14"
+     fill="#8e44ad"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect13" />
+  <text
+     x="720"
+     y="121"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text14">2. Missing Parent Column</text>
+  <rect
+     x="610"
+     y="127"
+     width="220"
+     height="14"
+     fill="#8e44ad"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect14" />
+  <text
+     x="720"
+     y="137"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text15">3. Arity Mismatch</text>
+  <rect
+     x="610"
+     y="143"
+     width="220"
+     height="14"
+     fill="#8e44ad"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect15" />
+  <text
+     x="720"
+     y="153"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text16">4. Type Mismatch</text>
+  <rect
+     x="610"
+     y="159"
+     width="220"
+     height="14"
+     fill="#8e44ad"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect16" />
+  <text
+     x="720"
+     y="169"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text17">5. Target Not Key</text>
+  <!-- FK Data Validation -->
+  <rect
+     x="598.4505"
+     y="172.96515"
+     width="239.29059"
+     height="59.197262"
+     fill="#16a085"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="4.9999995"
+     id="rect17"
+     ry="5" />
+  <text
+     x="895.18359"
+     y="190.65028"
+     font-family="Arial"
+     font-size="11px"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text18">FK Data Validation</text>
+  <rect
+     x="622.33978"
+     y="192.93404"
+     width="200"
+     height="14"
+     fill="#138d75"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect18"
+     ry="2" />
+  <text
+     x="722.33978"
+     y="202.93404"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text19">• FK violation detection</text>
+  <rect
+     x="622.33978"
+     y="208.93404"
+     width="200"
+     height="14"
+     fill="#138d75"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect19"
+     ry="2" />
+  <text
+     x="722.33978"
+     y="218.93404"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text20">• Orphaned values check</text>
+  <!-- Branch 2: Schema Introspection -->
+  <path
+     d="M 300 280 L 350 280"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path21" />
+  <rect
+     x="350"
+     y="245"
+     width="200"
+     height="70"
+     fill="#e67e22"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect21" />
+  <text
+     x="450"
+     y="265"
+     font-family="Arial"
+     font-size="12"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="white"
+     id="text21">Schema Introspection</text>
+  <text
+     x="440"
+     y="282"
+     font-family="Arial"
+     font-size="9px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text22">• get_columns()</text>
+  <text
+     x="450"
+     y="295"
+     font-family="Arial"
+     font-size="9"
+     text-anchor="middle"
+     fill="white"
+     id="text23">• get_primary_keys()</text>
+  <text
+     x="436"
+     y="308"
+     font-family="Arial"
+     font-size="9px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text24">• type analysis</text>
+  <path
+     d="M 550 280 L 600 280"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path24" />
+  <!-- Column & Type Checks -->
+  <rect
+     x="600"
+     y="245"
+     width="240"
+     height="70"
+     fill="#e74c3c"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect24" />
+  <text
+     x="720"
+     y="265"
+     font-family="Arial"
+     font-size="11"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="white"
+     id="text25">Column  Type Validation</text>
+  <rect
+     x="610"
+     y="273"
+     width="220"
+     height="14"
+     fill="#c0392b"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect25" />
+  <text
+     x="720"
+     y="283"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text26">• Duplicate Column Names</text>
+  <rect
+     x="610"
+     y="289"
+     width="220"
+     height="14"
+     fill="#c0392b"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect26" />
+  <text
+     x="720"
+     y="299"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text27">• Unknown Data Types</text>
+  <rect
+     x="610"
+     y="305"
+     width="220"
+     height="14"
+     fill="#c0392b"
+     stroke="white"
+     stroke-width="0.5"
+     rx="2"
+     id="rect27" />
+  <text
+     x="720"
+     y="315"
+     font-family="Arial"
+     font-size="8"
+     text-anchor="middle"
+     fill="white"
+     id="text28">• Multiple Primary Keys</text>
+  <!-- Branch 3: Data Quality -->
+  <path
+     d="m 299.09649,376.63172 h 50"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path28" />
+  <rect
+     x="349.0965"
+     y="333.63171"
+     width="200"
+     height="70"
+     fill="#27ae60"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect28"
+     ry="5" />
+  <text
+     x="451.0965"
+     y="353.63171"
+     font-family="Arial"
+     font-size="12px"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text29">Data Queries</text>
+  <text
+     x="443.0965"
+     y="370.63171"
+     font-family="Arial"
+     font-size="9px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text30">• SELECT COUNT(*)</text>
+  <text
+     x="447.0965"
+     y="383.63171"
+     font-family="Arial"
+     font-size="9px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text31">• Table existence check</text>
+  <text
+     x="431.0965"
+     y="394.63171"
+     font-family="Arial"
+     font-size="9px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text32">• Row counting</text>
+  <path
+     d="m 549.09649,376.63172 h 50"
+     stroke="#2c3e50"
+     stroke-width="2"
+     marker-end="url(#arrowhead)"
+     id="path32" />
+  <!-- Data Quality Checks -->
+  <rect
+     x="599.0965"
+     y="351.63171"
+     width="240"
+     height="50"
+     fill="#229954"
+     stroke="#2c3e50"
+     stroke-width="2"
+     rx="5"
+     id="rect32"
+     ry="5" />
+  <text
+     x="719.0965"
+     y="369.63171"
+     font-family="Arial"
+     font-size="11px"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text33">Data Quality Validation</text>
+  <rect
+     x="609.0965"
+     y="377.63171"
+     width="220"
+     height="14"
+     fill="#1e8449"
+     stroke="#ffffff"
+     stroke-width="0.5"
+     rx="2"
+     id="rect33"
+     ry="2" />
+  <text
+     x="719.0965"
+     y="387.63171"
+     font-family="Arial"
+     font-size="8px"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text34">• Empty Tables Detection</text>
+  <!-- Results (all converge) -->
+  <!-- Legend -->
+  <!-- Arrow markers -->
+  <defs
+     id="defs49">
+    <marker
+       id="arrowhead"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0 0, 10 3, 0 6"
+         fill="#2c3e50"
+         id="polygon49" />
+    </marker>
+  </defs>
+  <g
+     id="g1"
+     transform="translate(-391.1875,-198.80762)">
+    <text
+       x="820"
+       y="395"
+       font-family="Arial"
+       font-size="14px"
+       font-weight="bold"
+       text-anchor="middle"
+       fill="#ffffff"
+       id="text18-0">DATA VALIDATION</text>
+  </g>
+  <text
+     x="719.28302"
+     y="188.33772"
+     font-family="Arial"
+     font-size="11px"
+     font-weight="bold"
+     text-anchor="middle"
+     fill="#ffffff"
+     id="text12-3">FK Data Validation</text>
+</svg>

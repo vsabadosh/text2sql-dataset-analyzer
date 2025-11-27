@@ -1,0 +1,692 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1200 950"
+   version="1.1"
+   id="svg60"
+   sodipodi:docname="03_llm_judge_architecture.svg"
+   inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview60"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.6038912"
+     inkscape:cx="464.48764"
+     inkscape:cy="419.7776"
+     inkscape:window-width="1512"
+     inkscape:window-height="866"
+     inkscape:window-x="0"
+     inkscape:window-y="38"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg60" />
+  <defs
+     id="defs1">
+    <style
+       id="style1">
+      .title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #4a4a4a; }
+      .label { font-family: Arial, sans-serif; font-size: 13px; fill: #2c3e50; font-weight: 500; }
+      .small-text { font-family: Arial, sans-serif; font-size: 11px; fill: #34495e; }
+      .main-box { fill: #e8f4f8; stroke: #3498db; stroke-width: 3; }
+      .component { fill: #3498db; stroke: #2980b9; stroke-width: 2; }
+      .voter-box { fill: #9b59b6; stroke: #8e44ad; stroke-width: 2; }
+      .result-box { fill: #2ecc71; stroke: #27ae60; stroke-width: 2; }
+      .arrow { stroke: #2c3e50; stroke-width: 2; fill: none; marker-end: url(#arrowhead3); }
+      .code-text { font-family: 'Courier New', monospace; font-size: 10px; fill: #2c3e50; }
+    </style>
+    <marker
+       id="arrowhead3"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0 0, 10 3, 0 6"
+         fill="#2c3e50"
+         id="polygon1" />
+    </marker>
+  </defs>
+  <!-- Title -->
+  <text
+     x="600"
+     y="30"
+     text-anchor="middle"
+     class="title"
+     id="text1">Архітектура Semantic LLM Judge Analyzer</text>
+  <text
+     x="600"
+     y="50"
+     text-anchor="middle"
+     class="subtitle"
+     id="text2">Мульти-модельна система консенсусного голосування для семантичної валідації</text>
+  <!-- Input Data -->
+  <rect
+     x="250"
+     y="80"
+     width="700"
+     height="100"
+     class="main-box"
+     rx="8"
+     id="rect2" />
+  <text
+     x="600"
+     y="105"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     id="text3">Вхідні дані (DataItem)</text>
+  <text
+     x="380"
+     y="130"
+     text-anchor="start"
+     class="code-text"
+     id="text4">question: &quot;Show all students with grade above 90&quot;</text>
+  <text
+     x="380"
+     y="148"
+     text-anchor="start"
+     class="code-text"
+     id="text5">sql: &quot;SELECT * FROM students WHERE grade &gt; 90&quot;</text>
+  <text
+     x="380"
+     y="166"
+     text-anchor="start"
+     class="code-text"
+     id="text6">dbId: &quot;university&quot;</text>
+  <!-- Arrow down -->
+  <path
+     d="m 600,180 v 25.8661"
+     class="arrow"
+     id="path6" />
+  <!-- Step 1: Smart DDL Generation (with embedded example) -->
+  <rect
+     x="100.21191"
+     y="207.76425"
+     width="1000"
+     height="160"
+     class="component"
+     rx="8"
+     id="rect6"
+     ry="8" />
+  <text
+     x="600"
+     y="233"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text7"
+     style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
+   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+   id="tspan1">КРОК 1</tspan>: Smart DDL Generation (DbManager)</text>
+  <!-- Left side: description -->
+  <text
+     x="130"
+     y="258"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text8">1. Parse SQL → Extract referenced tables</text>
+  <text
+     x="130"
+     y="278"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text9">2. Query DB schema for those tables only</text>
+  <text
+     x="130"
+     y="298"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text10">3. Sample example data (default: 2 per column)</text>
+  <text
+     x="130"
+     y="318"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text11">4. Format CREATE TABLE with inline examples</text>
+  <text
+     x="130"
+     y="343"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     font-style="italic"
+     id="text12">→ Result: Optimized DDL with examples</text>
+  <!-- Right side: embedded DDL example -->
+  <rect
+     x="505.63345"
+     y="251.18282"
+     width="550"
+     height="105"
+     fill="#ffffff"
+     stroke="#f39c12"
+     stroke-width="2"
+     rx="5"
+     id="rect12"
+     ry="5" />
+  <text
+     x="795"
+     y="273"
+     text-anchor="middle"
+     class="small-text"
+     font-weight="bold"
+     fill="#f39c12"
+     id="text13">Згенерований DDL</text>
+  <text
+     x="540"
+     y="290"
+     text-anchor="start"
+     class="code-text"
+     id="text14">CREATE TABLE students (</text>
+  <text
+     x="556"
+     y="305"
+     text-anchor="start"
+     class="code-text"
+     id="text15">student_id INTEGER PRIMARY KEY,</text>
+  <text
+     x="556"
+     y="320"
+     text-anchor="start"
+     class="code-text"
+     id="text16">name VARCHAR(100), -- Examples: 'Alice', 'Bob'</text>
+  <text
+     x="558"
+     y="335"
+     text-anchor="start"
+     class="code-text"
+     id="text17">grade INTEGER -- Examples: 85, 92</text>
+  <text
+     x="540"
+     y="350"
+     text-anchor="start"
+     class="code-text"
+     id="text18">);</text>
+  <!-- Arrow down -->
+  <path
+     d="m 600,368 v 25.8661"
+     class="arrow"
+     id="path18" />
+  <!-- Step 2: Prompt Resolution (with embedded example) -->
+  <rect
+     x="100"
+     y="396"
+     width="1000"
+     height="140"
+     class="component"
+     rx="8"
+     id="rect18" />
+  <text
+     x="576"
+     y="411"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text19">КРОК 2: Prompt Template Resolution</text>
+  <!-- Left side: description -->
+  <text
+     x="130"
+     y="446"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text20">Fill template with parameters:</text>
+  <text
+     x="130"
+     y="466"
+     text-anchor="start"
+     class="code-text"
+     fill="white"
+     id="text21">• {{question}} ← input DataItem.question</text>
+  <text
+     x="130"
+     y="483"
+     text-anchor="start"
+     class="code-text"
+     fill="white"
+     id="text22">• {{sql}} ← input DataItem.sql</text>
+  <text
+     x="130"
+     y="500"
+     text-anchor="start"
+     class="code-text"
+     fill="white"
+     id="text23">• {{ddl_schema}} ← Smart DDL from КРОК 1</text>
+  <text
+     x="130"
+     y="521"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     font-style="italic"
+     id="text24">→ Result: Complete prompt ready for LLM</text>
+  <!-- Right side: embedded prompt example -->
+  <rect
+     x="506.87537"
+     y="422.05374"
+     width="555.12463"
+     height="111.26718"
+     fill="#ffffff"
+     stroke="#e8f8f5"
+     stroke-width="1.99999"
+     rx="5"
+     id="rect24"
+     ry="5" />
+  <text
+     x="626.53027"
+     y="529.12793"
+     text-anchor="start"
+     class="code-text"
+     id="text18-3"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">);</text>
+  <text
+     x="632.24048"
+     y="521.5423"
+     text-anchor="start"
+     class="code-text"
+     id="text17-2"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">..............................................</text>
+  <text
+     x="633.1557"
+     y="511.52927"
+     text-anchor="start"
+     class="code-text"
+     id="text16-0"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">name VARCHAR(100), -- Examples: 'Alice', 'Bob'</text>
+  <text
+     x="634.28857"
+     y="501.47629"
+     text-anchor="start"
+     class="code-text"
+     id="text15-8"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">.............................................</text>
+  <text
+     x="622.01874"
+     y="492.5921"
+     text-anchor="start"
+     class="code-text"
+     id="text14-6"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">CREATE TABLE students (</text>
+  <text
+     x="544.11108"
+     y="493.11331"
+     text-anchor="start"
+     class="code-text"
+     id="text14-8"
+     style="font-size:10px;font-family:'Courier New', monospace;fill:#2c3e50">DDL Schema:</text>
+  <text
+     x="782.59448"
+     y="435.16177"
+     text-anchor="middle"
+     class="small-text"
+     font-weight="bold"
+     id="text25">Приклад фінального промпту</text>
+  <text
+     x="538.62158"
+     y="450.78336"
+     text-anchor="start"
+     class="code-text"
+     font-size="9px"
+     id="text26">&quot;You are a Text2SQL expert... Does this SQL correctly answer...?</text>
+  <text
+     x="544"
+     y="465.16177"
+     text-anchor="start"
+     class="code-text"
+     font-size="9px"
+     id="text27">Question: Show all students with grade above 90</text>
+  <text
+     x="544"
+     y="480.29694"
+     text-anchor="start"
+     class="code-text"
+     font-size="9px"
+     id="text28">SQL: SELECT * FROM students WHERE grade &gt; 90</text>
+  <!-- Arrow down -->
+  <path
+     d="m 600.92754,536 v 29.39958"
+     class="arrow"
+     id="path28" />
+  <!-- Step 3: Multi-Voter System -->
+  <rect
+     x="94.439629"
+     y="567.59906"
+     width="1014.8308"
+     height="222.74402"
+     class="main-box"
+     rx="7.3805876"
+     id="rect28" />
+  <text
+     x="600"
+     y="583"
+     text-anchor="middle"
+     class="label"
+     font-weight="bold"
+     font-size="16px"
+     id="text29">КРОК 3: Multi-Voter Consensus System (Паралельні виклики з готовим промптом)</text>
+  <!-- Voter 1: OpenAI -->
+  <rect
+     x="118"
+     y="603"
+     width="230"
+     height="165"
+     class="voter-box"
+     rx="8"
+     id="rect29" />
+  <text
+     x="233"
+     y="628"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text30">🤖 OpenAI Provider</text>
+  <text
+     x="233"
+     y="648"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text31">Model: gpt-4o</text>
+  <text
+     x="233"
+     y="666"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text32">Temperature: 0.0</text>
+  <text
+     x="233"
+     y="684"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text33">Weight: 1.0</text>
+  <rect
+     x="138"
+     y="698"
+     width="190"
+     height="55"
+     fill="#ffffff"
+     rx="5"
+     id="rect33" />
+  <text
+     x="233"
+     y="716"
+     text-anchor="middle"
+     class="code-text"
+     id="text34">Response:</text>
+  <text
+     x="233"
+     y="730"
+     text-anchor="middle"
+     class="code-text"
+     id="text35">verdict: &quot;CORRECT&quot;</text>
+  <text
+     x="233"
+     y="744"
+     text-anchor="middle"
+     class="code-text"
+     id="text36">score: 0.8</text>
+  <!-- Voter 2: Anthropic -->
+  <rect
+     x="368"
+     y="603"
+     width="230"
+     height="165"
+     class="voter-box"
+     rx="8"
+     id="rect36" />
+  <text
+     x="483"
+     y="628"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text37">🧠 Anthropic Provider</text>
+  <text
+     x="483"
+     y="648"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text38">Model: claude-3-opus</text>
+  <text
+     x="483"
+     y="666"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text39">Temperature: 0.0</text>
+  <text
+     x="483"
+     y="684"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text40">Weight: 1.0</text>
+  <rect
+     x="388"
+     y="698"
+     width="190"
+     height="55"
+     fill="#ffffff"
+     rx="5"
+     id="rect40" />
+  <text
+     x="483"
+     y="716"
+     text-anchor="middle"
+     class="code-text"
+     id="text41">Response:</text>
+  <text
+     x="483"
+     y="730"
+     text-anchor="middle"
+     class="code-text"
+     id="text42">verdict: &quot;CORRECT&quot;</text>
+  <text
+     x="483"
+     y="744"
+     text-anchor="middle"
+     class="code-text"
+     id="text43">score: 0.8</text>
+  <!-- Voter 3: Gemini -->
+  <rect
+     x="618"
+     y="603"
+     width="230"
+     height="165"
+     class="voter-box"
+     rx="8"
+     id="rect43" />
+  <text
+     x="733"
+     y="628"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text44">✨ Gemini Provider</text>
+  <text
+     x="733"
+     y="648"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text45">Model: gemini-2.5-pro</text>
+  <text
+     x="733"
+     y="666"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text46">Temperature: 0.0</text>
+  <text
+     x="733"
+     y="684"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text47">Weight: 1.0</text>
+  <rect
+     x="638"
+     y="698"
+     width="190"
+     height="55"
+     fill="#ffffff"
+     rx="5"
+     id="rect47" />
+  <text
+     x="733"
+     y="716"
+     text-anchor="middle"
+     class="code-text"
+     id="text48">Response:</text>
+  <text
+     x="733"
+     y="730"
+     text-anchor="middle"
+     class="code-text"
+     id="text49">verdict: &quot;CORRECT&quot;</text>
+  <text
+     x="733"
+     y="744"
+     text-anchor="middle"
+     class="code-text"
+     id="text50">score: 0.8</text>
+  <!-- Voter 4: Ollama (Local) -->
+  <rect
+     x="868"
+     y="603"
+     width="230"
+     height="165"
+     class="voter-box"
+     rx="8"
+     id="rect50" />
+  <text
+     x="983"
+     y="628"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     id="text51">🦙 Ollama Provider</text>
+  <text
+     x="983"
+     y="648"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text52">Model: llama3.1:70b</text>
+  <text
+     x="983"
+     y="666"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text53">Temperature: 0.0</text>
+  <text
+     x="983"
+     y="684"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text54">Weight: 0.8 (локальна)</text>
+  <rect
+     x="888"
+     y="698"
+     width="190"
+     height="55"
+     fill="#ffffff"
+     rx="5"
+     id="rect54" />
+  <text
+     x="983"
+     y="716"
+     text-anchor="middle"
+     class="code-text"
+     id="text55">Response:</text>
+  <text
+     x="983"
+     y="730"
+     text-anchor="middle"
+     class="code-text"
+     id="text56">verdict: &quot;PARTIALLY&quot;</text>
+  <text
+     x="983"
+     y="744"
+     text-anchor="middle"
+     class="code-text"
+     id="text57">score: 0.6</text>
+  <!-- Arrow down -->
+  <path
+     d="m 600,790 v 30"
+     class="arrow"
+     id="path57" />
+  <!-- Step 4: Aggregation -->
+  <rect
+     x="200"
+     y="822"
+     width="800"
+     height="70"
+     class="result-box"
+     rx="8"
+     id="rect57" />
+  <text
+     x="600"
+     y="843"
+     text-anchor="middle"
+     class="label"
+     fill="white"
+     font-weight="bold"
+     font-size="16px"
+     id="text58">КРОК 4: Зважене голосування та визначення консенсусу</text>
+  <text
+     x="250"
+     y="863"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text59">Weighted votes: CORRECT (3 × 1.0) + PARTIALLY (1 × 0.8) = 3.8 / 4.8 = 79%</text>
+  <text
+     x="250"
+     y="878"
+     text-anchor="start"
+     class="small-text"
+     fill="white"
+     id="text60">Majority verdict: CORRECT ✓ | Consensus: Majority | Unanimous: No</text>
+  <text
+     xml:space="preserve"
+     style="font-weight:500;font-size:8px;font-family:sans-serif;-inkscape-font-specification:'sans-serif Medium';text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#222b00"
+     x="664.73804"
+     y="518.31995"
+     id="text61"><tspan
+       sodipodi:role="line"
+       id="tspan2"
+       x="664.73804"
+       y="518.31995" /></text>
+  <text
+     xml:space="preserve"
+     style="font-weight:500;font-size:8px;font-family:sans-serif;-inkscape-font-specification:'sans-serif Medium';text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#222b00"
+     x="635.45441"
+     y="517.58789"
+     id="text62"><tspan
+       sodipodi:role="line"
+       id="tspan61" /></text>
+</svg>

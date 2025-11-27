@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 800 650"
+   version="1.1"
+   id="svg51"
+   sodipodi:docname="text2sql-prompt-diagram2.svg"
+   inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview51"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.89786504"
+     inkscape:cx="275.6539"
+     inkscape:cy="328.0003"
+     inkscape:window-width="1456"
+     inkscape:window-height="846"
+     inkscape:window-x="56"
+     inkscape:window-y="38"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg51" />
+  <!-- Define styles -->
+  <defs
+     id="defs3">
+    <style
+       id="style1">
+      .title { font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; fill: #2c3e50; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #34495e; }
+      .text { font-family: Arial, sans-serif; font-size: 10px; fill: #2c3e50; }
+      .small-text { font-family: Arial, sans-serif; font-size: 9px; fill: #555; }
+      .box { fill: #ecf0f1; stroke: #34495e; stroke-width: 1.5; }
+      .input-box { fill: #e8f4f8; stroke: #3498db; stroke-width: 1.5; }
+      .eval-box { fill: #fff9e6; stroke: #f39c12; stroke-width: 1.5; }
+      .output-box { fill: #e8f8e8; stroke: #27ae60; stroke-width: 1.5; }
+      .verdict-correct { fill: #27ae60; }
+      .verdict-partial { fill: #f39c12; }
+      .verdict-incorrect { fill: #e74c3c; }
+      .verdict-unanswerable { fill: #95a5a6; }
+    </style>
+    <!-- Arrow markers -->
+    <marker
+       id="arrowhead"
+       markerWidth="12"
+       markerHeight="12"
+       refX="10"
+       refY="5"
+       orient="auto">
+      <path
+         d="M 0 0 L 12 5 L 0 10 z"
+         fill="#2c3e50"
+         id="path1" />
+    </marker>
+    <marker
+       id="arrowhead-green"
+       markerWidth="12"
+       markerHeight="12"
+       refX="10"
+       refY="5"
+       orient="auto">
+      <path
+         d="M 0 0 L 12 5 L 0 10 z"
+         fill="#27ae60"
+         id="path2" />
+    </marker>
+    <marker
+       id="arrowhead-red"
+       markerWidth="12"
+       markerHeight="12"
+       refX="10"
+       refY="5"
+       orient="auto">
+      <path
+         d="M 0 0 L 12 5 L 0 10 z"
+         fill="#e74c3c"
+         id="path3" />
+    </marker>
+    <marker
+       id="arrowhead-7"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="10,3 0,6 0,0 "
+         fill="#34495e"
+         id="polygon1" />
+    </marker>
+    <marker
+       id="arrowhead-7-8"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon
+         points="0,6 0,0 10,3 "
+         fill="#34495e"
+         id="polygon1-0" />
+    </marker>
+  </defs>
+  <!-- Title -->
+  <text
+     x="400"
+     y="20"
+     class="title"
+     text-anchor="middle"
+     id="text3">LLM Prompt Structure: Text2SQL Semantic Validation</text>
+  <!-- System Role / Task -->
+  <rect
+     x="50"
+     y="72"
+     width="700"
+     height="40"
+     fill="#d5e8f7"
+     stroke="#2980b9"
+     stroke-width="1.5"
+     rx="5"
+     id="rect3"
+     ry="5" />
+  <text
+     x="60"
+     y="90"
+     class="text"
+     font-style="italic"
+     font-weight="600"
+     fill="#1565c0"
+     id="text4">Task: &quot;You are a data science expert. Evaluate whether the provided SQL query correctly</text>
+  <text
+     x="60"
+     y="104"
+     class="text"
+     font-style="italic"
+     font-weight="600"
+     fill="#1565c0"
+     id="text5">answers the question given the database schema.&quot;</text>
+  <!-- Input Parameters Section -->
+  <rect
+     x="51.113754"
+     y="113"
+     width="698.88623"
+     height="80"
+     class="input-box"
+     rx="5"
+     id="rect5"
+     ry="5" />
+  <text
+     x="60"
+     y="131"
+     class="subtitle"
+     id="text6">Input Parameters</text>
+  <line
+     x1="60"
+     y1="135"
+     x2="160"
+     y2="135"
+     stroke="#3498db"
+     stroke-width="1"
+     id="line6" />
+  <text
+     x="70"
+     y="151"
+     class="text"
+     id="text7">• Dialect: Database system (e.g., SQLite, PostgreSQL)</text>
+  <text
+     x="70"
+     y="165"
+     class="text"
+     id="text8">• DDL Schema: Table definitions, columns, relationships</text>
+  <text
+     x="70"
+     y="179"
+     class="text"
+     id="text9">• NL Question: Natural language query from user</text>
+  <text
+     x="440"
+     y="151"
+     class="text"
+     id="text10">• SQL Query: Generated SQL to validate</text>
+  <text
+     x="440"
+     y="165"
+     class="text"
+     id="text11">• Evaluation Focus: Semantic correctness</text>
+  <!-- Arrow to Evaluation -->
+  <!-- Evaluation Criteria Section -->
+  <rect
+     x="50"
+     y="195.00002"
+     width="696.65875"
+     height="220"
+     class="eval-box"
+     rx="5"
+     id="rect12"
+     ry="5" />
+  <text
+     x="60"
+     y="213"
+     class="subtitle"
+     id="text13">Evaluation Criteria</text>
+  <line
+     x1="60"
+     y1="217"
+     x2="175"
+     y2="217"
+     stroke="#f39c12"
+     stroke-width="1"
+     id="line13" />
+  <!-- Left side: Answerability -->
+  <rect
+     x="78.431259"
+     y="227.54498"
+     width="310"
+     height="100"
+     fill="#ffffff"
+     stroke="#e67e22"
+     stroke-width="1.5"
+     rx="3"
+     id="rect13"
+     ry="3" />
+  <text
+     x="88.431259"
+     y="245.545"
+     class="text"
+     font-weight="600"
+     id="text14">1. Answerability Check</text>
+  <text
+     x="98.431259"
+     y="261.54501"
+     class="small-text"
+     id="text15">Can the question be answered from schema?</text>
+  <text
+     x="98.431259"
+     y="276.54501"
+     class="small-text"
+     id="text16">✓ Required tables/columns present</text>
+  <text
+     x="98.431259"
+     y="289.54501"
+     class="small-text"
+     id="text17">✓ Question is unambiguous</text>
+  <text
+     x="98.431259"
+     y="302.54501"
+     class="small-text"
+     id="text18">✓ No external data dependencies</text>
+  <text
+     x="98.431259"
+     y="317.54501"
+     class="small-text"
+     font-weight="600"
+     id="text19">→ If NO: Return UNANSWERABLE verdict</text>
+  <!-- Right side: Semantic Validation -->
+  <rect
+     x="398.56363"
+     y="227.77251"
+     width="330"
+     height="175"
+     fill="#ffffff"
+     stroke="#27ae60"
+     stroke-width="1.5"
+     rx="3"
+     id="rect19"
+     ry="3" />
+  <text
+     x="408.56363"
+     y="245.77251"
+     class="text"
+     font-weight="600"
+     id="text20">2. Semantic Validation (if answerable)</text>
+  <text
+     x="418.56363"
+     y="261.77252"
+     class="small-text"
+     id="text21">Query logic evaluation:</text>
+  <text
+     x="418.56363"
+     y="276.77252"
+     class="small-text"
+     id="text22">• Correct tables/columns selected</text>
+  <text
+     x="418.56363"
+     y="289.77252"
+     class="small-text"
+     id="text23">• JOIN relationships semantically valid</text>
+  <text
+     x="418.56363"
+     y="302.77252"
+     class="small-text"
+     id="text24">• Aggregations properly applied</text>
+  <text
+     x="418.56363"
+     y="315.77252"
+     class="small-text"
+     id="text25">• GROUP BY logic sound</text>
+  <text
+     x="418.56363"
+     y="328.77252"
+     class="small-text"
+     id="text26">• WHERE filters match intent</text>
+  <text
+     x="418.56363"
+     y="341.77252"
+     class="small-text"
+     id="text27">• Edge cases handled (NULL, duplicates)</text>
+  <rect
+     x="418.56363"
+     y="353.77252"
+     width="290"
+     height="40"
+     fill="#fff3e0"
+     stroke="#f39c12"
+     stroke-width="1"
+     rx="3"
+     id="rect27"
+     ry="3" />
+  <text
+     x="428.56363"
+     y="368.77252"
+     class="small-text"
+     font-weight="600"
+     id="text28">Dialect-Specific (SQLite):</text>
+  <text
+     x="428.56363"
+     y="382.77252"
+     class="small-text"
+     id="text29">Type coercion • Case-insensitive • Permissive GROUP BY</text>
+  <!-- Arrows showing flow -->
+  <!-- Output Verdicts Section -->
+  <rect
+     x="50"
+     y="416"
+     width="700"
+     height="190"
+     class="output-box"
+     rx="5"
+     id="rect31"
+     ry="5" />
+  <text
+     x="60"
+     y="434"
+     class="subtitle"
+     id="text32">Output: Four-Category Verdict Classification</text>
+  <line
+     x1="60"
+     y1="438"
+     x2="260"
+     y2="438"
+     stroke="#27ae60"
+     stroke-width="1"
+     id="line32" />
+  <!-- Verdict boxes -->
+  <g
+     id="g48"
+     transform="translate(0,-24)">
+    <!-- CORRECT -->
+    <rect
+       x="70"
+       y="475"
+       width="155"
+       height="70"
+       class="verdict-correct"
+       opacity="0.2"
+       rx="3"
+       id="rect32"
+       ry="3" />
+    <rect
+       x="70"
+       y="475"
+       width="155"
+       height="22"
+       class="verdict-correct"
+       rx="3"
+       id="rect33"
+       ry="3" />
+    <text
+       x="147"
+       y="491"
+       class="text"
+       fill="white"
+       text-anchor="middle"
+       font-weight="600"
+       id="text33">CORRECT</text>
+    <text
+       x="78"
+       y="511"
+       class="small-text"
+       id="text34">Query fully and accurately</text>
+    <text
+       x="78"
+       y="524"
+       class="small-text"
+       id="text35">answers the question</text>
+    <text
+       x="78"
+       y="537"
+       class="small-text"
+       id="text36">No semantic issues</text>
+    <!-- PARTIALLY_CORRECT -->
+    <rect
+       x="240"
+       y="475"
+       width="155"
+       height="70"
+       class="verdict-partial"
+       opacity="0.2"
+       rx="3"
+       id="rect36"
+       ry="3" />
+    <rect
+       x="240"
+       y="475"
+       width="155"
+       height="22"
+       class="verdict-partial"
+       rx="3"
+       id="rect37"
+       ry="3" />
+    <text
+       x="317"
+       y="491"
+       class="text"
+       fill="white"
+       text-anchor="middle"
+       font-weight="600"
+       id="text37">PARTIALLY_CORRECT</text>
+    <text
+       x="248"
+       y="511"
+       class="small-text"
+       id="text38">Mostly correct with</text>
+    <text
+       x="248"
+       y="524"
+       class="small-text"
+       id="text39">minor issues (missing</text>
+    <text
+       x="248"
+       y="537"
+       class="small-text"
+       id="text40">DISTINCT, NULL handling)</text>
+    <!-- INCORRECT -->
+    <rect
+       x="410"
+       y="475"
+       width="155"
+       height="70"
+       class="verdict-incorrect"
+       opacity="0.2"
+       rx="3"
+       id="rect40"
+       ry="3" />
+    <rect
+       x="410"
+       y="475"
+       width="155"
+       height="22"
+       class="verdict-incorrect"
+       rx="3"
+       id="rect41"
+       ry="3" />
+    <text
+       x="487"
+       y="491"
+       class="text"
+       fill="white"
+       text-anchor="middle"
+       font-weight="600"
+       id="text41">INCORRECT</text>
+    <text
+       x="418"
+       y="511"
+       class="small-text"
+       id="text42">Fundamental semantic</text>
+    <text
+       x="418"
+       y="524"
+       class="small-text"
+       id="text43">errors (wrong tables,</text>
+    <text
+       x="418"
+       y="537"
+       class="small-text"
+       id="text44">incorrect logic)</text>
+    <!-- UNANSWERABLE -->
+    <rect
+       x="580"
+       y="475"
+       width="155"
+       height="70"
+       class="verdict-unanswerable"
+       opacity="0.2"
+       rx="3"
+       id="rect44"
+       ry="3" />
+    <rect
+       x="580"
+       y="475"
+       width="155"
+       height="22"
+       class="verdict-unanswerable"
+       rx="3"
+       id="rect45"
+       ry="3" />
+    <text
+       x="657"
+       y="491"
+       class="text"
+       fill="white"
+       text-anchor="middle"
+       font-weight="600"
+       id="text45">UNANSWERABLE</text>
+    <text
+       x="588"
+       y="511"
+       class="small-text"
+       id="text46">Cannot be answered</text>
+    <text
+       x="588"
+       y="524"
+       class="small-text"
+       id="text47">from schema (missing</text>
+    <text
+       x="588"
+       y="537"
+       class="small-text"
+       id="text48">tables/ambiguous)</text>
+  </g>
+  <!-- Output Format -->
+  <rect
+     x="70"
+     y="536"
+     width="665"
+     height="60"
+     fill="#f8f9fa"
+     stroke="#27ae60"
+     stroke-width="1"
+     rx="3"
+     id="rect48"
+     ry="3" />
+  <text
+     x="80"
+     y="554"
+     class="text"
+     font-weight="600"
+     id="text49">JSON Output Format:</text>
+  <text
+     x="80"
+     y="571"
+     class="small-text"
+     font-family="Courier New"
+     id="text50">{ &quot;verdict&quot;: &quot;CORRECT&quot; | &quot;PARTIALLY_CORRECT&quot; | &quot;INCORRECT&quot; | &quot;UNANSWERABLE&quot;,</text>
+  <text
+     x="90"
+     y="584"
+     class="small-text"
+     font-family="Courier New"
+     id="text51">&quot;explanation&quot;: &quot;&lt;empty if CORRECT, else ≤200 chars describing issue&gt;&quot; }</text>
+</svg>
