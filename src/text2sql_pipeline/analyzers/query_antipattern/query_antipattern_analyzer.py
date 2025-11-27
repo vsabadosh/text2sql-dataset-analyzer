@@ -54,7 +54,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         """Process items and emit antipattern detection metrics."""
         for item in items:
             if not self.enabled:
-                yield item;   
+                yield item
                 continue 
 
             # Check if any previous analyzer failed - skip if so

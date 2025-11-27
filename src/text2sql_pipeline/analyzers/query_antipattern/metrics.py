@@ -48,7 +48,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_select_in_exists: bool = False         # SELECT * or column in EXISTS (unnecessary)
     has_union_instead_of_union_all: bool = False  # UNION when UNION ALL might be sufficient
     has_complex_or_conditions: bool = False    # multiple OR conditions (index inefficiency)
-    has_implicit_type_conversion: bool = False  # potential type mismatch in comparisons
+    # Note: has_implicit_type_conversion removed - not implemented yet
     
     # ---- Quality score ----
     quality_score: int = 100       # 100 (perfect) down to 0 (many serious issues)

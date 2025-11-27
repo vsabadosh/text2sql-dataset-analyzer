@@ -110,14 +110,20 @@ def _detect_implicit_join(ast: exp.Expression, antipatterns: List[AntipatternIns
         if not from_clause:
             continue
         
-        # Look for multiple tables in FROM without explicit JOINs
-        tables = list(from_clause.find_all(exp.Table))
-        joins = list(select.find_all(exp.Join))
+        # Look for tables directly in this FROM clause (not in subqueries)
+        # We need to check only immediate children, not nested ones
+        tables_in_from = []
+        if hasattr(from_clause, 'this') and isinstance(from_clause.this, exp.Table):
+            tables_in_from.append(from_clause.this)
         
-        # If we have multiple tables but no JOINs, it's an implicit join
-        # Note: This is a simplified heuristic; sqlglot may parse comma joins differently
-        if len(tables) > 1 and len(joins) == 0:
-            # Check if there's a comma-separated list
+        # Check for JOINs in this specific SELECT (not nested)
+        joins_in_select = [j for j in select.args.get("joins", []) if isinstance(j, exp.Join)]
+        
+        # sqlglot parses comma-separated tables as multiple Table nodes in FROM
+        # If we have explicit JOINs, comma joins won't be present in modern sqlglot
+        # This is a conservative detection - we look for pattern indicators
+        # Note: sqlglot may normalize comma joins to explicit JOINs during parsing
+        if len(tables_in_from) > 1 and len(joins_in_select) == 0:
             features.has_implicit_join = True
             antipatterns.append(AntipatternInstance(
                 pattern="implicit_join",
@@ -172,9 +178,11 @@ def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[Antipa
 
 def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
     """Detect NOT IN with subqueries (potential NULL handling issues)."""
-    for not_in in ast.find_all(exp.Not):
+    
+    # Method 1: Look for Not(In(...)) pattern
+    for not_expr in ast.find_all(exp.Not):
         # Check if this NOT wraps an IN expression
-        in_exprs = list(not_in.find_all(exp.In))
+        in_exprs = list(not_expr.find_all(exp.In))
         for in_expr in in_exprs:
             # Check if IN contains a subquery
             subqueries = list(in_expr.find_all(exp.Subquery))
@@ -189,46 +197,76 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
                 break
         if features.has_not_in_nullable:
             break
+    
+    # Method 2: Check if sqlglot has a separate NotIn expression type
+    # Some SQL parsers represent "NOT IN" as a distinct node type
+    if not features.has_not_in_nullable and hasattr(exp, 'NotIn'):
+        for not_in in ast.find_all(exp.NotIn):
+            subqueries = list(not_in.find_all(exp.Subquery))
+            if subqueries:
+                features.has_not_in_nullable = True
+                antipatterns.append(AntipatternInstance(
+                    pattern="not_in_nullable",
+                    severity="warning",
+                    message="NOT IN with subquery: beware of NULL handling (use NOT EXISTS or IS NOT NULL)",
+                    location="WHERE clause"
+                ))
+                break
 
 
 def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
     """Detect correlated subqueries (performance risk)."""
-    # This is a simplified heuristic: check for subqueries with WHERE conditions
-    # referencing outer tables (hard to detect precisely without scope analysis)
+    # This is a simplified heuristic using conservative pattern matching
+    # True detection would require full scope analysis
+    
     for select in ast.find_all(exp.Select):
         subqueries = [sq for sq in select.find_all(exp.Subquery) if isinstance(sq.this, exp.Select)]
         
         for subq in subqueries:
-            # Look for correlation: subquery references tables from outer query
-            # Heuristic: if subquery has WHERE with columns but no FROM tables matching those columns
             inner_select = subq.this
             if not isinstance(inner_select, exp.Select):
                 continue
             
+            # Look for table aliases in outer query
+            outer_tables = set()
+            for table in select.find_all(exp.Table):
+                if hasattr(table, 'alias') and table.alias:
+                    outer_tables.add(table.alias)
+                elif hasattr(table, 'name'):
+                    outer_tables.add(str(table.name).lower())
+            
+            # Look for columns with table qualifiers in subquery WHERE
             where_nodes = list(inner_select.find_all(exp.Where))
-            if where_nodes:
-                # Simple heuristic: if we find a WHERE in a subquery, flag it as potentially correlated
-                # (precise detection would require scope analysis)
+            if where_nodes and outer_tables:
                 columns_in_where = list(where_nodes[0].find_all(exp.Column))
-                if columns_in_where:
-                    features.has_correlated_subquery = True
-                    antipatterns.append(AntipatternInstance(
-                        pattern="correlated_subquery",
-                        severity="info",
-                        message="Potentially correlated subquery detected: consider JOIN or EXISTS for better performance",
-                        location="Subquery"
-                    ))
-                    break
+                # Check if any column references an outer table
+                for col in columns_in_where:
+                    if hasattr(col, 'table') and col.table:
+                        table_ref = str(col.table).lower()
+                        if table_ref in outer_tables:
+                            features.has_correlated_subquery = True
+                            antipatterns.append(AntipatternInstance(
+                                pattern="correlated_subquery",
+                                severity="info",
+                                message="Potentially correlated subquery detected: consider JOIN or EXISTS for better performance",
+                                location="Subquery"
+                            ))
+                            break
+            
+            if features.has_correlated_subquery:
+                break
         if features.has_correlated_subquery:
             break
 
 
 def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
     """Detect SELECT queries without LIMIT (resource exhaustion risk)."""
-    for select in ast.find_all(exp.Select):
-        # Check if this is a top-level SELECT (not a subquery)
-        # and doesn't have LIMIT
-        limits = list(select.find_all(exp.Limit))
+    # Only check top-level SELECT, not subqueries
+    # Top-level means it's the root of the AST or not nested in another SELECT
+    
+    if isinstance(ast, exp.Select):
+        # This is a top-level SELECT
+        limits = list(ast.find_all(exp.Limit))
         if not limits:
             features.has_unbounded_query = True
             antipatterns.append(AntipatternInstance(
@@ -237,7 +275,17 @@ def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternI
                 message="SELECT without LIMIT: consider adding LIMIT for large datasets",
                 location="SELECT statement"
             ))
-            break
+    elif isinstance(ast, (exp.Union, exp.Intersect, exp.Except)):
+        # For set operations, check if the whole operation has LIMIT
+        limits = list(ast.find_all(exp.Limit))
+        if not limits:
+            features.has_unbounded_query = True
+            antipatterns.append(AntipatternInstance(
+                pattern="unbounded_query",
+                severity="info",
+                message="Query without LIMIT: consider adding LIMIT for large datasets",
+                location="Query statement"
+            ))
 
 
 def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
@@ -269,15 +317,21 @@ def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[Antipat
 
 def _detect_too_many_joins(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
     """Detect queries with too many JOINs (complexity smell)."""
-    joins = list(ast.find_all(exp.Join))
-    if len(joins) >= 5:
-        features.has_too_many_joins = True
-        antipatterns.append(AntipatternInstance(
-            pattern="too_many_joins",
-            severity="warning",
-            message=f"Query has {len(joins)} JOINs: consider refactoring for maintainability",
-            location="JOIN clauses"
-        ))
+    # Check JOINs per SELECT statement, not globally
+    for select in ast.find_all(exp.Select):
+        # Count JOINs directly in this SELECT (not in nested subqueries)
+        joins_in_select = select.args.get("joins", [])
+        join_count = len([j for j in joins_in_select if isinstance(j, exp.Join)])
+        
+        if join_count >= 5:
+            features.has_too_many_joins = True
+            antipatterns.append(AntipatternInstance(
+                pattern="too_many_joins",
+                severity="warning",
+                message=f"Query has {join_count} JOINs: consider refactoring for maintainability",
+                location="JOIN clauses"
+            ))
+            break  # Report once per query
 
 
 def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
@@ -306,9 +360,14 @@ def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[Antipattern
             # Check if SELECT has explicit expressions (columns or *)
             select_expr = select_node.args.get("expressions", [])
             if select_expr and len(select_expr) > 0:
-                # Check if it's not already "SELECT 1" or similar literal
-                first_expr = select_expr[0]
-                if not isinstance(first_expr, exp.Literal):
+                # Check if ALL expressions are literals (like SELECT 1)
+                # If any is not a literal, it's unnecessary
+                has_non_literal = any(
+                    not isinstance(expr, exp.Literal) 
+                    for expr in select_expr
+                )
+                
+                if has_non_literal:
                     features.has_select_in_exists = True
                     antipatterns.append(AntipatternInstance(
                         pattern="select_in_exists",
@@ -355,14 +414,24 @@ def _detect_distinct_overuse(ast: exp.Expression, antipatterns: List[Antipattern
     for select in ast.find_all(exp.Select):
         has_distinct = any(select.find_all(exp.Distinct))
         if has_distinct:
-            # Count columns in SELECT
-            columns = list(select.find_all(exp.Column))
-            if len(columns) >= 5:
+            # Count only columns in SELECT expressions, not in WHERE/JOIN/etc
+            select_expressions = select.args.get("expressions", [])
+            column_count = 0
+            
+            for expr in select_expressions:
+                # Count direct columns and columns in simple expressions
+                if isinstance(expr, exp.Column):
+                    column_count += 1
+                else:
+                    # Count columns in the expression (e.g., aliased columns)
+                    column_count += len(list(expr.find_all(exp.Column)))
+            
+            if column_count >= 5:
                 features.has_select_distinct_overuse = True
                 antipatterns.append(AntipatternInstance(
                     pattern="distinct_overuse",
                     severity="warning",
-                    message=f"DISTINCT with {len(columns)} columns: review data model or use GROUP BY",
+                    message=f"DISTINCT with {column_count} columns: review data model or use GROUP BY",
                     location="SELECT DISTINCT"
                 ))
                 break

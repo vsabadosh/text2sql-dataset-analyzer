@@ -79,7 +79,7 @@ class MarkdownReportGenerator:
                 FROM {table}
             """).fetchone()
             totals = self.conn.execute(f"""
-                SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_invalid),0),
+                SELECT COALESCE(SUM(tables),0), COALESCE(SUM(fk_total),0), COALESCE(SUM(fk_invalid),0),
                        SUM(CASE WHEN fk_data_violations_count > 0 THEN 1 ELSE 0 END),
                        COALESCE(SUM(tables - tables_non_empty),0)
                 FROM {table}
@@ -92,7 +92,7 @@ class MarkdownReportGenerator:
             """).fetchone()
             
             total, clean, failed, errors, warns = status_counts if status_counts else (0, 0, 0, 0, 0)
-            total_tables, invalid_fks, dbs_with_violations, empty_tables = totals if totals else (0, 0, 0, 0)
+            total_tables, total_fks, invalid_fks, dbs_with_violations, empty_tables = totals if totals else (0, 0, 0, 0, 0)
             total_warnings = warning_counts[0] if warning_counts and warning_counts[0] else 0
             
             clean_pct = (clean / total * 100) if total > 0 else 0
@@ -101,9 +101,57 @@ class MarkdownReportGenerator:
             sections.append("")
             sections.append(f"**Databases:** {total} · **Clean:** {clean} ({clean_pct:.1f}%) · **Fatal Errors:** {failed} · **Errors:** {errors} · **Warnings:** {warns}")
             sections.append("")
-            sections.append(f"**Tables scanned:** {total_tables:,} · **Empty tables:** {empty_tables:,} · **Invalid FKs:** {invalid_fks}")
+            sections.append(f"**Tables scanned:** {total_tables:,} · **Empty tables:** {empty_tables:,} · **Total FKs:** {total_fks:,} · **Invalid FKs:** {invalid_fks}")
             sections.append("")
             sections.append(f"**Total warnings:** {total_warnings:,} · **DBs with FK data violations:** {dbs_with_violations}")
+
+            # Count dataset items using databases with errors
+            items_with_db_errors = 0
+            items_with_db_errors_pct = 0
+            total_items = 0
+            
+            # Try to get item counts from any per-item analyzer table (prefer query_syntax)
+            per_item_table = None
+            for analyzer_name in ['query_syntax', 'query_execution', 'query_antipattern']:
+                if analyzer_name in self.available_tables:
+                    per_item_table = self.available_tables[analyzer_name]
+                    break
+            
+            if per_item_table:
+                try:
+                    # Get total items
+                    total_items_result = self.conn.execute(f"""
+                        SELECT COUNT(DISTINCT item_id) 
+                        FROM {per_item_table}
+                        WHERE item_id IS NOT NULL
+                    """).fetchone()
+                    total_items = total_items_result[0] if total_items_result else 0
+                    
+                    # Get list of databases with errors (status = 'errors' or 'failed')
+                    error_dbs_result = self.conn.execute(f"""
+                        SELECT db_id 
+                        FROM {table}
+                        WHERE status IN ('errors', 'failed')
+                    """).fetchall()
+                    error_dbs = [row[0] for row in error_dbs_result]
+                    
+                    if error_dbs and total_items > 0:
+                        # Count items using those databases
+                        placeholders = ','.join(['?' for _ in error_dbs])
+                        items_with_errors_result = self.conn.execute(f"""
+                            SELECT COUNT(DISTINCT item_id)
+                            FROM {per_item_table}
+                            WHERE db_id IN ({placeholders}) AND item_id IS NOT NULL
+                        """, error_dbs).fetchone()
+                        items_with_db_errors = items_with_errors_result[0] if items_with_errors_result else 0
+                        items_with_db_errors_pct = (items_with_db_errors / total_items * 100) if total_items > 0 else 0
+                except Exception:
+                    # If query fails, silently skip this metric
+                    pass
+            
+            if per_item_table and total_items > 0:
+                sections.append("")
+                sections.append(f"**Dataset items using DBs with errors:** {items_with_db_errors:,} of {total_items:,} ({items_with_db_errors_pct:.1f}%)")
 
             # Enhanced empty table analysis - distinguish used vs unused empty tables
             empty_table_analysis = self._analyze_empty_table_usage(table)
