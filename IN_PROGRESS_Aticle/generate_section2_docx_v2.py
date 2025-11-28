@@ -800,6 +800,22 @@ def generate_section2_docx():
 
     add_paragraph(
         doc,
+        "The query_derived mode introduces methodological considerations requiring careful interpretation of validation results. When language "
+        "models receive only query-referenced tables rather than complete schemas, UNANSWERABLE verdicts become ambiguous: models cannot "
+        "distinguish between queries referencing semantically incorrect tables (which should be classified as INCORRECT when the full schema "
+        "reveals that correct alternative tables exist) versus questions genuinely unanswerable due to inherent information gaps. This necessitates "
+        "a two-stage validation protocol: queries receiving UNANSWERABLE verdicts in query_derived mode should be re-evaluated using full schema "
+        "mode to disambiguate these scenarios. If re-evaluation yields INCORRECT, this indicates wrong table selection—a fundamental semantic error. "
+        "If re-evaluation maintains UNANSWERABLE, this confirms genuine unanswerability. Additionally, the sampling of instance values, while "
+        "providing semantic context about column content, may introduce bias when sampled values are unrepresentative of column distributions or "
+        "mask data ambiguities that affect query correctness. Future work should include ablation studies isolating the effect of value sampling "
+        "by comparing validation outcomes with and without sampled values, with varying sample sizes, and across query_derived versus full mode "
+        "configurations, enabling quantification of how schema context completeness and instance value sampling independently influence semantic "
+        "validation accuracy and verdict distribution patterns.",
+    )
+
+    add_paragraph(
+        doc,
         "The third stage implements the multi-model consensus voting mechanism, querying multiple language models in parallel and collecting "
         "their independent judgments. The architecture supports four provider categories, each with different characteristics relevant to "
         "research applications. OpenAI models (GPT-4o, GPT-4-turbo, GPT-3.5-turbo) offer strong reasoning capabilities and reliable structured "
