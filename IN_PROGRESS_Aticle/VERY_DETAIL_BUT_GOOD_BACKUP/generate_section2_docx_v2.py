@@ -369,9 +369,10 @@ def generate_section2_docx():
     add_paragraph(
         doc,
         "The Query Syntax Analyzer performs static structural analysis of SQL statements, extracting syntactic features "
-        "and computing complexity metrics without database execution. The analyzer processes queries through four stages: "
-        "abstract syntax tree construction, structural feature extraction, complexity score calculation, and difficulty "
-        "classification (Figure 2b).",
+        "and computing complexity metrics without database execution. This analyzer characterizes query difficulty and "
+        "structural patterns across Text-to-SQL datasets, enabling researchers to understand dataset composition and "
+        "identify complexity distributions. The analyzer processes queries through four sequential stages: abstract syntax "
+        "tree construction, structural feature extraction, complexity score calculation, and difficulty classification (Figure 2b).",
     )
 
     add_image_from_svg(
@@ -383,45 +384,64 @@ def generate_section2_docx():
 
     add_paragraph(
         doc,
-        "The Abstract Syntax Tree Construction stage employs sqlglot, a SQL parser supporting over 20 dialects including SQLite, "
-        "PostgreSQL, MySQL, and BigQuery. The parser transforms SQL text into a hierarchical tree where nodes represent syntactic "
-        "constructs—SELECT expressions, JOIN operations, WHERE predicates, subqueries, and CTEs. This dialect-aware parsing is "
-        "essential for datasets aggregating queries across multiple database systems, as constructs exhibit variations: string "
-        "concatenation operators differ between dialects, and advanced features may be dialect-specific. Parsing failures are "
-        "captured with detailed error messages facilitating identification of malformed queries.",
+        "The Abstract Syntax Tree Construction stage employs sqlglot, a production-grade SQL parser supporting over 20 SQL "
+        "dialects including SQLite, PostgreSQL, MySQL, and BigQuery. The parser transforms SQL text into a hierarchical tree "
+        "structure where nodes represent syntactic constructs—SELECT expressions, JOIN operations, WHERE predicates, subqueries, "
+        "and common table expressions. This dialect-aware parsing capability is essential for Text-to-SQL datasets aggregating "
+        "queries across multiple database systems, as syntactic constructs exhibit variations across dialects: string concatenation "
+        "operators differ between MySQL and PostgreSQL, and advanced features like window functions may be dialect-specific. "
+        "Parsing failures, whether from syntax errors or dialect mismatches, are captured with detailed error messages, facilitating "
+        "identification of malformed queries requiring correction.",
     )
 
     add_paragraph(
         doc,
-        "The Structural Feature Extraction stage traverses the AST to count syntactic constructs relevant to complexity. The analyzer "
-        "extracts five categories: Basic Structure (SELECT projections, WHERE predicates, GROUP BY, ORDER BY), Join and Relation "
-        "(JOIN types, distinct tables, maximum depth), Advanced Features (subquery nesting, CTE complexity, window functions), "
-        "Aggregation (COUNT, SUM, AVG, MIN, MAX, HAVING, DISTINCT), and Set Operations (UNION, INTERSECT, EXCEPT). This feature "
-        "vector enables dataset composition analysis and correlation studies between syntactic patterns and semantic errors.",
+        "The Structural Feature Extraction stage traverses the abstract syntax tree to identify and count syntactic constructs "
+        "relevant to query complexity. The analyzer extracts five feature categories. Basic Structure features enumerate SELECT "
+        "projections, WHERE predicate complexity, GROUP BY and ORDER BY clauses. Join and Relation features count JOIN types "
+        "(INNER, LEFT, RIGHT, FULL, CROSS), enumerate distinct tables, and compute maximum JOIN depth, capturing relational "
+        "complexity in multi-table queries. Advanced Feature metrics measure subquery nesting depth, common table expression (CTE) "
+        "complexity, window function usage (OVER clauses), and recursive CTE detection. Aggregation metrics track aggregate functions "
+        "(COUNT, SUM, AVG, MIN, MAX), HAVING clauses, and DISTINCT operations. Set Operation features detect UNION, INTERSECT, and "
+        "EXCEPT operators with their nesting patterns. This comprehensive feature vector enables analysis of dataset composition, "
+        "supporting research questions about correlations between syntactic patterns and semantic errors or alignment of difficulty "
+        "distributions with benchmark hierarchies.",
     )
 
     add_paragraph(
         doc,
-        "The Complexity Score Calculation stage synthesizes features into a 0-100 metric correlating with query difficulty. The algorithm "
-        "implements weighted aggregation: single-table SELECT queries contribute 0-10 points, JOINs add 3-5 points, aggregates 2-4 points, "
-        "and advanced features 5-10 points. Nesting depth penalties apply exponential scaling reflecting disproportionate cognitive costs, "
-        "while well-structured CTEs and window functions receive bonuses. Raw scores undergo min-max normalization spanning 0-100.",
+        "The Complexity Score Calculation stage synthesizes extracted features into a normalized metric on a 0-100 scale, correlating "
+        "with human perception of query difficulty and objective indicators like execution time or semantic error likelihood. The scoring "
+        "algorithm implements weighted feature aggregation with three components. First, weighted feature counts assign points by construct "
+        "frequency: single-table SELECT queries contribute minimal points (0-10), JOIN operations add incremental complexity (3-5 points), "
+        "aggregate functions contribute moderate weight (2-4 points), and advanced features like subqueries or CTEs carry higher weights "
+        "(5-10 points). Second, nesting depth penalties apply exponential scaling reflecting disproportionate cognitive costs: first-level "
+        "subqueries receive base penalties, while deeper nesting imposes progressively harsher penalties as query comprehension difficulty "
+        "increases super-linearly. Third, structural pattern bonuses recognize that well-structured CTEs and window functions, while complex, "
+        "improve readability. Raw scores undergo min-max normalization to span the 0-100 range across the dataset.",
     )
 
     add_paragraph(
         doc,
-        "The Difficulty Classification stage maps scores to four categorical labels with empirically calibrated thresholds. Easy queries "
-        "(0-25) encompass single-table SELECT with simple predicates. Medium queries (26-50) introduce multi-table JOINs, GROUP BY, and "
-        "straightforward subqueries requiring intermediate proficiency. Hard queries (51-75) exhibit multiple JOINs, nested subqueries, "
-        "CTEs, and correlated subqueries challenging experienced practitioners. Expert queries (76-100) feature deep nesting, window "
-        "functions, recursive CTEs, and intricate set operations representing frontier challenges. This enables benchmark coverage "
-        "assessment, stratified evaluation, and imbalance identification.",
+        "The Difficulty Classification stage maps continuous complexity scores to discrete categorical labels with empirically calibrated "
+        "thresholds. Easy queries (0-25) encompass single-table SELECT statements with simple WHERE predicates and basic projections, "
+        "representing queries novice SQL users could construct. Medium queries (26-50) introduce multi-table JOINs, GROUP BY aggregations, "
+        "straightforward subqueries, and moderate logical complexity, requiring intermediate SQL proficiency. Hard queries (51-75) exhibit "
+        "multiple JOINs spanning three or more tables, nested subqueries in SELECT or FROM clauses, common table expressions, and correlated "
+        "subqueries, challenging experienced practitioners and exposing Text-to-SQL model limitations. Expert queries (76-100) feature deep "
+        "nesting with three or more subquery levels, advanced window functions, recursive CTEs, and intricate set operations, representing "
+        "frontier challenges for state-of-the-art systems. This classification enables assessment of benchmark coverage across difficulty "
+        "levels, supports stratified evaluation analyzing performance per tier, and identifies dataset imbalances.",
     )
 
     add_paragraph(
         doc,
-        "The analyzer outputs structured metrics to the DuckDB database supporting dataset profiling, quality control, stratified evaluation, "
-        "and correlation analyses exploring relationships between syntactic complexity and other quality dimensions.",
+        "The Query Syntax Analyzer outputs comprehensive metrics persisted to the DuckDB analytics database: normalized complexity score "
+        "(0-100), difficulty classification (Easy/Medium/Hard/Expert), complete feature vector, parsing status with error messages, and "
+        "detected SQL dialect. These metrics support diverse workflows: profiling reports show complexity distributions characterizing "
+        "dataset composition; quality control identifies outlier queries warranting inspection; stratified evaluation analyzes performance "
+        "degradation across complexity gradients; and correlation analyses explore relationships between syntactic complexity and semantic "
+        "correctness or execution success rates.",
     )
 
     # 2.4.1. Query Antipattern Detector
@@ -430,10 +450,12 @@ def generate_section2_docx():
     
     add_paragraph(
         doc,
-        "The Query Antipattern Detector implements rule-based static analysis identifying SQL code smells compromising maintainability, "
-        "performance, correctness, or data safety. While the Syntax Analyzer characterizes complexity, the antipattern detector evaluates "
-        "quality by detecting problematic patterns practitioners recognize as suboptimal or dangerous. The detector processes queries through "
-        "four stages: AST traversal with pattern matching, severity classification, weighted scoring, and quality assignment (Figure 2c).",
+        "The Query Antipattern Detector implements rule-based static analysis to identify SQL code smells compromising query maintainability, "
+        "performance, correctness, or data safety. While the Query Syntax Analyzer characterizes complexity through feature extraction, the "
+        "antipattern detector evaluates quality by detecting problematic patterns database practitioners recognize as suboptimal or dangerous. "
+        "This addresses a critical gap: syntactically valid queries may exhibit poor code quality reducing their value as training examples. "
+        "The detector processes queries through four stages: AST traversal with pattern matching, severity classification, weighted quality "
+        "score computation, and categorical quality assignment (Figure 2c).",
     )
 
     add_image_from_svg(
@@ -445,48 +467,68 @@ def generate_section2_docx():
 
     add_paragraph(
         doc,
-        "The Rule-Based Detection Engine implements 14 independent rules traversing the AST to identify antipattern signatures. Each rule "
-        "encapsulates domain knowledge about SQL best practices, performance optimization, and correctness pitfalls. Rules operate in parallel, "
-        "enabling compositional analysis detecting multiple antipatterns simultaneously. The engine leverages sqlglot's AST node types: SELECT * "
-        "detection searches for Star nodes; implicit join identifies FROM with multiple Tables but no Joins; function-in-WHERE locates Func nodes "
-        "with Column references; leading wildcard LIKE examines patterns for wildcard prefixes; NOT IN combines Not wrapping In with Subqueries; "
-        "correlated subquery performs scope analysis; unbounded query checks for missing Limits; unsafe UPDATE/DELETE identifies modifications "
-        "lacking Where clauses; and additional rules target redundant DISTINCT with GROUP BY, unnecessary columns in EXISTS, UNION versus UNION ALL, "
-        "complex OR chains, and DISTINCT overuse.",
+        "The Rule-Based Detection Engine implements 14 independent detection rules traversing the AST to identify antipattern signatures through "
+        "structural analysis. Each rule encapsulates domain knowledge about SQL best practices, performance optimization, and correctness pitfalls. "
+        "Rules operate in parallel—each independently examines the query AST—enabling compositional analysis detecting multiple antipatterns "
+        "simultaneously. This architecture supports incremental enhancement: new rules can be added without modifying existing ones. The engine "
+        "leverages sqlglot's AST node types for pattern matching: SELECT * detection searches for Star nodes; implicit join detection identifies "
+        "FROM clauses with multiple Table nodes but no Join nodes; function-in-WHERE detection locates Func nodes containing Column references; "
+        "leading wildcard LIKE examines Like expressions for wildcard prefixes; NOT IN detection combines Not wrapping In with Subquery children; "
+        "correlated subquery detection performs scope analysis; unbounded query detection checks for missing Limit clauses; unsafe UPDATE/DELETE "
+        "identifies modification statements lacking Where clauses; excessive JOIN detection counts Join nodes; and additional rules target "
+        "redundant DISTINCT with GROUP BY, unnecessary columns in EXISTS, UNION versus UNION ALL, complex OR chains, and DISTINCT overuse.",
     )
 
     add_paragraph(
         doc,
-        "The Pattern Classification by Severity stage organizes antipatterns into three categories. Critical antipatterns (error severity) "
-        "represent catastrophic patterns: unsafe UPDATE and DELETE lacking WHERE clauses unconditionally modifying or removing all rows. "
-        "Significant antipatterns (warning severity) substantially compromise maintainability, performance, or correctness: SELECT * breaking "
-        "interface contracts; implicit joins risking Cartesian products; functions in WHERE preventing index utilization; LIKE with leading "
-        "wildcards; NOT IN with nullable subqueries; five or more JOINs; and DISTINCT on five or more columns. Advisory antipatterns (info "
-        "severity) suggest optimization opportunities: correlated subqueries with N+1 patterns; unbounded SELECT queries; redundant DISTINCT "
-        "with GROUP BY; unnecessary columns in EXISTS; UNION where UNION ALL suffices; and complex OR predicates.",
+        "The Pattern Classification by Severity stage organizes antipatterns into three hierarchical categories reflecting impact on execution "
+        "and data integrity. Critical antipatterns (error severity) represent catastrophic patterns posing immediate data safety risks: unsafe "
+        "UPDATE and DELETE operations lacking WHERE clauses that unconditionally modify or remove all table rows. These typically indicate "
+        "annotation errors, as Text-to-SQL systems trained on such examples learn dangerous patterns causing data loss. Significant antipatterns "
+        "(warning severity) substantially compromise maintainability, performance, or correctness: SELECT * usage breaking interface contracts "
+        "and preventing optimization; implicit joins reducing readability and risking Cartesian products; function applications to columns in "
+        "WHERE preventing index utilization; LIKE with leading wildcards preventing index prefix matching; NOT IN with nullable subqueries "
+        "exhibiting counterintuitive NULL handling; queries with five or more JOINs indicating high complexity; and DISTINCT applied to five or "
+        "more columns suggesting data model issues. Advisory antipatterns (info severity) suggest optimization opportunities acceptable depending "
+        "on context: correlated subqueries with N+1 patterns; unbounded SELECT queries risking memory exhaustion; redundant DISTINCT with GROUP BY; "
+        "unnecessary columns in EXISTS; UNION where UNION ALL suffices; and complex WHERE clauses with three or more OR predicates inhibiting "
+        "efficient index selection.",
     )
 
     add_paragraph(
         doc,
-        "The Quality Score Computation stage synthesizes antipatterns into a 0-100 metric through weighted penalties. Scoring begins at 100 points. "
-        "Critical antipatterns subtract 20 points; significant antipatterns 10 points; advisory antipatterns 3 points. The formula: Quality Score = "
-        "max(0, 100 - 20×critical - 10×warning - 3×info). This produces intuitive distributions: zero antipatterns achieve 100; advisory issues "
-        "score 90s; several significant antipatterns score 50-70; critical antipatterns score below 50 necessitating revision or exclusion.",
+        "The Quality Score Computation stage synthesizes detected antipatterns into a normalized metric on a 0-100 scale through weighted "
+        "penalties reflecting relative severity. Scoring begins from 100 points (perfect quality). Each critical antipattern subtracts 20 points, "
+        "reflecting severe data safety violations; each significant antipattern deducts 10 points, recognizing substantial impact on "
+        "maintainability, performance, or correctness; each advisory antipattern removes 3 points for minor issues. The formula implements "
+        "additive penalties: Quality Score = max(0, 100 - 20×critical_count - 10×warning_count - 3×info_count). This produces intuitive "
+        "distributions: zero antipatterns achieve 100; one or two advisory issues score in the 90s indicating excellent quality; several "
+        "significant antipatterns fall into 50-70 signaling fair quality requiring attention; critical antipatterns or numerous issues score "
+        "below 50 indicating poor quality necessitating revision or exclusion from training datasets.",
     )
 
     add_paragraph(
         doc,
-        "The Quality Level Classification stage maps scores to categorical labels with empirically calibrated thresholds. Excellent (90-100) "
-        "designates professional-grade SQL with zero significant antipatterns. Good (70-89) encompasses one or two significant antipatterns "
-        "representing acceptable quality. Fair (50-69) identifies multiple significant antipatterns requiring remediation. Poor (0-49) "
-        "designates critical antipatterns or numerous issues requiring extensive revision or exclusion. This enables dataset-level profiling, "
-        "quality-based filtering, correlation analyses with semantic correctness, and targeted improvement campaigns.",
+        "The Quality Level Classification stage maps continuous scores to categorical labels with empirically calibrated thresholds. Excellent "
+        "quality (90-100) designates queries demonstrating professional-grade SQL practices with zero significant antipatterns, potentially "
+        "exhibiting only minor advisory issues. Good quality (70-89) encompasses queries with one or two significant antipatterns or several "
+        "advisory issues, representing acceptable code quality suitable for datasets. Fair quality (50-69) identifies queries with multiple "
+        "significant antipatterns indicating problems requiring remediation, though potentially salvageable through targeted corrections. Poor "
+        "quality (0-49) designates queries with critical antipatterns or numerous significant issues, requiring extensive revision or exclusion "
+        "to prevent propagation of dangerous patterns. This classification enables dataset-level quality profiling characterizing overall code "
+        "quality, supports quality-based filtering for high-quality subsets, facilitates correlation analyses exploring relationships with "
+        "semantic correctness or model accuracy, and guides targeted improvement identifying antipatterns requiring systematic correction.",
     )
 
     add_paragraph(
         doc,
-        "The detector outputs quality metrics to the DuckDB database enabling quality profiling, filtering, correlation studies with semantic "
-        "correctness, targeted remediation campaigns, and quality-aware evaluation frameworks.",
+        "The Query Antipattern Detector outputs comprehensive quality metrics persisted to the DuckDB analytics database: overall quality score "
+        "(0-100), categorical quality level (excellent/good/fair/poor), complete antipattern list with patterns, severities, messages, and locations, "
+        "aggregated severity counts, and parsing status. These metrics enable diverse workflows: quality reports summarize score distributions and "
+        "antipattern frequencies characterizing code quality; quality-based filtering creates subsets meeting minimum thresholds; correlation studies "
+        "investigate whether patterns associate with semantic error rates or model accuracy; targeted remediation campaigns systematically address "
+        "prevalent antipatterns; and quality-aware evaluation frameworks weight metrics by query quality, testing hypotheses about whether models "
+        "trained on high-quality examples exhibit superior generalization compared to those exposed to antipatterns.",
     )
 
     # 2.5. Data flow

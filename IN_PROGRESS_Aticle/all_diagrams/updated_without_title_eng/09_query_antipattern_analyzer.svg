@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1300 950"
+   version="1.1"
+   id="svg-antipattern"
+   xmlns="http://www.w3.org/2000/svg">
+  <defs id="defs-antipattern">
+    <style id="style-antipattern">
+      .title { font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #4a4a4a; }
+      .label { font-family: Arial, sans-serif; font-size: 13px; fill: #2c3e50; font-weight: 500; }
+      .small-text { font-family: Arial, sans-serif; font-size: 11px; fill: #34495e; }
+      .tiny-text { font-family: Arial, sans-serif; font-size: 10px; fill: #34495e; }
+      .input-box { fill: #e8f4f8; stroke: #3498db; stroke-width: 3; }
+      .step-box { fill: #fff; stroke: #3498db; stroke-width: 2; }
+      .process-box { fill: #e8f5e9; stroke: #4caf50; stroke-width: 2; }
+      .error-box { fill: #fadbd8; stroke: #e74c3c; stroke-width: 2; }
+      .warning-box { fill: #fff3e0; stroke: #ff9800; stroke-width: 2; }
+      .info-box { fill: #e3f2fd; stroke: #2196f3; stroke-width: 2; }
+      .output-box { fill: #d5f4e6; stroke: #27ae60; stroke-width: 3; }
+      .arrow { stroke: #2c3e50; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .flow-arrow { stroke: #3498db; stroke-width: 2.5; fill: none; marker-end: url(#flow-arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#2c3e50" />
+    </marker>
+    <marker id="flow-arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#3498db" />
+    </marker>
+  </defs>
+
+  <!-- Input SQL Query -->
+  <rect x="500" y="50" width="300" height="80" class="input-box" rx="8" />
+  <text x="650" y="75" text-anchor="middle" class="label" font-weight="bold" font-size="15px">📥 Input: SQL Query</text>
+  <text x="520" y="100" text-anchor="start" class="small-text">Parsed SQL statement (AST)</text>
+  <text x="520" y="118" text-anchor="start" class="small-text">Analyzed for code quality issues</text>
+
+  <!-- Arrow to rule-based detection -->
+  <path d="M 650 130 L 650 170" class="flow-arrow" />
+
+  <!-- Stage 1: Rule-Based Detection Engine -->
+  <rect x="250" y="170" width="800" height="90" class="step-box" rx="8" />
+  <text x="650" y="195" text-anchor="middle" class="label" font-weight="bold" font-size="15px">🔍 Stage 1: Rule-Based Detection Engine</text>
+  <text x="270" y="220" text-anchor="start" class="small-text">• 14 independent detection rules traverse AST in parallel</text>
+  <text x="270" y="238" text-anchor="start" class="small-text">• Each rule identifies specific antipattern through structural analysis</text>
+  <text x="270" y="256" text-anchor="start" class="small-text">• Detection operates on abstract syntax tree nodes (SELECT, WHERE, JOIN, etc.)</text>
+
+  <!-- Arrow to categories -->
+  <path d="M 650 260 L 650 300" class="flow-arrow" />
+
+  <!-- Stage 2: Three Severity Categories -->
+  <rect x="50" y="300" width="1200" height="280" class="process-box" rx="8" />
+  <text x="650" y="325" text-anchor="middle" class="label" font-weight="bold" font-size="15px">🎯 Stage 2: Pattern Classification by Severity</text>
+  
+  <!-- Error Severity -->
+  <g>
+    <rect x="70" y="345" width="350" height="220" class="error-box" rx="5" />
+    <text x="245" y="370" text-anchor="middle" class="label" font-weight="bold" fill="#e74c3c">🔴 Critical (Error Severity)</text>
+    <text x="90" y="395" text-anchor="start" class="small-text" font-weight="bold">Impact: Data safety violations</text>
+    <text x="90" y="415" text-anchor="start" class="tiny-text">• unsafe_update: UPDATE without WHERE</text>
+    <text x="100" y="432" text-anchor="start" class="tiny-text" font-style="italic">Modifies all table rows</text>
+    <text x="90" y="455" text-anchor="start" class="tiny-text">• unsafe_delete: DELETE without WHERE</text>
+    <text x="100" y="472" text-anchor="start" class="tiny-text" font-style="italic">Removes all table rows</text>
+    <text x="90" y="495" text-anchor="start" class="small-text" font-weight="bold">Penalty: -20 points per occurrence</text>
+    <text x="90" y="515" text-anchor="start" class="tiny-text">These patterns represent catastrophic</text>
+    <text x="90" y="530" text-anchor="start" class="tiny-text">errors that could destroy data integrity</text>
+    <text x="90" y="545" text-anchor="start" class="tiny-text">and require immediate correction</text>
+  </g>
+
+  <!-- Warning Severity -->
+  <g>
+    <rect x="440" y="345" width="380" height="220" class="warning-box" rx="5" />
+    <text x="630" y="370" text-anchor="middle" class="label" font-weight="bold" fill="#ff9800">🟡 Significant (Warning Severity)</text>
+    <text x="460" y="395" text-anchor="start" class="small-text" font-weight="bold">Impact: Performance, maintainability, correctness</text>
+    <text x="460" y="415" text-anchor="start" class="tiny-text">• select_star: SELECT * usage</text>
+    <text x="460" y="432" text-anchor="start" class="tiny-text">• implicit_join: Comma-separated tables</text>
+    <text x="460" y="449" text-anchor="start" class="tiny-text">• function_in_where: Column functions in WHERE</text>
+    <text x="460" y="466" text-anchor="start" class="tiny-text">• leading_wildcard_like: LIKE '%pattern'</text>
+    <text x="460" y="483" text-anchor="start" class="tiny-text">• not_in_nullable: NOT IN with subquery</text>
+    <text x="460" y="500" text-anchor="start" class="tiny-text">• too_many_joins: 5+ JOIN operations</text>
+    <text x="460" y="517" text-anchor="start" class="tiny-text">• distinct_overuse: DISTINCT on 5+ columns</text>
+    <text x="460" y="537" text-anchor="start" class="small-text" font-weight="bold">Penalty: -10 points per occurrence</text>
+  </g>
+
+  <!-- Info Severity -->
+  <g>
+    <rect x="840" y="345" width="410" height="220" class="info-box" rx="5" />
+    <text x="1045" y="370" text-anchor="middle" class="label" font-weight="bold" fill="#2196f3">🔵 Advisory (Info Severity)</text>
+    <text x="860" y="395" text-anchor="start" class="small-text" font-weight="bold">Impact: Optimization opportunities</text>
+    <text x="860" y="415" text-anchor="start" class="tiny-text">• correlated_subquery: N+1 query pattern</text>
+    <text x="860" y="432" text-anchor="start" class="tiny-text">• unbounded_query: Missing LIMIT clause</text>
+    <text x="860" y="449" text-anchor="start" class="tiny-text">• redundant_distinct: DISTINCT with GROUP BY</text>
+    <text x="860" y="466" text-anchor="start" class="tiny-text">• select_in_exists: Unnecessary columns in EXISTS</text>
+    <text x="860" y="483" text-anchor="start" class="tiny-text">• union_instead_of_union_all: UNION vs ALL</text>
+    <text x="860" y="500" text-anchor="start" class="tiny-text">• complex_or_conditions: 3+ OR predicates</text>
+    <text x="860" y="520" text-anchor="start" class="small-text" font-weight="bold">Penalty: -3 points per occurrence</text>
+    <text x="860" y="537" text-anchor="start" class="tiny-text">Suggestions for performance improvement</text>
+    <text x="860" y="552" text-anchor="start" class="tiny-text">May be acceptable in specific contexts</text>
+  </g>
+
+  <!-- Arrow to scoring -->
+  <path d="M 650 580 L 650 620" class="flow-arrow" />
+
+  <!-- Stage 3: Quality Scoring -->
+  <rect x="350" y="620" width="600" height="110" class="step-box" rx="8" />
+  <text x="650" y="645" text-anchor="middle" class="label" font-weight="bold" font-size="15px">📊 Stage 3: Quality Score Computation</text>
+  <text x="370" y="670" text-anchor="start" class="small-text">Weighted scoring algorithm: Score = 100 - (20×errors + 10×warnings + 3×info)</text>
+  <text x="370" y="690" text-anchor="start" class="small-text">• Zero antipatterns → 100 (perfect quality)</text>
+  <text x="370" y="708" text-anchor="start" class="small-text">• Multiple critical issues → 0 (unacceptable quality)</text>
+
+  <!-- Arrow to classification -->
+  <path d="M 650 730 L 650 770" class="flow-arrow" />
+
+  <!-- Stage 4: Quality Classification -->
+  <rect x="150" y="770" width="1000" height="90" class="process-box" rx="8" />
+  <text x="650" y="795" text-anchor="middle" class="label" font-weight="bold" font-size="15px">🎯 Stage 4: Quality Level Classification</text>
+  
+  <g>
+    <rect x="170" y="810" width="220" height="35" fill="#d5f4e6" stroke="#27ae60" stroke-width="2" rx="5" />
+    <text x="280" y="833" text-anchor="middle" class="small-text" font-weight="bold">Excellent (90-100)</text>
+  </g>
+
+  <g>
+    <rect x="410" y="810" width="220" height="35" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="5" />
+    <text x="520" y="833" text-anchor="middle" class="small-text" font-weight="bold">Good (70-89)</text>
+  </g>
+
+  <g>
+    <rect x="650" y="810" width="220" height="35" fill="#fff3e0" stroke="#ff9800" stroke-width="2" rx="5" />
+    <text x="760" y="833" text-anchor="middle" class="small-text" font-weight="bold">Fair (50-69)</text>
+  </g>
+
+  <g>
+    <rect x="890" y="810" width="220" height="35" fill="#fadbd8" stroke="#e74c3c" stroke-width="2" rx="5" />
+    <text x="1000" y="833" text-anchor="middle" class="small-text" font-weight="bold">Poor (0-49)</text>
+  </g>
+
+  <!-- Arrow to output -->
+  <path d="M 650 860 L 650 890" class="flow-arrow" />
+
+  <!-- Output -->
+  <rect x="400" y="890" width="500" height="50" class="output-box" rx="8" />
+  <text x="650" y="920" text-anchor="middle" class="small-text" font-weight="bold">📤 Output: Quality metrics, antipattern list, severity counts, score, level</text>
+
+</svg>
+
