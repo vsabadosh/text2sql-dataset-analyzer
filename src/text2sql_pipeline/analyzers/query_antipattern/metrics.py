@@ -8,7 +8,7 @@ from text2sql_pipeline.core.metric import MetricEvent
 class AntipatternInstance(BaseModel):
     """Single antipattern detection instance."""
     pattern: str                    # antipattern identifier (e.g., "select_star")
-    severity: str                   # "info" | "warning" | "error"
+    severity: str                   # "critical" | "error" | "warning" | "info"
     message: str                    # human-readable description
     location: str = ""              # optional: query location hint
 
@@ -24,31 +24,38 @@ class QueryAntipatternFeatures(BaseModel):
     # ---- Parse status ----
     parseable: bool = True
     
-    # ---- Antipattern counts by severity ----
+    # ---- Antipattern counts ----
+    # NOTE: Severity counts are calculated dynamically from 'antipatterns' JSON field
+    #       to support any custom severity levels (critical, high, medium, blocker, p0, etc.)
     total_antipatterns: int = 0
-    info_count: int = 0           # informational notices
-    warning_count: int = 0        # potential issues
-    error_count: int = 0          # serious problems
     
     # ---- Detected antipatterns (detailed list) ----
     antipatterns: List[AntipatternInstance] = Field(default_factory=list)
     
     # ---- Quick boolean flags for common antipatterns ----
-    has_select_star: bool = False              # SELECT *
-    has_implicit_join: bool = False            # comma-separated tables without explicit JOIN
-    has_select_distinct_overuse: bool = False  # DISTINCT with many columns
-    has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)
-    has_leading_wildcard_like: bool = False    # LIKE '%...' (prevents index use)
-    has_not_in_nullable: bool = False          # NOT IN with potentially nullable subquery
-    has_correlated_subquery: bool = False      # correlated subquery (performance risk)
-    has_unbounded_query: bool = False          # no LIMIT on SELECT
+    # Critical severity
     has_unsafe_update_delete: bool = False     # UPDATE/DELETE without WHERE
-    has_too_many_joins: bool = False           # 5+ JOINs (complexity smell)
+    has_null_comparison_equals: bool = False   # = NULL instead of IS NULL
+    has_cartesian_product: bool = False        # missing JOIN conditions
+    has_missing_group_by: bool = False         # aggregates without GROUP BY
+    has_having_without_group_by: bool = False  # HAVING without GROUP BY
+    
+    # High severity
+    has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)
+    has_not_in_nullable: bool = False          # NOT IN with potentially nullable subquery
+    has_leading_wildcard_like: bool = False    # LIKE '%...' (prevents index use)
+    has_implicit_join: bool = False            # comma-separated tables without explicit JOIN
+    
+    # Medium severity (configurable per dialect)
     has_redundant_distinct: bool = False       # DISTINCT with GROUP BY
-    has_select_in_exists: bool = False         # SELECT * or column in EXISTS (unnecessary)
     has_union_instead_of_union_all: bool = False  # UNION when UNION ALL might be sufficient
-    has_complex_or_conditions: bool = False    # multiple OR conditions (index inefficiency)
-    # Note: has_implicit_type_conversion removed - not implemented yet
+    has_correlated_subquery: bool = False      # correlated subquery
+    has_too_many_joins: bool = False           # 5+ JOINs
+    has_select_distinct_overuse: bool = False  # DISTINCT with many columns
+    has_complex_or_conditions: bool = False    # multiple OR conditions
+    has_select_star: bool = False              # SELECT *
+    has_unbounded_query: bool = False          # no LIMIT on SELECT
+    has_select_in_exists: bool = False         # SELECT * or column in EXISTS
     
     # ---- Quality score ----
     quality_score: int = 100       # 100 (perfect) down to 0 (many serious issues)

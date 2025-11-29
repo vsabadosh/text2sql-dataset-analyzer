@@ -3,6 +3,7 @@ from typing import Iterable, Iterator
 import time
 
 from text2sql_pipeline.analyzers.query_antipattern.antipattern_detector import detect_antipatterns
+from text2sql_pipeline.analyzers.query_antipattern.antipattern_registry import select_config_for_dialect
 from text2sql_pipeline.core.contracts import AnnotatingAnalyzer, MetricsSink
 from text2sql_pipeline.core.utils import has_previous_failure
 from text2sql_pipeline.db.manager import DbManager
@@ -44,9 +45,13 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
     name = "query_antipattern_analyzer"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
 
-    def __init__(self, db_manager: DbManager, enabled: bool) -> None:
+    def __init__(self, db_manager: DbManager, enabled: bool, antipatterns: dict = None) -> None:
         self.db_dialect = db_manager.get_sqlglot_dialect()
         self.enabled = enabled
+        
+        # Use helper function to select config for dialect
+        # This keeps the analyzer itself dialect-agnostic - it just uses a helper
+        self.antipattern_config = select_config_for_dialect(antipatterns, self.db_dialect)
 
     # --------------------------- public API ---------------------------
 
@@ -146,7 +151,12 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             return features, stats, tags, False, "Empty or null SQL"
         
         try:
-            features = detect_antipatterns(item.sql, self.db_dialect)
+            # Pass antipattern configuration to detector
+            features = detect_antipatterns(
+                item.sql, 
+                self.db_dialect,
+                config=self.antipattern_config
+            )
             ok = features.parseable
             return features, stats, tags, ok, None if ok else "Unparseable SQL"
         except Exception as e:

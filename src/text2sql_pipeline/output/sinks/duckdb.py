@@ -283,27 +283,50 @@ class DuckDBMetricsSink(MetricsSink):
             
             -- Features (antipattern specific)
             parseable BOOLEAN,
-            has_select_star BOOLEAN,
-            has_implicit_join BOOLEAN,
+            
+            -- Critical severity
+            has_unsafe_update_delete BOOLEAN,
+            has_null_comparison_equals BOOLEAN,
+            has_cartesian_product BOOLEAN,
+            has_missing_group_by BOOLEAN,
+            has_having_without_group_by BOOLEAN,
+            
+            -- High severity
             has_function_in_where BOOLEAN,
+            has_not_in_nullable BOOLEAN,
             has_leading_wildcard_like BOOLEAN,
-            has_not_in_subquery BOOLEAN,
+            has_implicit_join BOOLEAN,
+            
+            -- Medium severity
+            has_redundant_distinct BOOLEAN,
+            has_union_instead_of_union_all BOOLEAN,
             has_correlated_subquery BOOLEAN,
+            
+            -- Optional
+            has_too_many_joins BOOLEAN,
+            has_select_distinct_overuse BOOLEAN,
+            has_complex_or_conditions BOOLEAN,
+            
+            -- Disabled for Text2SQL
+            has_select_star BOOLEAN,
             has_unbounded_query BOOLEAN,
-            has_unsafe_mutation BOOLEAN,
-            has_excessive_joins BOOLEAN,
-            has_distinct_overuse BOOLEAN,
+            has_select_in_exists BOOLEAN,
+            
+            -- Counts
+            -- NOTE: Severity counts are calculated dynamically from 'antipatterns' JSON column
             total_antipatterns INTEGER,
             quality_score DOUBLE,
             quality_level VARCHAR,
             
-            -- Detailed detections (stored as JSON)
-            detections JSON,
+            -- Detailed antipatterns (stored as JSON)
+            antipatterns JSON,
             
             -- Stats
             collect_ms DOUBLE,
+            parser VARCHAR,
             dialect VARCHAR,
             errors JSON,
+            warnings JSON,
             
             -- Tags
             tags_dialect VARCHAR,
@@ -645,38 +668,62 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?,
-                    ?, ?
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
                 )
             """, [
+                # Metadata
                 rec.get("ts"),
                 rec.get("spec_version"),
                 rec.get("dataset_id"),
                 rec.get("item_id"),
                 rec.get("db_id"),
+                # Event identity
                 rec.get("event_type"),
                 rec.get("name"),
+                # Status
                 rec.get("status"),
                 rec.get("success"),
                 rec.get("duration_ms"),
                 rec.get("err"),
+                # Features
                 features.get("parseable"),
-                features.get("has_select_star"),
-                features.get("has_implicit_join"),
+                # Critical
+                features.get("has_unsafe_update_delete"),
+                features.get("has_null_comparison_equals"),
+                features.get("has_cartesian_product"),
+                features.get("has_missing_group_by"),
+                features.get("has_having_without_group_by"),
+                # High
                 features.get("has_function_in_where"),
+                features.get("has_not_in_nullable"),
                 features.get("has_leading_wildcard_like"),
-                features.get("has_not_in_subquery"),
+                features.get("has_implicit_join"),
+                # Medium
+                features.get("has_redundant_distinct"),
+                features.get("has_union_instead_of_union_all"),
                 features.get("has_correlated_subquery"),
+                # Optional
+                features.get("has_too_many_joins"),
+                features.get("has_select_distinct_overuse"),
+                features.get("has_complex_or_conditions"),
+                # Disabled
+                features.get("has_select_star"),
                 features.get("has_unbounded_query"),
-                features.get("has_unsafe_mutation"),
-                features.get("has_excessive_joins"),
-                features.get("has_distinct_overuse"),
+                features.get("has_select_in_exists"),
+                # Counts
                 features.get("total_antipatterns"),
                 features.get("quality_score"),
                 features.get("quality_level"),
-                json.dumps(features.get("detections", [])),
+                # Details
+                json.dumps(features.get("antipatterns", [])),
+                # Stats
                 stats.get("collect_ms"),
+                stats.get("parser"),
                 stats.get("dialect"),
                 json.dumps(stats.get("errors", [])),
+                json.dumps(stats.get("warnings", [])),
+                # Tags
                 tags.get("dialect")
             ])
     

@@ -56,8 +56,8 @@ class TestSelectStarAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_select_star is True
-        assert result.warning_count >= 1
-        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "select_star" and ap.severity == "medium" for ap in result.antipatterns)
 
     def test_select_star_with_join(self):
         """Test SELECT * with joins is detected."""
@@ -113,8 +113,8 @@ class TestFunctionInWhereAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_function_in_where is True
-        assert result.warning_count >= 1
-        assert any(ap.pattern == "function_in_where" for ap in result.antipatterns)
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "function_in_where" and ap.severity == "high" for ap in result.antipatterns)
 
     def test_function_on_literal_not_flagged(self):
         """Test that function on literal value is not flagged."""
@@ -142,8 +142,8 @@ class TestLeadingWildcardLikeAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_leading_wildcard_like is True
-        assert result.warning_count >= 1
-        assert any(ap.pattern == "leading_wildcard_like" for ap in result.antipatterns)
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "leading_wildcard_like" and ap.severity == "high" for ap in result.antipatterns)
 
     def test_leading_underscore_detected(self):
         """Test that LIKE with leading _ is detected."""
@@ -176,8 +176,8 @@ class TestNotInNullableAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_not_in_nullable is True
-        assert result.warning_count >= 1
-        assert any(ap.pattern == "not_in_nullable" for ap in result.antipatterns)
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "not_in_nullable" and ap.severity == "high" for ap in result.antipatterns)
 
     def test_not_in_list_not_flagged(self):
         """Test that NOT IN with literal list is not flagged."""
@@ -226,7 +226,7 @@ class TestUnboundedQueryAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_unbounded_query is True
-        assert result.info_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "unbounded_query" for ap in result.antipatterns)
 
     def test_select_with_limit_not_flagged(self):
@@ -235,6 +235,118 @@ class TestUnboundedQueryAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_unbounded_query is False
+
+
+class TestNullComparisonEqualsAntipattern:
+    """Test = NULL / != NULL antipattern detection."""
+
+    def test_equals_null_detected(self):
+        """Test that = NULL is detected."""
+        sql = "SELECT * FROM users WHERE status = NULL"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_null_comparison_equals is True
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+        assert any(ap.severity == "critical" for ap in result.antipatterns)
+
+    def test_not_equals_null_detected(self):
+        """Test that != NULL is detected."""
+        sql = "SELECT * FROM users WHERE status != NULL"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_null_comparison_equals is True
+        assert result.total_antipatterns >= 1
+
+    def test_is_null_not_flagged(self):
+        """Test that IS NULL is not flagged."""
+        sql = "SELECT * FROM users WHERE status IS NULL"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_null_comparison_equals is False
+
+    def test_is_not_null_not_flagged(self):
+        """Test that IS NOT NULL is not flagged."""
+        sql = "SELECT * FROM users WHERE status IS NOT NULL"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_null_comparison_equals is False
+
+
+class TestCartesianProductAntipattern:
+    """Test Cartesian product antipattern detection."""
+
+    def test_cartesian_detected(self):
+        """Test that Cartesian product is detected."""
+        sql = "SELECT * FROM users, orders WHERE users.status = 'active'"
+        result = detect_antipatterns(sql)
+        
+        # Should detect Cartesian product (no join condition between tables)
+        assert result.has_cartesian_product is True
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
+
+    def test_explicit_join_not_flagged(self):
+        """Test that explicit JOIN is not flagged."""
+        sql = "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_cartesian_product is False
+
+    def test_where_join_condition_not_flagged(self):
+        """Test that comma-join with WHERE condition is not flagged."""
+        sql = "SELECT * FROM users, orders WHERE users.id = orders.user_id"
+        result = detect_antipatterns(sql)
+        
+        # Has proper join condition in WHERE, should not flag
+        assert result.has_cartesian_product is False
+
+
+class TestMissingGroupByAntipattern:
+    """Test missing GROUP BY antipattern detection."""
+
+    def test_aggregate_without_group_by_detected(self):
+        """Test that aggregates with non-aggregated columns without GROUP BY are detected."""
+        sql = "SELECT user_id, COUNT(*) FROM orders"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is True
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)
+
+    def test_aggregate_with_group_by_not_flagged(self):
+        """Test that proper GROUP BY is not flagged."""
+        sql = "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+
+    def test_only_aggregates_not_flagged(self):
+        """Test that queries with only aggregates are not flagged."""
+        sql = "SELECT COUNT(*), SUM(total) FROM orders"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+
+
+class TestHavingWithoutGroupByAntipattern:
+    """Test HAVING without GROUP BY antipattern detection."""
+
+    def test_having_without_group_by_detected(self):
+        """Test that HAVING without GROUP BY is detected."""
+        sql = "SELECT COUNT(*) FROM orders HAVING COUNT(*) > 5"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_having_without_group_by is True
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "having_without_group_by" for ap in result.antipatterns)
+
+    def test_having_with_group_by_not_flagged(self):
+        """Test that HAVING with GROUP BY is not flagged."""
+        sql = "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id HAVING COUNT(*) > 5"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_having_without_group_by is False
 
 
 class TestUnsafeUpdateDeleteAntipattern:
@@ -246,9 +358,9 @@ class TestUnsafeUpdateDeleteAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_unsafe_update_delete is True
-        assert result.error_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "unsafe_delete" for ap in result.antipatterns)
-        assert any(ap.severity == "error" for ap in result.antipatterns)
+        assert any(ap.severity == "critical" for ap in result.antipatterns)
 
     def test_update_without_where_detected(self):
         """Test that UPDATE without WHERE is detected."""
@@ -256,7 +368,7 @@ class TestUnsafeUpdateDeleteAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_unsafe_update_delete is True
-        assert result.error_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "unsafe_update" for ap in result.antipatterns)
 
     def test_delete_with_where_not_flagged(self):
@@ -290,7 +402,7 @@ class TestTooManyJoinsAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_too_many_joins is True
-        assert result.warning_count >= 1
+        assert result.total_antipatterns >= 1  # too_many_joins is medium severity
         assert any(ap.pattern == "too_many_joins" for ap in result.antipatterns)
 
     def test_few_joins_not_flagged(self):
@@ -314,7 +426,7 @@ class TestRedundantDistinctAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_redundant_distinct is True
-        assert result.info_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
 
     def test_distinct_without_group_by_not_flagged(self):
@@ -341,7 +453,7 @@ class TestSelectInExistsAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_select_in_exists is True
-        assert result.info_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "select_in_exists" for ap in result.antipatterns)
 
     def test_select_column_in_exists_detected(self):
@@ -361,7 +473,7 @@ class TestUnionInsteadOfUnionAllAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_union_instead_of_union_all is True
-        assert result.info_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "union_instead_of_union_all" for ap in result.antipatterns)
 
     def test_union_all_not_flagged(self):
@@ -387,7 +499,7 @@ class TestComplexOrConditionsAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_complex_or_conditions is True
-        assert result.info_count >= 1
+        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "complex_or_conditions" for ap in result.antipatterns)
 
     def test_few_or_not_flagged(self):
@@ -407,7 +519,7 @@ class TestDistinctOveruseAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_select_distinct_overuse is True
-        assert result.warning_count >= 1
+        assert result.total_antipatterns >= 1  # distinct_overuse is medium severity
         assert any(ap.pattern == "distinct_overuse" for ap in result.antipatterns)
 
     def test_distinct_with_few_columns_not_flagged(self):
@@ -429,23 +541,23 @@ class TestQualityScoring:
         assert result.quality_score == 100
         assert result.quality_level == "excellent"
 
-    def test_one_error_major_penalty(self):
-        """Test that one error significantly reduces score."""
+    def test_one_critical_major_penalty(self):
+        """Test that one critical error significantly reduces score."""
         sql = "DELETE FROM users"
         result = detect_antipatterns(sql)
         
-        # Error: -20 points, unbounded: -3 points = 77
-        assert result.error_count == 1
-        assert result.quality_score <= 80
+        # Critical: -30 points minimum
+        assert result.total_antipatterns >= 1
+        assert result.quality_score <= 70
 
     def test_one_warning_moderate_penalty(self):
         """Test that one warning moderately reduces score."""
         sql = "SELECT * FROM users LIMIT 10"
         result = detect_antipatterns(sql)
         
-        # Warning: -10 points = 90
-        assert result.warning_count >= 1
-        assert 85 <= result.quality_score <= 95
+        # SELECT * is medium: -5 points = 95
+        assert result.total_antipatterns >= 1
+        assert result.quality_score == 95
 
     def test_multiple_issues_compound(self):
         """Test that multiple issues compound."""
@@ -610,7 +722,7 @@ class TestAntipatternDetails:
         
         assert len(result.antipatterns) >= 1
         for ap in result.antipatterns:
-            assert ap.severity in ["info", "warning", "error"]
+            assert ap.severity in ["critical", "error", "warning", "info"]
 
     def test_antipattern_has_message(self):
         """Test that antipattern has human-readable message."""
@@ -634,42 +746,53 @@ class TestAntipatternDetails:
 
 
 class TestSeverityCounts:
-    """Test severity counting."""
+    """Test severity counting (from JSON antipatterns field)."""
 
-    def test_error_count_correct(self):
-        """Test that error count is accurate."""
+    def test_critical_severity_in_json(self):
+        """Test that critical severity antipatterns are in JSON."""
         sql = "DELETE FROM users"
         result = detect_antipatterns(sql)
         
-        error_antipatterns = [ap for ap in result.antipatterns if ap.severity == "error"]
-        assert result.error_count == len(error_antipatterns)
-        assert result.error_count >= 1
+        critical_antipatterns = [ap for ap in result.antipatterns if ap.severity == "critical"]
+        assert len(critical_antipatterns) >= 1
+        assert result.total_antipatterns >= 1
 
-    def test_warning_count_correct(self):
-        """Test that warning count is accurate."""
+    def test_high_severity_in_json(self):
+        """Test that high severity antipatterns are in JSON."""
         sql = "SELECT * FROM users WHERE UPPER(name) = 'JOHN'"
         result = detect_antipatterns(sql)
         
-        warning_antipatterns = [ap for ap in result.antipatterns if ap.severity == "warning"]
-        assert result.warning_count == len(warning_antipatterns)
+        high_antipatterns = [ap for ap in result.antipatterns if ap.severity == "high"]
+        assert len(high_antipatterns) >= 1
 
-    def test_info_count_correct(self):
-        """Test that info count is accurate."""
+    def test_medium_severity_in_json(self):
+        """Test that medium severity antipatterns are in JSON."""
         sql = "SELECT id FROM users UNION SELECT id FROM admins"
         result = detect_antipatterns(sql)
         
-        info_antipatterns = [ap for ap in result.antipatterns if ap.severity == "info"]
-        assert result.info_count == len(info_antipatterns)
+        medium_antipatterns = [ap for ap in result.antipatterns if ap.severity == "medium"]
+        assert len(medium_antipatterns) >= 1
 
-    def test_total_count_correct(self):
-        """Test that total count matches sum of severities."""
+    def test_total_count_matches_json(self):
+        """Test that total count matches antipatterns JSON array length."""
         sql = "SELECT * FROM users WHERE UPPER(name) LIKE '%john%'"
         result = detect_antipatterns(sql)
         
         assert result.total_antipatterns == len(result.antipatterns)
-        assert result.total_antipatterns == (
-            result.error_count + result.warning_count + result.info_count
-        )
+        assert result.total_antipatterns >= 1
+    
+    def test_custom_severity_in_json(self):
+        """Test that custom severity levels work in JSON."""
+        custom_config = {
+            'blocker': ['unsafe_update_delete'],
+            'p0': ['function_in_where']
+        }
+        sql = "DELETE FROM users"
+        result = detect_antipatterns(sql, config=custom_config)
+        
+        blocker_antipatterns = [ap for ap in result.antipatterns if ap.severity == "blocker"]
+        assert len(blocker_antipatterns) >= 1
+        assert result.total_antipatterns == len(result.antipatterns)
 
 
 class TestEdgeCases:
@@ -897,6 +1020,67 @@ class TestImprovedDetections:
         # Note: This depends on improved heuristic recognizing table references
         # May or may not flag depending on implementation
         assert result.parseable is True
+
+
+class TestAntipatternConfiguration:
+    """Test antipattern configuration and dialect-specific detection."""
+
+    def test_patterns_not_in_config_not_detected(self):
+        """Test that patterns not in config are not detected."""
+        # Config that doesn't include select_star
+        config = {
+            "critical": [],
+            "high": [],
+            "medium": []
+        }
+        
+        sql = "SELECT * FROM users"
+        result = detect_antipatterns(sql, dialect="sqlite", config=config)
+        
+        # Should not detect anything
+        assert result.has_select_star is False
+        assert result.has_unbounded_query is False
+        assert result.total_antipatterns == 0
+
+    def test_enabled_patterns_detected(self):
+        """Test that enabled patterns are detected."""
+        # Config that enables only unsafe_update_delete
+        config = {
+            "critical": ["unsafe_update_delete"],
+            "high": [],
+            "medium": []
+        }
+        
+        sql = "DELETE FROM users"
+        result = detect_antipatterns(sql, dialect="sqlite", config=config)
+        
+        # Should detect unsafe_update_delete
+        assert result.has_unsafe_update_delete is True
+        assert result.total_antipatterns >= 1
+
+    def test_default_config_used_when_none(self):
+        """Test that default config is used when None is provided."""
+        sql = "SELECT * FROM users WHERE status = NULL"
+        result = detect_antipatterns(sql, dialect="sqlite", config=None)
+        
+        # Should use default config and detect null_comparison_equals
+        assert result.has_null_comparison_equals is True
+
+    def test_mixed_severity_config(self):
+        """Test configuration with mixed severity levels."""
+        config = {
+            "critical": ["null_comparison_equals"],
+            "high": ["function_in_where"],
+            "medium": ["redundant_distinct"]
+        }
+        
+        sql = "SELECT * FROM users WHERE status = NULL"
+        result = detect_antipatterns(sql, dialect="sqlite", config=config)
+        
+        # Should detect null_comparison_equals
+        assert result.has_null_comparison_equals is True
+        # Should not detect select_star (not in config)
+        assert result.has_select_star is False
 
 
 if __name__ == "__main__":

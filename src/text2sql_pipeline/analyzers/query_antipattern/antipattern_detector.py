@@ -2,34 +2,77 @@
 Core antipattern detection logic using sqlglot AST analysis.
 
 This module detects common SQL antipatterns and code smells:
-- SELECT * (maintainability, performance)
-- Implicit JOINs (readability, correctness)
-- Functions in WHERE clause on columns (index prevention)
-- Leading wildcard LIKE (index prevention)
+- Unsafe UPDATE/DELETE (no WHERE) - data safety
+- = NULL comparison (correctness)
+- Cartesian product (missing JOIN) - correctness
+- Missing GROUP BY (correctness)
+- HAVING without GROUP BY (correctness)
+- Functions in WHERE clause (index prevention)
 - NOT IN with nullable columns (correctness)
+- Leading wildcard LIKE (index prevention)
+- Implicit JOINs (readability, correctness)
+- Redundant DISTINCT with GROUP BY (performance)
+- UNION instead of UNION ALL (performance)
 - Correlated subqueries (performance)
-- Unbounded SELECT queries (resource exhaustion)
-- UPDATE/DELETE without WHERE (data safety)
 - Too many JOINs (complexity)
 - DISTINCT overuse (performance, design smell)
-- Other SQL code smells
+- Complex OR conditions (index inefficiency)
+- SELECT * (maintainability, performance)
+- Unbounded SELECT queries (resource exhaustion)
+- SELECT columns in EXISTS (cosmetic)
 """
 
 from __future__ import annotations
-from typing import Optional, List
+from typing import Optional, List, Dict, Set
 import sqlglot
 from sqlglot import exp
 
 from .metrics import QueryAntipatternFeatures, AntipatternInstance
+from .antipattern_registry import AntipatternPattern
+
+# Default antipattern configuration (enables all antipatterns for backwards compatibility)
+# In production, use dialect-specific configs from pipeline.yaml
+DEFAULT_CONFIG = {
+    "critical": [
+        AntipatternPattern.UNSAFE_UPDATE_DELETE,  # Combined pattern for both UPDATE and DELETE
+        AntipatternPattern.NULL_COMPARISON_EQUALS,
+        AntipatternPattern.CARTESIAN_PRODUCT,
+        AntipatternPattern.MISSING_GROUP_BY,
+        AntipatternPattern.HAVING_WITHOUT_GROUP_BY,
+    ],
+    "high": [
+        AntipatternPattern.FUNCTION_IN_WHERE,
+        AntipatternPattern.NOT_IN_NULLABLE,
+        AntipatternPattern.LEADING_WILDCARD_LIKE,
+        AntipatternPattern.IMPLICIT_JOIN,
+    ],
+    "medium": [
+        AntipatternPattern.REDUNDANT_DISTINCT,
+        AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL,
+        AntipatternPattern.CORRELATED_SUBQUERY,
+        AntipatternPattern.TOO_MANY_JOINS,
+        AntipatternPattern.DISTINCT_OVERUSE,
+        AntipatternPattern.COMPLEX_OR_CONDITIONS,
+        AntipatternPattern.SELECT_STAR,
+        AntipatternPattern.UNBOUNDED_QUERY,
+        AntipatternPattern.SELECT_IN_EXISTS,
+    ]
+}
 
 
-def detect_antipatterns(sql: str, dialect: Optional[str] = "sqlite") -> QueryAntipatternFeatures:
+def detect_antipatterns(
+    sql: str, 
+    dialect: Optional[str] = "sqlite",
+    config: Optional[Dict[str, List[str]]] = None
+) -> QueryAntipatternFeatures:
     """
     Pure public API for antipattern detection.
     
     Args:
         sql: SQL query string to analyze
         dialect: SQL dialect for parsing (default: sqlite)
+        config: Antipattern configuration dict with keys: critical, high, medium, optional, disabled
+                If None, uses DEFAULT_CONFIG
         
     Returns:
         QueryAntipatternFeatures with detected antipatterns
@@ -42,37 +85,81 @@ def detect_antipatterns(sql: str, dialect: Optional[str] = "sqlite") -> QueryAnt
     except Exception:
         return QueryAntipatternFeatures(parseable=False, quality_score=0, quality_level="poor")
     
-    return _analyze_ast(ast)
+    # Use default config if none provided
+    if config is None:
+        config = DEFAULT_CONFIG
+    
+    # Build set of enabled antipatterns and pattern→severity mapping
+    # Iterate through all severity levels in config (don't hardcode them)
+    enabled_patterns = set()
+    pattern_severity_map = {}
+    
+    for severity_level, patterns in config.items():
+        # Each key in config is a severity level, value is list of patterns
+        if isinstance(patterns, list):
+            for pattern in patterns:
+                enabled_patterns.add(pattern)
+                pattern_severity_map[pattern] = severity_level
+    
+    return _analyze_ast(ast, enabled_patterns, pattern_severity_map)
 
 
-def _analyze_ast(ast: exp.Expression) -> QueryAntipatternFeatures:
-    """Analyze parsed AST and detect antipatterns."""
+def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severity_map: Dict[str, str]) -> QueryAntipatternFeatures:
+    """
+    Analyze parsed AST and detect antipatterns.
+    
+    Args:
+        ast: Parsed SQL AST
+        enabled_patterns: Set of enabled pattern names
+        pattern_severity_map: Mapping of pattern name to severity level
+    """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
     
-    # Run all detection rules
-    _detect_select_star(ast, antipatterns, features)
-    _detect_implicit_join(ast, antipatterns, features)
-    _detect_function_in_where(ast, antipatterns, features)
-    _detect_leading_wildcard_like(ast, antipatterns, features)
-    _detect_not_in_nullable(ast, antipatterns, features)
-    _detect_correlated_subquery(ast, antipatterns, features)
-    _detect_unbounded_query(ast, antipatterns, features)
-    _detect_unsafe_update_delete(ast, antipatterns, features)
-    _detect_too_many_joins(ast, antipatterns, features)
-    _detect_redundant_distinct(ast, antipatterns, features)
-    _detect_select_in_exists(ast, antipatterns, features)
-    _detect_union_instead_of_union_all(ast, antipatterns, features)
-    _detect_complex_or_conditions(ast, antipatterns, features)
-    _detect_distinct_overuse(ast, antipatterns, features)
+    # Run detection rules based on configuration
+    # Pass severity from config to each detector
+    if AntipatternPattern.UNSAFE_UPDATE_DELETE in enabled_patterns:
+        _detect_unsafe_update_delete(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.NULL_COMPARISON_EQUALS in enabled_patterns:
+        _detect_null_comparison_equals(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.CARTESIAN_PRODUCT in enabled_patterns:
+        _detect_cartesian_product(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.MISSING_GROUP_BY in enabled_patterns:
+        _detect_missing_group_by(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.HAVING_WITHOUT_GROUP_BY in enabled_patterns:
+        _detect_having_without_group_by(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.FUNCTION_IN_WHERE in enabled_patterns:
+        _detect_function_in_where(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.NOT_IN_NULLABLE in enabled_patterns:
+        _detect_not_in_nullable(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.LEADING_WILDCARD_LIKE in enabled_patterns:
+        _detect_leading_wildcard_like(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.IMPLICIT_JOIN in enabled_patterns:
+        _detect_implicit_join(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.REDUNDANT_DISTINCT in enabled_patterns:
+        _detect_redundant_distinct(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL in enabled_patterns:
+        _detect_union_instead_of_union_all(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.CORRELATED_SUBQUERY in enabled_patterns:
+        _detect_correlated_subquery(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.TOO_MANY_JOINS in enabled_patterns:
+        _detect_too_many_joins(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.DISTINCT_OVERUSE in enabled_patterns:
+        _detect_distinct_overuse(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.COMPLEX_OR_CONDITIONS in enabled_patterns:
+        _detect_complex_or_conditions(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.SELECT_STAR in enabled_patterns:
+        _detect_select_star(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.UNBOUNDED_QUERY in enabled_patterns:
+        _detect_unbounded_query(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.SELECT_IN_EXISTS in enabled_patterns:
+        _detect_select_in_exists(ast, antipatterns, features, pattern_severity_map)
     
     # Store all detected antipatterns
     features.antipatterns = antipatterns
     
-    # Count by severity
-    features.info_count = sum(1 for a in antipatterns if a.severity == "info")
-    features.warning_count = sum(1 for a in antipatterns if a.severity == "warning")
-    features.error_count = sum(1 for a in antipatterns if a.severity == "error")
+    # Count total antipatterns
+    # NOTE: Severity counts are calculated dynamically from JSON in reports
     features.total_antipatterns = len(antipatterns)
     
     # Calculate quality score and level
@@ -86,24 +173,207 @@ def _analyze_ast(ast: exp.Expression) -> QueryAntipatternFeatures:
 # Detection Rules
 # ============================================================================
 
-def _detect_select_star(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+    """Detect UPDATE/DELETE without WHERE clause (data safety issue)."""
+    # Get severity from config
+    base_pattern = AntipatternPattern.UNSAFE_UPDATE_DELETE.value
+    severity = severity_map.get(base_pattern, "critical")
+    
+    # Check DELETE statements
+    for delete in ast.find_all(exp.Delete):
+        where_nodes = list(delete.find_all(exp.Where))
+        if not where_nodes:
+            features.has_unsafe_update_delete = True
+            antipatterns.append(AntipatternInstance(
+                pattern=AntipatternPattern.UNSAFE_DELETE.value,
+                severity=severity,
+                message="DELETE without WHERE clause will remove all rows",
+                location="DELETE statement"
+            ))
+    
+    # Check UPDATE statements
+    for update in ast.find_all(exp.Update):
+        where_nodes = list(update.find_all(exp.Where))
+        if not where_nodes:
+            features.has_unsafe_update_delete = True
+            antipatterns.append(AntipatternInstance(
+                pattern=AntipatternPattern.UNSAFE_UPDATE.value,
+                severity=severity,
+                message="UPDATE without WHERE clause will modify all rows",
+                location="UPDATE statement"
+            ))
+
+
+def _detect_null_comparison_equals(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+    """Detect = NULL or != NULL comparisons (should use IS NULL / IS NOT NULL)."""
+    pattern = AntipatternPattern.NULL_COMPARISON_EQUALS.value
+    severity = severity_map.get(pattern, "critical")
+    
+    # Look for EQ (=) and NEQ (!=, <>) with NULL
+    for eq in ast.find_all(exp.EQ):
+        if _is_null_literal(eq.left) or _is_null_literal(eq.right):
+            features.has_null_comparison_equals = True
+            antipatterns.append(AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message="Use IS NULL instead of = NULL (= NULL always returns NULL, not true/false)",
+                location="WHERE clause"
+            ))
+            break
+    
+    if not features.has_null_comparison_equals:
+        for neq in ast.find_all(exp.NEQ):
+            if _is_null_literal(neq.left) or _is_null_literal(neq.right):
+                features.has_null_comparison_equals = True
+                antipatterns.append(AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message="Use IS NOT NULL instead of != NULL (!= NULL always returns NULL, not true/false)",
+                    location="WHERE clause"
+                ))
+                break
+
+
+def _detect_cartesian_product(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+    """Detect Cartesian products (multiple tables without proper JOIN conditions)."""
+    pattern = AntipatternPattern.CARTESIAN_PRODUCT.value
+    severity = severity_map.get(pattern, "critical")
+    
+    for select in ast.find_all(exp.Select):
+        # sqlglot converts comma-separated tables to CROSS JOINs
+        # Look for CROSS JOINs without ON conditions and without proper WHERE join conditions
+        joins = select.args.get("joins", [])
+        
+        for join in joins:
+            if not isinstance(join, exp.Join):
+                continue
+            
+            # Check if this is a CROSS JOIN (sqlglot normalizes comma-separated tables to CROSS JOIN)
+            join_kind = join.args.get("kind")
+            if join_kind and str(join_kind).upper() == "CROSS":
+                # CROSS JOIN found - check if there's a join condition in WHERE
+                where_clause = select.args.get("where")
+                
+                has_join_condition = False
+                if where_clause:
+                    # Look for equality conditions between different table columns
+                    for eq in where_clause.find_all(exp.EQ):
+                        left_table = _get_column_table(eq.left)
+                        right_table = _get_column_table(eq.right)
+                        if left_table and right_table and left_table != right_table:
+                            has_join_condition = True
+                            break
+                
+                if not has_join_condition:
+                    features.has_cartesian_product = True
+                    antipatterns.append(AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message="Cartesian product detected: comma-separated tables without JOIN conditions (results in massive row explosion)",
+                        location="FROM clause"
+                    ))
+                    break
+        
+        if features.has_cartesian_product:
+            break
+
+
+def _detect_missing_group_by(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+    """Detect aggregate functions without GROUP BY when non-aggregated columns are selected."""
+    pattern = AntipatternPattern.MISSING_GROUP_BY.value
+    severity = severity_map.get(pattern, "critical")
+    for select in ast.find_all(exp.Select):
+        # Check if there are aggregate functions
+        aggregates = list(select.find_all(exp.AggFunc))
+        if not aggregates:
+            continue
+        
+        # Check if there's a GROUP BY
+        has_group_by = select.args.get("group") is not None
+        if has_group_by:
+            continue
+        
+        # Get SELECT expressions
+        select_expressions = select.args.get("expressions", [])
+        
+        # Check if there are non-aggregate columns in SELECT
+        has_non_aggregate_column = False
+        for expr in select_expressions:
+            # Skip if this expression is itself an aggregate
+            if isinstance(expr, exp.AggFunc):
+                continue
+            
+            # Check if it contains columns that are not inside aggregates
+            columns = list(expr.find_all(exp.Column))
+            for col in columns:
+                # Check if this column is inside an aggregate function
+                parent = col.parent
+                inside_aggregate = False
+                while parent:
+                    if isinstance(parent, exp.AggFunc):
+                        inside_aggregate = True
+                        break
+                    parent = parent.parent
+                
+                if not inside_aggregate:
+                    has_non_aggregate_column = True
+                    break
+            
+            if has_non_aggregate_column:
+                break
+        
+        if has_non_aggregate_column:
+            features.has_missing_group_by = True
+            antipatterns.append(AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message="Aggregate functions with non-aggregated columns require GROUP BY (SQLite allows but returns arbitrary values)",
+                location="SELECT with aggregates"
+            ))
+            break
+
+
+def _detect_having_without_group_by(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+    """Detect HAVING clause without GROUP BY (non-standard SQL)."""
+    pattern = AntipatternPattern.HAVING_WITHOUT_GROUP_BY.value
+    severity = severity_map.get(pattern, "critical")
+    for select in ast.find_all(exp.Select):
+        has_having = select.args.get("having") is not None
+        has_group_by = select.args.get("group") is not None
+        
+        if has_having and not has_group_by:
+            features.has_having_without_group_by = True
+            antipatterns.append(AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message="HAVING clause without GROUP BY is non-standard SQL (some databases allow, others reject)",
+                location="HAVING clause"
+            ))
+            break
+
+
+def _detect_select_star(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect SELECT * usage (maintainability and performance antipattern)."""
+    pattern = AntipatternPattern.SELECT_STAR.value
+    severity = severity_map.get(pattern, "medium")
     # Check for Star in SELECT statements
     for select in ast.find_all(exp.Select):
         stars = list(select.find_all(exp.Star))
         if stars:
             features.has_select_star = True
             antipatterns.append(AntipatternInstance(
-                pattern="select_star",
-                severity="warning",
+                pattern=pattern,
+                severity=severity,
                 message="SELECT * found: specify explicit columns for better maintainability and performance",
                 location="SELECT clause"
             ))
             break  # Report once per query
 
 
-def _detect_implicit_join(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_implicit_join(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect implicit joins (comma-separated tables without explicit JOIN)."""
+    pattern = AntipatternPattern.IMPLICIT_JOIN.value
+    severity = severity_map.get(pattern, "high")
     for select in ast.find_all(exp.Select):
         # Check if FROM has multiple tables (via comma)
         from_clause = select.args.get("from")
@@ -126,16 +396,18 @@ def _detect_implicit_join(ast: exp.Expression, antipatterns: List[AntipatternIns
         if len(tables_in_from) > 1 and len(joins_in_select) == 0:
             features.has_implicit_join = True
             antipatterns.append(AntipatternInstance(
-                pattern="implicit_join",
-                severity="warning",
+                pattern=pattern,
+                severity=severity,
                 message="Implicit JOIN detected (comma-separated tables): use explicit JOIN syntax for clarity",
                 location="FROM clause"
             ))
             break
 
 
-def _detect_function_in_where(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_function_in_where(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect function calls on columns in WHERE clause (prevents index usage)."""
+    pattern = AntipatternPattern.FUNCTION_IN_WHERE.value
+    severity = severity_map.get(pattern, "high")
     for where in ast.find_all(exp.Where):
         # Look for functions applied to columns
         for func in where.find_all(exp.Func):
@@ -148,8 +420,8 @@ def _detect_function_in_where(ast: exp.Expression, antipatterns: List[Antipatter
             if columns:
                 features.has_function_in_where = True
                 antipatterns.append(AntipatternInstance(
-                    pattern="function_in_where",
-                    severity="warning",
+                    pattern=pattern,
+                    severity=severity,
                     message="Function applied to column in WHERE clause may prevent index usage",
                     location=f"WHERE clause: {func.__class__.__name__}"
                 ))
@@ -158,8 +430,10 @@ def _detect_function_in_where(ast: exp.Expression, antipatterns: List[Antipatter
             break
 
 
-def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect LIKE patterns with leading wildcards (prevents index usage)."""
+    pattern = AntipatternPattern.LEADING_WILDCARD_LIKE.value
+    severity = severity_map.get(pattern, "high")
     for like in ast.find_all(exp.Like):
         # Get the pattern (right side of LIKE)
         if hasattr(like, 'expression') and like.expression:
@@ -168,16 +442,18 @@ def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[Antipa
             if pattern_str.strip().strip("'\"").startswith(('%', '_')):
                 features.has_leading_wildcard_like = True
                 antipatterns.append(AntipatternInstance(
-                    pattern="leading_wildcard_like",
-                    severity="warning",
+                    pattern=pattern,
+                    severity=severity,
                     message="LIKE pattern with leading wildcard prevents index usage",
                     location=f"LIKE: {pattern_str}"
                 ))
                 break
 
 
-def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect NOT IN with subqueries (potential NULL handling issues)."""
+    pattern = AntipatternPattern.NOT_IN_NULLABLE.value
+    severity = severity_map.get(pattern, "high")
     
     # Method 1: Look for Not(In(...)) pattern
     for not_expr in ast.find_all(exp.Not):
@@ -189,8 +465,8 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
             if subqueries:
                 features.has_not_in_nullable = True
                 antipatterns.append(AntipatternInstance(
-                    pattern="not_in_nullable",
-                    severity="warning",
+                    pattern=pattern,
+                    severity=severity,
                     message="NOT IN with subquery: beware of NULL handling (use NOT EXISTS or IS NOT NULL)",
                     location="WHERE clause"
                 ))
@@ -206,16 +482,19 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
             if subqueries:
                 features.has_not_in_nullable = True
                 antipatterns.append(AntipatternInstance(
-                    pattern="not_in_nullable",
-                    severity="warning",
+                    pattern=pattern,
+                    severity=severity,
                     message="NOT IN with subquery: beware of NULL handling (use NOT EXISTS or IS NOT NULL)",
                     location="WHERE clause"
                 ))
                 break
 
 
-def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect correlated subqueries (performance risk)."""
+    pattern = AntipatternPattern.CORRELATED_SUBQUERY.value
+    severity = severity_map.get(pattern, "medium")
+    
     # This is a simplified heuristic using conservative pattern matching
     # True detection would require full scope analysis
     
@@ -246,8 +525,8 @@ def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[Antipatt
                         if table_ref in outer_tables:
                             features.has_correlated_subquery = True
                             antipatterns.append(AntipatternInstance(
-                                pattern="correlated_subquery",
-                                severity="info",
+                                pattern=pattern,
+                                severity=severity,
                                 message="Potentially correlated subquery detected: consider JOIN or EXISTS for better performance",
                                 location="Subquery"
                             ))
@@ -259,8 +538,24 @@ def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[Antipatt
             break
 
 
-def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _is_null_literal(node: exp.Expression) -> bool:
+    """Check if a node is a NULL literal."""
+    return isinstance(node, exp.Null) or (isinstance(node, exp.Literal) and str(node).upper() == "NULL")
+
+
+def _get_column_table(node: exp.Expression) -> Optional[str]:
+    """Extract table name from a column reference if available."""
+    if isinstance(node, exp.Column):
+        if hasattr(node, 'table') and node.table:
+            return str(node.table).lower()
+    return None
+
+
+def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect SELECT queries without LIMIT (resource exhaustion risk)."""
+    pattern = AntipatternPattern.UNBOUNDED_QUERY.value
+    severity = severity_map.get(pattern, "medium")
+    
     # Only check top-level SELECT, not subqueries
     # Top-level means it's the root of the AST or not nested in another SELECT
     
@@ -270,8 +565,8 @@ def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternI
         if not limits:
             features.has_unbounded_query = True
             antipatterns.append(AntipatternInstance(
-                pattern="unbounded_query",
-                severity="info",
+                pattern=pattern,
+                severity=severity,
                 message="SELECT without LIMIT: consider adding LIMIT for large datasets",
                 location="SELECT statement"
             ))
@@ -281,42 +576,17 @@ def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternI
         if not limits:
             features.has_unbounded_query = True
             antipatterns.append(AntipatternInstance(
-                pattern="unbounded_query",
-                severity="info",
+                pattern=pattern,
+                severity=severity,
                 message="Query without LIMIT: consider adding LIMIT for large datasets",
                 location="Query statement"
             ))
 
 
-def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
-    """Detect UPDATE/DELETE without WHERE clause (data safety issue)."""
-    # Check DELETE statements
-    for delete in ast.find_all(exp.Delete):
-        where_nodes = list(delete.find_all(exp.Where))
-        if not where_nodes:
-            features.has_unsafe_update_delete = True
-            antipatterns.append(AntipatternInstance(
-                pattern="unsafe_delete",
-                severity="error",
-                message="DELETE without WHERE clause will remove all rows",
-                location="DELETE statement"
-            ))
-    
-    # Check UPDATE statements
-    for update in ast.find_all(exp.Update):
-        where_nodes = list(update.find_all(exp.Where))
-        if not where_nodes:
-            features.has_unsafe_update_delete = True
-            antipatterns.append(AntipatternInstance(
-                pattern="unsafe_update",
-                severity="error",
-                message="UPDATE without WHERE clause will modify all rows",
-                location="UPDATE statement"
-            ))
-
-
-def _detect_too_many_joins(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_too_many_joins(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect queries with too many JOINs (complexity smell)."""
+    pattern = AntipatternPattern.TOO_MANY_JOINS.value
+    severity = severity_map.get(pattern, "medium")
     # Check JOINs per SELECT statement, not globally
     for select in ast.find_all(exp.Select):
         # Count JOINs directly in this SELECT (not in nested subqueries)
@@ -326,16 +596,18 @@ def _detect_too_many_joins(ast: exp.Expression, antipatterns: List[AntipatternIn
         if join_count >= 5:
             features.has_too_many_joins = True
             antipatterns.append(AntipatternInstance(
-                pattern="too_many_joins",
-                severity="warning",
+                pattern=pattern,
+                severity=severity,
                 message=f"Query has {join_count} JOINs: consider refactoring for maintainability",
                 location="JOIN clauses"
             ))
             break  # Report once per query
 
 
-def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect DISTINCT with GROUP BY (redundant)."""
+    pattern = AntipatternPattern.REDUNDANT_DISTINCT.value
+    severity = severity_map.get(pattern, "medium")
     for select in ast.find_all(exp.Select):
         has_distinct = any(select.find_all(exp.Distinct))
         has_group_by = any(select.find_all(exp.Group))
@@ -343,16 +615,18 @@ def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[Antipatte
         if has_distinct and has_group_by:
             features.has_redundant_distinct = True
             antipatterns.append(AntipatternInstance(
-                pattern="redundant_distinct",
-                severity="info",
+                pattern=pattern,
+                severity=severity,
                 message="DISTINCT with GROUP BY is redundant (GROUP BY already ensures uniqueness)",
                 location="SELECT with GROUP BY"
             ))
             break
 
 
-def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect SELECT * or columns in EXISTS subqueries (unnecessary)."""
+    pattern = AntipatternPattern.SELECT_IN_EXISTS.value
+    severity = severity_map.get(pattern, "medium")
     for exists in ast.find_all(exp.Exists):
         # Check if EXISTS contains a SELECT
         if hasattr(exists, 'this') and isinstance(exists.this, exp.Select):
@@ -370,47 +644,53 @@ def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[Antipattern
                 if has_non_literal:
                     features.has_select_in_exists = True
                     antipatterns.append(AntipatternInstance(
-                        pattern="select_in_exists",
-                        severity="info",
+                        pattern=pattern,
+                        severity=severity,
                         message="EXISTS only checks for row existence: use 'SELECT 1' instead of columns",
                         location="EXISTS subquery"
                     ))
                     break
 
 
-def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect UNION when UNION ALL might be more appropriate (performance)."""
+    pattern = AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL.value
+    severity = severity_map.get(pattern, "medium")
     for union in ast.find_all(exp.Union):
         # Check if UNION is distinct (default behavior)
         is_distinct = union.args.get("distinct", True)
         if is_distinct:
             features.has_union_instead_of_union_all = True
             antipatterns.append(AntipatternInstance(
-                pattern="union_instead_of_union_all",
-                severity="info",
+                pattern=pattern,
+                severity=severity,
                 message="UNION removes duplicates: use UNION ALL if duplicates are acceptable for better performance",
                 location="UNION operation"
             ))
             break
 
 
-def _detect_complex_or_conditions(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_complex_or_conditions(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect multiple OR conditions in WHERE (index inefficiency)."""
+    pattern = AntipatternPattern.COMPLEX_OR_CONDITIONS.value
+    severity = severity_map.get(pattern, "medium")
     for where in ast.find_all(exp.Where):
         or_nodes = list(where.find_all(exp.Or))
         if len(or_nodes) >= 3:
             features.has_complex_or_conditions = True
             antipatterns.append(AntipatternInstance(
-                pattern="complex_or_conditions",
-                severity="info",
+                pattern=pattern,
+                severity=severity,
                 message=f"WHERE clause has {len(or_nodes)} OR conditions: may prevent efficient index usage",
                 location="WHERE clause"
             ))
             break
 
 
-def _detect_distinct_overuse(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures) -> None:
+def _detect_distinct_overuse(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect DISTINCT with many columns (performance and design smell)."""
+    pattern = AntipatternPattern.DISTINCT_OVERUSE.value
+    severity = severity_map.get(pattern, "medium")
     for select in ast.find_all(exp.Select):
         has_distinct = any(select.find_all(exp.Distinct))
         if has_distinct:
@@ -429,8 +709,8 @@ def _detect_distinct_overuse(ast: exp.Expression, antipatterns: List[Antipattern
             if column_count >= 5:
                 features.has_select_distinct_overuse = True
                 antipatterns.append(AntipatternInstance(
-                    pattern="distinct_overuse",
-                    severity="warning",
+                    pattern=pattern,
+                    severity=severity,
                     message=f"DISTINCT with {column_count} columns: review data model or use GROUP BY",
                     location="SELECT DISTINCT"
                 ))
@@ -448,17 +728,29 @@ def _calculate_quality_score(features: QueryAntipatternFeatures) -> int:
     100 = perfect (no antipatterns)
     0 = very poor (many serious issues)
     
-    Scoring:
-    - Each error: -20 points
-    - Each warning: -10 points
-    - Each info: -3 points
+    Scoring by severity (works with any custom severity levels):
+    - critical: -30 points
+    - high: -15 points
+    - medium: -5 points
+    - other severities: -10 points (default)
     """
     score = 100
     
-    # Deduct points based on severity
-    score -= features.error_count * 20
-    score -= features.warning_count * 10
-    score -= features.info_count * 3
+    # Severity penalty mapping
+    severity_penalties = {
+        "critical": 30,
+        "high": 15,
+        "medium": 5,
+        # Legacy support
+        "error": 20,
+        "warning": 10,
+        "info": 3,
+    }
+    
+    # Deduct points based on antipatterns' severity
+    for ap in features.antipatterns:
+        penalty = severity_penalties.get(ap.severity, 10)  # Default penalty for custom severities
+        score -= penalty
     
     # Ensure score stays in valid range
     return max(0, min(100, score))

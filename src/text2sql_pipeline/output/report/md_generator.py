@@ -6,6 +6,28 @@ from typing import Dict
 from pathlib import Path
 from datetime import datetime
 
+# Import antipattern registry for pattern name mapping
+try:
+    from text2sql_pipeline.analyzers.query_antipattern.antipattern_registry import (
+        get_antipattern_name,
+        get_severity_emoji,
+        get_severity_label,
+        get_severity_order
+    )
+except ImportError:
+    # Fallback if import fails (shouldn't happen in production)
+    def get_antipattern_name(pattern: str) -> str:
+        return pattern.replace("_", " ").title()
+    
+    def get_severity_emoji(severity: str) -> str:
+        return {"critical": "🔴", "error": "🟠", "warning": "⚠️", "info": "🔵"}.get(severity, "⚪")
+    
+    def get_severity_label(severity: str) -> str:
+        return severity.capitalize()
+    
+    def get_severity_order(severity: str) -> int:
+        return {"critical": 1, "error": 2, "warning": 3, "info": 4}.get(severity, 999)
+
 
 class MarkdownReportGenerator:
     """Generate markdown reports from DuckDB metrics."""
@@ -567,8 +589,10 @@ class MarkdownReportGenerator:
         lines = ["## 🚨 Query Antipattern Analysis", ""]
         
         try:
+            # Get average scores
             result = self.conn.execute(f"""
-                SELECT AVG(quality_score) as avg_quality, AVG(total_antipatterns) as avg_antipatterns
+                SELECT AVG(quality_score) as avg_quality, 
+                       AVG(total_antipatterns) as avg_antipatterns
                 FROM {table} WHERE parseable = true
             """).fetchone()
             
@@ -577,26 +601,98 @@ class MarkdownReportGenerator:
                 lines.append(f"- **Average Quality Score:** {avg_quality:.1f}/100")
                 lines.append(f"- **Average Antipatterns per Query:** {avg_antipatterns:.2f}")
                 lines.append("")
+            
+            # Count antipatterns by severity dynamically from JSON
+            severity_counts = self.conn.execute(f"""
+                SELECT 
+                    json_extract_string(ap, '$.severity') as severity,
+                    COUNT(*) as count
+                FROM (
+                    SELECT 
+                        unnest(
+                            COALESCE(
+                                TRY_CAST(antipatterns AS JSON[]),
+                                []
+                            )
+                        ) as ap
+                    FROM {table}
+                    WHERE parseable = true
+                )
+                WHERE ap IS NOT NULL
+                GROUP BY severity
+                ORDER BY count DESC
+            """).fetchall()
+            
+            # Display severity counts with emojis
+            if severity_counts:
+                for severity, count in severity_counts:
+                    emoji = get_severity_emoji(severity)
+                    label = get_severity_label(severity)
+                    lines.append(f"- **Total {label}:** {count:,} {emoji}")
+                lines.append("")
+            
             # Skipped count
             skipped = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE status = 'skipped'").fetchone()[0]
             if skipped:
                 lines.append(f"- **Skipped:** {skipped:,}")
                 lines.append("")
             
-            antipatterns = self.conn.execute(f"""
-                SELECT SUM(has_select_star) as select_star, SUM(has_implicit_join) as implicit_join,
-                       SUM(has_function_in_where) as func_in_where, SUM(has_correlated_subquery) as corr_subq
-                FROM {table} WHERE parseable = true
-            """).fetchone()
+            # Top antipatterns by severity (from JSON data)
+            # This reads actual severity from data instead of hardcoding
+            top_antipatterns = self.conn.execute(f"""
+                SELECT 
+                    json_extract_string(ap, '$.severity') as severity,
+                    json_extract_string(ap, '$.pattern') as pattern,
+                    COUNT(*) as count
+                FROM (
+                    SELECT 
+                        unnest(
+                            COALESCE(
+                                TRY_CAST(antipatterns AS JSON[]),
+                                []
+                            )
+                        ) as ap
+                    FROM {table}
+                    WHERE parseable = true
+                )
+                WHERE ap IS NOT NULL
+                GROUP BY severity, pattern
+                LIMIT 15
+            """).fetchall()
             
-            if antipatterns and any(antipatterns):
-                lines.append("### Common Antipatterns")
-                lines.append("")
-                if antipatterns[0]: lines.append(f"- SELECT *: {antipatterns[0]}")
-                if antipatterns[1]: lines.append(f"- Implicit JOIN: {antipatterns[1]}")
-                if antipatterns[2]: lines.append(f"- Function in WHERE: {antipatterns[2]}")
-                if antipatterns[3]: lines.append(f"- Correlated Subquery: {antipatterns[3]}")
-                lines.append("")
+            # Sort by severity order (from registry) and count
+            top_antipatterns = sorted(
+                top_antipatterns,
+                key=lambda x: (get_severity_order(x[0]), -x[2])  # severity order, then count desc
+            )
+            
+            if top_antipatterns:
+                # Group by severity dynamically
+                severity_groups = {}
+                
+                for severity, pattern, count in top_antipatterns:
+                    if severity not in severity_groups:
+                        emoji = get_severity_emoji(severity)
+                        label = get_severity_label(severity)
+                        severity_groups[severity] = {
+                            "label": f"{emoji} {label} Antipatterns",
+                            "order": get_severity_order(severity),
+                            "items": []
+                        }
+                    
+                    pattern_name = get_antipattern_name(pattern)
+                    severity_groups[severity]["items"].append((pattern_name, count))
+                
+                # Output by severity groups in order
+                for severity in sorted(severity_groups.keys(), key=get_severity_order):
+                    group = severity_groups[severity]
+                    if group["items"]:
+                        lines.append(f"### {group['label']}")
+                        lines.append("")
+                        for pattern_name, count in group["items"]:
+                            lines.append(f"- {pattern_name}: {count:,}")
+                        lines.append("")
+            
         except Exception as e:
             lines.append(f"*Error: {e}*")
         
@@ -2809,13 +2905,10 @@ class MarkdownReportGenerator:
         Path(output_path).write_text("\n".join(sections), encoding="utf-8")
     
     def _generate_antipatterns_quality(self, table: str) -> str:
-        """Generate antipatterns section (K1)."""
+        """Generate antipatterns section (K1) - dynamically from JSON data."""
         lines = ["### K1) Antipatterns Detected", ""]
         
         try:
-            lines.append("| Antipattern | Count | Share | Severity |")
-            lines.append("|-------------|-------|-------|----------|")
-            
             total = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table} WHERE parseable = true AND status != 'skipped'
             """).fetchone()[0]
@@ -2825,41 +2918,102 @@ class MarkdownReportGenerator:
                 lines.append("")
                 return "\n".join(lines)
             
-            # Define antipatterns to check
-            antipatterns = [
-                ("SELECT *", "has_select_star", "⚠️ Medium"),
-                ("Implicit JOIN", "has_implicit_join", "⚠️ Medium"),
-                ("Functions in WHERE", "has_function_in_where", "⚠️ Medium"),
-                ("Correlated subquery", "has_correlated_subquery", "⚠️ Medium"),
-                ("Unbounded SELECT (no LIMIT)", "has_unbounded_query", "🔴 High"),
-                ("Cartesian product risk", "has_cartesian_product", "🔴 High"),
-            ]
+            # Extract antipatterns from JSON and aggregate by pattern + severity
+            # Using DuckDB's JSON functions to parse array
+            antipattern_stats = self.conn.execute(f"""
+                SELECT 
+                    json_extract_string(ap, '$.pattern') as pattern,
+                    json_extract_string(ap, '$.severity') as severity,
+                    ANY_VALUE(json_extract_string(ap, '$.message')) as example_message,
+                    COUNT(*) as count
+                FROM (
+                    SELECT 
+                        unnest(
+                            COALESCE(
+                                TRY_CAST(antipatterns AS JSON[]),
+                                []
+                            )
+                        ) as ap
+                    FROM {table}
+                    WHERE parseable = true AND status != 'skipped'
+                )
+                WHERE ap IS NOT NULL
+                GROUP BY pattern, severity
+            """).fetchall()
             
-            for name, column, severity in antipatterns:
-                try:
-                    count = self.conn.execute(f"""
-                        SELECT SUM({column}) FROM {table} WHERE parseable = true AND status != 'skipped'
-                    """).fetchone()[0] or 0
-                    
+            # Sort by severity order (from registry) and count
+            antipattern_stats = sorted(
+                antipattern_stats,
+                key=lambda x: (get_severity_order(x[1]), -x[3])  # severity order, then count desc
+            )
+            
+            if not antipattern_stats:
+                lines.append("*No antipatterns detected.*")
+                lines.append("")
+            else:
+                lines.append("| Antipattern | Count | Share | Severity |")
+                lines.append("|-------------|-------|-------|----------|")
+                
+                # Use centralized registry for pattern names and severity
+                for pattern, severity, message, count in antipattern_stats:
+                    emoji = get_severity_emoji(severity)
+                    label = get_severity_label(severity)
+                    severity_display = f"{emoji} {label}"
+                    pattern_name = get_antipattern_name(pattern)
                     share = round(count * 100.0 / total, 1) if total > 0 else 0
-                    lines.append(f"| {name} | {count:,} | {share}% | {severity} |")
-                except Exception:
-                    # Column might not exist
-                    pass
-            
-            lines.append("")
+                    lines.append(f"| {pattern_name} | {count:,} | {share}% | {severity_display} |")
+                
+                lines.append("")
             
             # Summary statistics
-            avg_quality = self.conn.execute(f"""
-                SELECT ROUND(AVG(quality_score), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
-            """).fetchone()[0] or 0
+            summary_stats = self.conn.execute(f"""
+                SELECT 
+                    ROUND(AVG(quality_score), 1) as avg_quality,
+                    ROUND(AVG(total_antipatterns), 1) as avg_antipatterns
+                FROM {table} WHERE parseable = true AND status != 'skipped'
+            """).fetchone()
             
-            avg_antipatterns = self.conn.execute(f"""
-                SELECT ROUND(AVG(total_antipatterns), 1) FROM {table} WHERE parseable = true AND status != 'skipped'
-            """).fetchone()[0] or 0
+            if summary_stats:
+                avg_quality, avg_antipatterns = summary_stats
+                lines.append(f"**Summary:** Avg quality score: {avg_quality or 0}/100 · Avg antipatterns per query: {avg_antipatterns or 0}")
+                lines.append("")
             
-            lines.append(f"**Summary:** Avg quality score: {avg_quality}/100 · Avg antipatterns per query: {avg_antipatterns}")
-            lines.append("")
+            # Count antipatterns by severity dynamically from JSON
+            severity_counts = self.conn.execute(f"""
+                SELECT 
+                    json_extract_string(ap, '$.severity') as severity,
+                    COUNT(*) as count
+                FROM (
+                    SELECT 
+                        unnest(
+                            COALESCE(
+                                TRY_CAST(antipatterns AS JSON[]),
+                                []
+                            )
+                        ) as ap
+                    FROM {table}
+                    WHERE parseable = true AND status != 'skipped'
+                )
+                WHERE ap IS NOT NULL
+                GROUP BY severity
+            """).fetchall()
+            
+            # Build "By Severity" line dynamically
+            if severity_counts:
+                # Sort by severity order (from registry)
+                severity_counts_sorted = sorted(
+                    severity_counts,
+                    key=lambda x: get_severity_order(x[0])
+                )
+                
+                severity_parts = []
+                for severity, count in severity_counts_sorted:
+                    emoji = get_severity_emoji(severity)
+                    label = get_severity_label(severity)
+                    severity_parts.append(f"{label}: {count:,} {emoji}")
+                
+                lines.append(f"**By Severity:** {' · '.join(severity_parts)}")
+                lines.append("")
             
         except Exception as e:
             lines.append(f"*Error generating antipatterns: {e}*")
