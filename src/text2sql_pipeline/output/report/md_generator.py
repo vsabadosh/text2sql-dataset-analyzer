@@ -991,6 +991,102 @@ class MarkdownReportGenerator:
         
         Path(output_path).write_text("\n".join(sections), encoding="utf-8")
 
+    def _generate_mixed_consensus_breakdown(self, table: str) -> str:
+        """Generate detailed breakdown table of mixed consensus verdict combinations for any number of models."""
+        try:
+            import json
+            from collections import Counter
+            
+            # Get all mixed cases with voter results
+            items = self.conn.execute(f"""
+                SELECT voter_results
+                FROM {table}
+                WHERE consensus_reached = false AND status NOT IN ('failed','skipped')
+                  AND voter_results IS NOT NULL
+            """).fetchall()
+            
+            if not items:
+                return ""
+            
+            # First pass: discover all unique models across all queries
+            all_models = set()
+            for (voter_results_json,) in items:
+                try:
+                    voter_results = json.loads(voter_results_json)
+                    if voter_results:
+                        for voter in voter_results:
+                            model = voter.get('model')
+                            if model:
+                                all_models.add(model)
+                except (json.JSONDecodeError, Exception):
+                    continue
+            
+            if not all_models:
+                return ""
+            
+            # Sort models for consistent ordering
+            sorted_models = sorted(all_models)
+            
+            # Second pass: count verdict combinations
+            combinations = Counter()
+            
+            for (voter_results_json,) in items:
+                try:
+                    voter_results = json.loads(voter_results_json)
+                    if not voter_results or len(voter_results) < 2:
+                        continue
+                    
+                    # Extract verdicts by model
+                    verdicts_by_model = {}
+                    for voter in voter_results:
+                        model = voter.get('model')
+                        verdict = voter.get('verdict')
+                        
+                        # Skip failed evaluations and missing data
+                        if model and verdict and verdict not in ('FAILED', 'N/A'):
+                            verdicts_by_model[model] = verdict
+                    
+                    # Only count if we have at least 2 valid verdicts
+                    if len(verdicts_by_model) < 2:
+                        continue
+                    
+                    # Create combination tuple in consistent order
+                    combination = tuple(
+                        verdicts_by_model.get(model, 'N/A') 
+                        for model in sorted_models
+                    )
+                    
+                    # Only count if we have all models (no N/A values)
+                    if 'N/A' not in combination:
+                        combinations[combination] += 1
+                    
+                except (json.JSONDecodeError, Exception):
+                    continue
+            
+            if not combinations:
+                return ""
+            
+            # Generate table header
+            lines = []
+            header_parts = ["| " + " | ".join(sorted_models) + " | Count |"]
+            separator_parts = ["|" + "|".join(["-------" for _ in sorted_models]) + "|-------|"]
+            
+            lines.extend(header_parts)
+            lines.extend(separator_parts)
+            
+            # Sort by count (descending) then by verdict combination
+            for combination, count in sorted(
+                combinations.items(), 
+                key=lambda x: (-x[1], x[0])
+            ):
+                verdict_cells = " | ".join(combination)
+                lines.append(f"| {verdict_cells} | {count:,} |")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            return f"*Error generating breakdown: {e}*"
+    
     def generate_llm_judge_issues_report(self, output_path: str) -> None:
         """Generate detailed report for LLM judge with verdict-based sections."""
         table = self.available_tables.get("semantic_llm_judge")
@@ -1083,6 +1179,15 @@ class MarkdownReportGenerator:
             mixed_pct = (mixed / analyzed * 100) if analyzed else 0
             sections.append(f"- **Mixed (No Majority):** {mixed:,} ({mixed_pct:.1f}%)")
             sections.append("    *(Mixed results have no consensus by definition)*")
+            
+            # Add Mixed Consensus Breakdown Table
+            if mixed > 0:
+                mixed_breakdown = self._generate_mixed_consensus_breakdown(table)
+                if mixed_breakdown:
+                    sections.append("")
+                    sections.append("### Mixed Consensus Breakdown")
+                    sections.append("")
+                    sections.append(mixed_breakdown)
 
             # Majority UNANSWERABLE
             majority_unanswerable = self.conn.execute(f"""
