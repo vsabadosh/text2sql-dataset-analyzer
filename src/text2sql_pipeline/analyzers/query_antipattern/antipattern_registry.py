@@ -17,8 +17,8 @@ SEVERITY_DISPLAY: Dict[str, Dict[str, any]] = {
     "critical": {"emoji": "🔴", "label": "Critical", "order": 1},
     "high": {"emoji": "⚠️", "label": "High", "order": 2},
     "medium": {"emoji": "🔵", "label": "Medium", "order": 3},
+    "low": {"emoji": "🟢", "label": "Low", "order": 4},
     # Add more as needed, e.g.:
-    # "low": {"emoji": "🟢", "label": "Low", "order": 4},
     # "info": {"emoji": "ℹ️", "label": "Info", "order": 5},
 }
 

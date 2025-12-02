@@ -1,21 +1,15 @@
 sourceDb:
   dialect: sqlite           # or: postgresql
   kind: file                # or: server
-  # endpoint: "./data_examples/test_database"    # sqlite root folder
-  endpoint: "./data_examples/database"    # sqlite root folder
-  endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/test_database
-  # endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/database
-  # endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_train_20240627/train_databases
+  endpoint: "./data_examples/databases"    # sqlite root folder
   # postgresql example:
   # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
 
 load:
   name: jsonl # jsonl | json | csv | hf
   params:
-    # path: data_examples/spider-tiny-10.jsonl
-    # path: data_examples/merged_filtered_test_dev.jsonl
-    path: data_examples/spider/spider-tiny-10.jsonl
-
+    path: data_examples/spider-tiny-9.jsonl
+ 
 # # Example using HuggingFace datasets (with optional token for private repos)
 # load:
 #   name: hf
@@ -26,7 +20,7 @@ load:
 
 # Progress tracking configuration
 progress:
-  expected_items: 2         # Optional: Expected number of items for percentage tracking
+  expected_items: 44         # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 
 normalize:
@@ -66,49 +60,67 @@ analyze:
       antipatterns:
         sqlite:
           critical:
-            - unsafe_update_delete          # UPDATE/DELETE without WHERE
-            - null_comparison_equals         # = NULL instead of IS NULL
-            - cartesian_product              # Missing JOIN condition
-            - missing_group_by               # Aggregates without GROUP BY
-            - having_without_group_by        # HAVING without GROUP BY
+            # Safety-critical: Prevent data loss
+            - unsafe_update_delete          # UPDATE/DELETE without WHERE clause
+            
+            # Correctness: Fundamental SQL errors
+            - cartesian_product              # Missing JOIN condition creates exponential results
+            - null_comparison_equals         # = NULL instead of IS NULL (always false)
+            - missing_group_by               # Aggregates without proper GROUP BY
+            - having_without_group_by        # HAVING clause requires GROUP BY
+          
           high:
-            - function_in_where              # Functions on columns in WHERE
-            - not_in_nullable                # NOT IN with nullable subquery
-            - leading_wildcard_like          # LIKE '%pattern'
-            - implicit_join                  # Comma-separated tables
+            # Correctness: Subtle semantic errors
+            - not_in_nullable                # NOT IN with nullable subquery (NULL propagation issues)
+          
+            # Code quality: Modern SQL standards
+            - implicit_join                  # Comma-separated tables instead of explicit JOIN
+            
+            # Performance: Index-breaking patterns
+            - function_in_where              # Functions on indexed columns in WHERE clause
+          
           medium:
-            - redundant_distinct             # DISTINCT with GROUP BY
-            - union_instead_of_union_all     # UNION when UNION ALL works
-            - correlated_subquery            # Correlated subqueries
-            - too_many_joins                 # 5+ JOINs
-            - distinct_overuse               # DISTINCT with 5+ columns
-            - complex_or_conditions          # 3+ OR conditions
-            - select_star                    # SELECT * (can enable if needed)
-            - unbounded_query                # No LIMIT (can enable if needed)
-            - select_in_exists               # SELECT columns in EXISTS
-        
+            # Query optimization opportunities
+            - correlated_subquery            # Often inefficient, may have better alternatives
+            - union_instead_of_union_all     # UNION when duplicates aren't possible/needed
+            - leading_wildcard_like          # LIKE '%pattern' prevents index usage
+            
+            # Redundancy detection
+            - redundant_distinct             # DISTINCT unnecessary with GROUP BY
+            - select_in_exists               # SELECT columns in EXISTS (only checks presence)
+          
+          low:
+            # Style/context-dependent (disabled by default for Text2SQL)
+            - select_star                  # Often acceptable in Text2SQL benchmarks
+            # - unbounded_query              # Many valid queries don't need LIMIT
+            # - too_many_joins               # Depends on schema complexity
+            # - distinct_overuse             # Context-dependent
+            # - complex_or_conditions        # Sometimes necessary     
         postgresql:
           critical:
-            - unsafe_update_delete          # UPDATE/DELETE without WHERE
-            - null_comparison_equals         # = NULL instead of IS NULL
-            - cartesian_product              # Missing JOIN condition
-            - missing_group_by               # Aggregates without GROUP BY
-            - having_without_group_by        # HAVING without GROUP BY
+            - unsafe_update_delete          
+            - cartesian_product            
+            - null_comparison_equals       
+            - missing_group_by             
+            - having_without_group_by                  
           high:
-            - function_in_where              # Functions on columns in WHERE
-            - not_in_nullable                # NOT IN with nullable subquery
-            - leading_wildcard_like          # LIKE '%pattern'
-            - implicit_join                  # Comma-separated tables
+            - not_in_nullable               
+            - implicit_join 
+            - function_in_where                        
           medium:
-            - redundant_distinct             # DISTINCT with GROUP BY
-            - union_instead_of_union_all     # UNION when UNION ALL works
-            - distinct_overuse               # DISTINCT with 5+ columns
-            - complex_or_conditions          # 3+ OR conditions
-            - select_star                    # SELECT * (can enable if needed)
-            - unbounded_query                # No LIMIT (can enable if needed)
-            - select_in_exists               # SELECT columns in EXISTS
-            # too_many_joins                 # PostgreSQL optimizes well
-            # correlated_subquery            # PostgreSQL optimizes well
+            - correlated_subquery           
+            - union_instead_of_union_all   
+            - leading_wildcard_like         
+            - redundant_distinct            
+            - select_in_exists                     
+          low:
+            # Style/context-dependent (disabled by default for Text2SQL)
+            # - select_star                  
+            # - unbounded_query              
+            # - too_many_joins             
+            # - distinct_overuse            
+            # - complex_or_conditions       
+
 
   # LLM-as-a-Judge semantic validation (optional)
   # Uncomment and configure providers to enable semantic validation
@@ -120,7 +132,7 @@ analyze:
       prompt_variant: default  # Options: variant_1, variant_2, default
       # custom_prompt: "Your custom prompt..."  # Override file/variant
       # Schema configuration
-      schema_mode: query_derived  # Options: 'full' (all tables) or 'query_derived' (only tables referenced in query)
+      schema_mode: full  # Options: 'full' (all tables) or 'query_derived' (only tables referenced in query)
       num_examples: 2  # Number of example values per column in DDL Schema.
       parallel_voters: true
       max_workers: 2   # 0 or omit -> auto = num providers; set 2..N to cap
@@ -135,13 +147,22 @@ analyze:
             - name: gpt-5
               weight: 1.0
               temperature: 1.0 
+            # - name: gpt-5-nano
+            #   weight: 1.0
+            #   temperature: 1.0 
+            # # - name: gpt-4o
+            #   weight: 1.0
+            #   temperature: 0.0
+            # - name: gpt-4o
+            #   weight: 1.0
+            #   temperature: 0.0
 
-        - name: anthropic
-          api_key: "${ANTHROPIC_API_KEY}"
-          models:
-            - name: claude-3-5-sonnet-20241022
-              weight: 1.0
-              temperature: 0.0
+        # # - name: anthropic
+        # #   api_key: "${ANTHROPIC_API_KEY}"
+        # #   models:
+        # #     - name: claude-3-5-sonnet-20241022
+        # #       weight: 1.0
+        # #       temperature: 0.0
         - name: gemini
           # Primary API key (required)
           api_key: "${GEMINI_API_KEY}"
@@ -155,15 +176,15 @@ analyze:
             - name: gemini-2.5-pro
               weight: 1.0
               temperature: 0.0
-        - name: ollama
-          base_url: "${OLLAMA_BASE_URL:http://localhost:11434}"  # With default value
-          models:
-            - name: codeqwen:7b-chat-v1.5-q8_0
-              weight: 1.0
-              temperature: 0.0  # Per-model temperature setting
+        # - name: ollama
+        #   base_url: "${OLLAMA_BASE_URL:http://localhost:11434}"  # With default value
+        #   models:
+        #     - name: codeqwen:7b-chat-v1.5-q8_0
+        #       weight: 1.0
+        #       temperature: 0.0  # Per-model temperature setting
 
 output:
-  dataset_name: SomeTest
+  dataset_name: spiderTiny9
   # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)

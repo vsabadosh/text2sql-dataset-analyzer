@@ -732,6 +732,7 @@ def _calculate_quality_score(features: QueryAntipatternFeatures) -> int:
     - critical: -30 points
     - high: -15 points
     - medium: -5 points
+    - low: -2 points
     - other severities: -10 points (default)
     """
     score = 100
@@ -741,6 +742,7 @@ def _calculate_quality_score(features: QueryAntipatternFeatures) -> int:
         "critical": 30,
         "high": 15,
         "medium": 5,
+        "low": 2,
         # Legacy support
         "error": 20,
         "warning": 10,
