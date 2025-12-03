@@ -38,7 +38,6 @@ class QueryAntipatternFeatures(BaseModel):
     has_null_comparison_equals: bool = False   # = NULL instead of IS NULL
     has_cartesian_product: bool = False        # missing JOIN conditions
     has_missing_group_by: bool = False         # aggregates without GROUP BY
-    has_having_without_group_by: bool = False  # HAVING without GROUP BY
     
     # High severity
     has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)
@@ -50,11 +49,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_redundant_distinct: bool = False       # DISTINCT with GROUP BY
     has_union_instead_of_union_all: bool = False  # UNION when UNION ALL might be sufficient
     has_correlated_subquery: bool = False      # correlated subquery
-    has_too_many_joins: bool = False           # 5+ JOINs
-    has_select_distinct_overuse: bool = False  # DISTINCT with many columns
-    has_complex_or_conditions: bool = False    # multiple OR conditions
     has_select_star: bool = False              # SELECT *
-    has_unbounded_query: bool = False          # no LIMIT on SELECT
     has_select_in_exists: bool = False         # SELECT * or column in EXISTS
     
     # ---- Quality score ----

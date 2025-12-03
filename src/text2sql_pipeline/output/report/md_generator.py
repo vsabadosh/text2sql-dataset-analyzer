@@ -1965,14 +1965,6 @@ class MarkdownReportGenerator:
             share = round(nested_agg * 100.0 / total_queries, 1)
             lines.append(f"| Nested aggregation | {nested_agg:,} | {share}% | Aggregate of aggregate (subquery) |")
             
-            # HAVING without GROUP BY
-            having_no_group = self.conn.execute(f"""
-                SELECT COUNT(*) FROM {table}
-                WHERE has_having = true AND has_group_by = false AND parseable = true AND status != 'skipped'
-            """).fetchone()[0]
-            share = round(having_no_group * 100.0 / total_queries, 1)
-            lines.append(f"| HAVING without GROUP BY | {having_no_group:,} | {share}% | Rare pattern |")
-            
             # DISTINCT with GROUP BY
             distinct_group = self.conn.execute(f"""
                 SELECT COUNT(*) FROM {table}
@@ -3024,15 +3016,17 @@ class MarkdownReportGenerator:
                 return "\n".join(lines)
             
             # Extract antipatterns from JSON and aggregate by pattern + severity
-            # Using DuckDB's JSON functions to parse array
+            # Count both total occurrences AND distinct affected queries
             antipattern_stats = self.conn.execute(f"""
                 SELECT 
                     json_extract_string(ap, '$.pattern') as pattern,
                     json_extract_string(ap, '$.severity') as severity,
                     ANY_VALUE(json_extract_string(ap, '$.message')) as example_message,
-                    COUNT(*) as count
+                    COUNT(*) as count,
+                    COUNT(DISTINCT item_id) as affected_queries
                 FROM (
                     SELECT 
+                        item_id,
                         unnest(
                             COALESCE(
                                 TRY_CAST(antipatterns AS JSON[]),
@@ -3049,24 +3043,24 @@ class MarkdownReportGenerator:
             # Sort by severity order (from registry) and count
             antipattern_stats = sorted(
                 antipattern_stats,
-                key=lambda x: (get_severity_order(x[1]), -x[3])  # severity order, then count desc
+                key=lambda x: (get_severity_order(x[1]), -x[4])  # severity order, then affected_queries desc
             )
             
             if not antipattern_stats:
                 lines.append("*No antipatterns detected.*")
                 lines.append("")
             else:
-                lines.append("| Antipattern | Count | Share | Severity |")
-                lines.append("|-------------|-------|-------|----------|")
+                lines.append("| Antipattern | Occurrences | Affected Queries | % of Queries | Severity |")
+                lines.append("|-------------|-------------|------------------|--------------|----------|")
                 
                 # Use centralized registry for pattern names and severity
-                for pattern, severity, message, count in antipattern_stats:
+                for pattern, severity, message, count, affected_queries in antipattern_stats:
                     emoji = get_severity_emoji(severity)
                     label = get_severity_label(severity)
                     severity_display = f"{emoji} {label}"
                     pattern_name = get_antipattern_name(pattern)
-                    share = round(count * 100.0 / total, 1) if total > 0 else 0
-                    lines.append(f"| {pattern_name} | {count:,} | {share}% | {severity_display} |")
+                    affected_pct = round(affected_queries * 100.0 / total, 1) if total > 0 else 0
+                    lines.append(f"| {pattern_name} | {count:,} | {affected_queries:,} | {affected_pct}% | {severity_display} |")
                 
                 lines.append("")
             

@@ -289,7 +289,6 @@ class DuckDBMetricsSink(MetricsSink):
             has_null_comparison_equals BOOLEAN,
             has_cartesian_product BOOLEAN,
             has_missing_group_by BOOLEAN,
-            has_having_without_group_by BOOLEAN,
             
             -- High severity
             has_function_in_where BOOLEAN,
@@ -302,14 +301,8 @@ class DuckDBMetricsSink(MetricsSink):
             has_union_instead_of_union_all BOOLEAN,
             has_correlated_subquery BOOLEAN,
             
-            -- Optional
-            has_too_many_joins BOOLEAN,
-            has_select_distinct_overuse BOOLEAN,
-            has_complex_or_conditions BOOLEAN,
-            
             -- Disabled for Text2SQL
             has_select_star BOOLEAN,
-            has_unbounded_query BOOLEAN,
             has_select_in_exists BOOLEAN,
             
             -- Counts
@@ -664,12 +657,12 @@ class DuckDBMetricsSink(MetricsSink):
             self.conn.execute(f"""
                 INSERT INTO {table_name} VALUES (
                     ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, 
                     ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, 
+                    ?, ?, ?, ?, ?
                 )
             """, [
                 # Metadata
@@ -693,7 +686,6 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("has_null_comparison_equals"),
                 features.get("has_cartesian_product"),
                 features.get("has_missing_group_by"),
-                features.get("has_having_without_group_by"),
                 # High
                 features.get("has_function_in_where"),
                 features.get("has_not_in_nullable"),
@@ -703,13 +695,8 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("has_redundant_distinct"),
                 features.get("has_union_instead_of_union_all"),
                 features.get("has_correlated_subquery"),
-                # Optional
-                features.get("has_too_many_joins"),
-                features.get("has_select_distinct_overuse"),
-                features.get("has_complex_or_conditions"),
                 # Disabled
                 features.get("has_select_star"),
-                features.get("has_unbounded_query"),
                 features.get("has_select_in_exists"),
                 # Counts
                 features.get("total_antipatterns"),

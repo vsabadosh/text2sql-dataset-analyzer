@@ -216,27 +216,6 @@ class TestCorrelatedSubqueryAntipattern:
         # Conservative heuristic may flag this
         assert result.parseable is True
 
-
-class TestUnboundedQueryAntipattern:
-    """Test unbounded query antipattern detection."""
-
-    def test_select_without_limit_detected(self):
-        """Test that SELECT without LIMIT is detected."""
-        sql = "SELECT * FROM users WHERE status = 'active'"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_unbounded_query is True
-        assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "unbounded_query" for ap in result.antipatterns)
-
-    def test_select_with_limit_not_flagged(self):
-        """Test that SELECT with LIMIT is not flagged."""
-        sql = "SELECT * FROM users WHERE status = 'active' LIMIT 100"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_unbounded_query is False
-
-
 class TestNullComparisonEqualsAntipattern:
     """Test = NULL / != NULL antipattern detection."""
 
@@ -329,24 +308,6 @@ class TestMissingGroupByAntipattern:
         assert result.has_missing_group_by is False
 
 
-class TestHavingWithoutGroupByAntipattern:
-    """Test HAVING without GROUP BY antipattern detection."""
-
-    def test_having_without_group_by_detected(self):
-        """Test that HAVING without GROUP BY is detected."""
-        sql = "SELECT COUNT(*) FROM orders HAVING COUNT(*) > 5"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_having_without_group_by is True
-        assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "having_without_group_by" for ap in result.antipatterns)
-
-    def test_having_with_group_by_not_flagged(self):
-        """Test that HAVING with GROUP BY is not flagged."""
-        sql = "SELECT user_id, COUNT(*) FROM orders GROUP BY user_id HAVING COUNT(*) > 5"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_having_without_group_by is False
 
 
 class TestUnsafeUpdateDeleteAntipattern:
@@ -384,37 +345,6 @@ class TestUnsafeUpdateDeleteAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_unsafe_update_delete is False
-
-
-class TestTooManyJoinsAntipattern:
-    """Test too many JOINs antipattern detection."""
-
-    def test_five_joins_detected(self):
-        """Test that 5+ JOINs are detected."""
-        sql = """
-        SELECT * FROM t1
-        JOIN t2 ON t1.id = t2.t1_id
-        JOIN t3 ON t2.id = t3.t2_id
-        JOIN t4 ON t3.id = t4.t3_id
-        JOIN t5 ON t4.id = t5.t4_id
-        JOIN t6 ON t5.id = t6.t5_id
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_too_many_joins is True
-        assert result.total_antipatterns >= 1  # too_many_joins is medium severity
-        assert any(ap.pattern == "too_many_joins" for ap in result.antipatterns)
-
-    def test_few_joins_not_flagged(self):
-        """Test that 2-3 JOINs are not flagged."""
-        sql = """
-        SELECT * FROM users
-        JOIN orders ON users.id = orders.user_id
-        JOIN products ON orders.product_id = products.id
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_too_many_joins is False
 
 
 class TestRedundantDistinctAntipattern:
@@ -482,52 +412,6 @@ class TestUnionInsteadOfUnionAllAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_union_instead_of_union_all is False
-
-
-class TestComplexOrConditionsAntipattern:
-    """Test complex OR conditions antipattern detection."""
-
-    def test_multiple_or_detected(self):
-        """Test that 3+ OR conditions are detected."""
-        sql = """
-        SELECT * FROM users 
-        WHERE status = 'active' 
-        OR status = 'pending' 
-        OR status = 'verified'
-        OR status = 'trial'
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_complex_or_conditions is True
-        assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "complex_or_conditions" for ap in result.antipatterns)
-
-    def test_few_or_not_flagged(self):
-        """Test that 1-2 OR conditions are not flagged."""
-        sql = "SELECT * FROM users WHERE status = 'active' OR status = 'pending'"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_complex_or_conditions is False
-
-
-class TestDistinctOveruseAntipattern:
-    """Test DISTINCT overuse antipattern detection."""
-
-    def test_distinct_with_many_columns_detected(self):
-        """Test that DISTINCT with 5+ columns is detected."""
-        sql = "SELECT DISTINCT col1, col2, col3, col4, col5, col6 FROM users"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_select_distinct_overuse is True
-        assert result.total_antipatterns >= 1  # distinct_overuse is medium severity
-        assert any(ap.pattern == "distinct_overuse" for ap in result.antipatterns)
-
-    def test_distinct_with_few_columns_not_flagged(self):
-        """Test that DISTINCT with 2-3 columns is not flagged."""
-        sql = "SELECT DISTINCT name, email FROM users"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_select_distinct_overuse is False
 
 
 class TestQualityScoring:
@@ -632,12 +516,11 @@ class TestComplexQueries:
         
         assert result.parseable is True
         assert result.total_antipatterns >= 3
-        # Should detect: SELECT *, function in WHERE, leading wildcard, NOT IN, unbounded
+        # Should detect: SELECT *, function in WHERE, leading wildcard, NOT IN
         assert result.has_select_star is True
         assert result.has_function_in_where is True
         assert result.has_leading_wildcard_like is True
         assert result.has_not_in_nullable is True
-        assert result.has_unbounded_query is True
 
     def test_worst_case_query(self):
         """Test query with many severe antipatterns."""
@@ -882,20 +765,6 @@ class TestNoFalsePositives:
 class TestImprovedDetections:
     """Test improved detection logic to prevent false positives."""
 
-    def test_subquery_without_limit_not_flagged(self):
-        """Test that subqueries without LIMIT are not flagged (only top-level)."""
-        sql = """
-        SELECT u.id, u.name
-        FROM users u
-        WHERE u.status IN (SELECT status FROM valid_statuses WHERE active = 1)
-        LIMIT 100
-        """
-        result = detect_antipatterns(sql)
-        
-        # Should NOT flag unbounded_query because subquery doesn't need LIMIT
-        # and outer query has LIMIT
-        assert result.has_unbounded_query is False
-
     def test_subquery_with_joins_not_implicit_join(self):
         """Test that JOINs in subqueries don't trigger implicit join detection."""
         sql = """
@@ -914,27 +783,6 @@ class TestImprovedDetections:
         # Should NOT flag implicit_join
         assert result.has_implicit_join is False
 
-    def test_joins_in_nested_queries_counted_separately(self):
-        """Test that JOINs in nested queries are counted per SELECT."""
-        sql = """
-        SELECT u.id, u.name
-        FROM users u
-        JOIN orders o1 ON u.id = o1.user_id
-        JOIN orders o2 ON u.id = o2.user_id
-        WHERE u.id IN (
-            SELECT c.user_id
-            FROM customers c
-            JOIN addresses a1 ON c.id = a1.customer_id
-            JOIN addresses a2 ON c.id = a2.customer_id
-            JOIN addresses a3 ON c.id = a3.customer_id
-        )
-        LIMIT 10
-        """
-        result = detect_antipatterns(sql)
-        
-        # Neither outer (2 JOINs) nor inner (3 JOINs) should trigger too_many_joins
-        assert result.has_too_many_joins is False
-
     def test_simple_subquery_not_correlated(self):
         """Test that simple subqueries without table correlation are not flagged."""
         sql = """
@@ -947,22 +795,6 @@ class TestImprovedDetections:
         
         # Should NOT flag correlated_subquery (improved heuristic)
         assert result.has_correlated_subquery is False
-
-    def test_distinct_with_where_columns_not_overuse(self):
-        """Test that DISTINCT overuse counts only SELECT columns, not WHERE."""
-        sql = """
-        SELECT DISTINCT id, name, email
-        FROM users
-        WHERE status = 'active'
-        AND created_at > '2024-01-01'
-        AND country = 'US'
-        AND age > 18
-        LIMIT 100
-        """
-        result = detect_antipatterns(sql)
-        
-        # Only 3 columns in SELECT, should NOT flag distinct_overuse (< 5)
-        assert result.has_select_distinct_overuse is False
 
     def test_exists_with_literal_not_flagged(self):
         """Test that EXISTS with SELECT 1 is not flagged."""
@@ -990,19 +822,6 @@ class TestImprovedDetections:
         
         # All literals, should NOT flag
         assert result.has_select_in_exists is False
-
-    def test_union_with_limit_not_unbounded(self):
-        """Test that UNION with LIMIT is not flagged as unbounded."""
-        sql = """
-        SELECT id, name FROM users WHERE status = 'active'
-        UNION
-        SELECT id, name FROM admins WHERE status = 'active'
-        LIMIT 100
-        """
-        result = detect_antipatterns(sql)
-        
-        # Has LIMIT, should not be unbounded
-        assert result.has_unbounded_query is False
 
     def test_correlated_exists_properly_detected(self):
         """Test that truly correlated EXISTS is detected."""
@@ -1039,7 +858,6 @@ class TestAntipatternConfiguration:
         
         # Should not detect anything
         assert result.has_select_star is False
-        assert result.has_unbounded_query is False
         assert result.total_antipatterns == 0
 
     def test_enabled_patterns_detected(self):

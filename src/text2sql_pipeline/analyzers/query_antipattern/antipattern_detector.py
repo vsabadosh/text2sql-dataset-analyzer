@@ -6,7 +6,6 @@ This module detects common SQL antipatterns and code smells:
 - = NULL comparison (correctness)
 - Cartesian product (missing JOIN) - correctness
 - Missing GROUP BY (correctness)
-- HAVING without GROUP BY (correctness)
 - Functions in WHERE clause (index prevention)
 - NOT IN with nullable columns (correctness)
 - Leading wildcard LIKE (index prevention)
@@ -14,11 +13,7 @@ This module detects common SQL antipatterns and code smells:
 - Redundant DISTINCT with GROUP BY (performance)
 - UNION instead of UNION ALL (performance)
 - Correlated subqueries (performance)
-- Too many JOINs (complexity)
-- DISTINCT overuse (performance, design smell)
-- Complex OR conditions (index inefficiency)
 - SELECT * (maintainability, performance)
-- Unbounded SELECT queries (resource exhaustion)
 - SELECT columns in EXISTS (cosmetic)
 """
 
@@ -38,7 +33,6 @@ DEFAULT_CONFIG = {
         AntipatternPattern.NULL_COMPARISON_EQUALS,
         AntipatternPattern.CARTESIAN_PRODUCT,
         AntipatternPattern.MISSING_GROUP_BY,
-        AntipatternPattern.HAVING_WITHOUT_GROUP_BY,
     ],
     "high": [
         AntipatternPattern.FUNCTION_IN_WHERE,
@@ -50,11 +44,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.REDUNDANT_DISTINCT,
         AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL,
         AntipatternPattern.CORRELATED_SUBQUERY,
-        AntipatternPattern.TOO_MANY_JOINS,
-        AntipatternPattern.DISTINCT_OVERUSE,
-        AntipatternPattern.COMPLEX_OR_CONDITIONS,
         AntipatternPattern.SELECT_STAR,
-        AntipatternPattern.UNBOUNDED_QUERY,
         AntipatternPattern.SELECT_IN_EXISTS,
     ]
 }
@@ -126,8 +116,6 @@ def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severi
         _detect_cartesian_product(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.MISSING_GROUP_BY in enabled_patterns:
         _detect_missing_group_by(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.HAVING_WITHOUT_GROUP_BY in enabled_patterns:
-        _detect_having_without_group_by(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.FUNCTION_IN_WHERE in enabled_patterns:
         _detect_function_in_where(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.NOT_IN_NULLABLE in enabled_patterns:
@@ -142,16 +130,8 @@ def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severi
         _detect_union_instead_of_union_all(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.CORRELATED_SUBQUERY in enabled_patterns:
         _detect_correlated_subquery(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.TOO_MANY_JOINS in enabled_patterns:
-        _detect_too_many_joins(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.DISTINCT_OVERUSE in enabled_patterns:
-        _detect_distinct_overuse(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.COMPLEX_OR_CONDITIONS in enabled_patterns:
-        _detect_complex_or_conditions(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.SELECT_STAR in enabled_patterns:
         _detect_select_star(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.UNBOUNDED_QUERY in enabled_patterns:
-        _detect_unbounded_query(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.SELECT_IN_EXISTS in enabled_patterns:
         _detect_select_in_exists(ast, antipatterns, features, pattern_severity_map)
     
@@ -329,25 +309,6 @@ def _detect_missing_group_by(ast: exp.Expression, antipatterns: List[Antipattern
                 severity=severity,
                 message="Aggregate functions with non-aggregated columns require GROUP BY (SQLite allows but returns arbitrary values)",
                 location="SELECT with aggregates"
-            ))
-            break
-
-
-def _detect_having_without_group_by(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect HAVING clause without GROUP BY (non-standard SQL)."""
-    pattern = AntipatternPattern.HAVING_WITHOUT_GROUP_BY.value
-    severity = severity_map.get(pattern, "critical")
-    for select in ast.find_all(exp.Select):
-        has_having = select.args.get("having") is not None
-        has_group_by = select.args.get("group") is not None
-        
-        if has_having and not has_group_by:
-            features.has_having_without_group_by = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="HAVING clause without GROUP BY is non-standard SQL (some databases allow, others reject)",
-                location="HAVING clause"
             ))
             break
 
@@ -551,59 +512,6 @@ def _get_column_table(node: exp.Expression) -> Optional[str]:
     return None
 
 
-def _detect_unbounded_query(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect SELECT queries without LIMIT (resource exhaustion risk)."""
-    pattern = AntipatternPattern.UNBOUNDED_QUERY.value
-    severity = severity_map.get(pattern, "medium")
-    
-    # Only check top-level SELECT, not subqueries
-    # Top-level means it's the root of the AST or not nested in another SELECT
-    
-    if isinstance(ast, exp.Select):
-        # This is a top-level SELECT
-        limits = list(ast.find_all(exp.Limit))
-        if not limits:
-            features.has_unbounded_query = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="SELECT without LIMIT: consider adding LIMIT for large datasets",
-                location="SELECT statement"
-            ))
-    elif isinstance(ast, (exp.Union, exp.Intersect, exp.Except)):
-        # For set operations, check if the whole operation has LIMIT
-        limits = list(ast.find_all(exp.Limit))
-        if not limits:
-            features.has_unbounded_query = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="Query without LIMIT: consider adding LIMIT for large datasets",
-                location="Query statement"
-            ))
-
-
-def _detect_too_many_joins(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect queries with too many JOINs (complexity smell)."""
-    pattern = AntipatternPattern.TOO_MANY_JOINS.value
-    severity = severity_map.get(pattern, "medium")
-    # Check JOINs per SELECT statement, not globally
-    for select in ast.find_all(exp.Select):
-        # Count JOINs directly in this SELECT (not in nested subqueries)
-        joins_in_select = select.args.get("joins", [])
-        join_count = len([j for j in joins_in_select if isinstance(j, exp.Join)])
-        
-        if join_count >= 5:
-            features.has_too_many_joins = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message=f"Query has {join_count} JOINs: consider refactoring for maintainability",
-                location="JOIN clauses"
-            ))
-            break  # Report once per query
-
-
 def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect DISTINCT with GROUP BY (redundant)."""
     pattern = AntipatternPattern.REDUNDANT_DISTINCT.value
@@ -668,53 +576,6 @@ def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[A
                 location="UNION operation"
             ))
             break
-
-
-def _detect_complex_or_conditions(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect multiple OR conditions in WHERE (index inefficiency)."""
-    pattern = AntipatternPattern.COMPLEX_OR_CONDITIONS.value
-    severity = severity_map.get(pattern, "medium")
-    for where in ast.find_all(exp.Where):
-        or_nodes = list(where.find_all(exp.Or))
-        if len(or_nodes) >= 3:
-            features.has_complex_or_conditions = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message=f"WHERE clause has {len(or_nodes)} OR conditions: may prevent efficient index usage",
-                location="WHERE clause"
-            ))
-            break
-
-
-def _detect_distinct_overuse(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect DISTINCT with many columns (performance and design smell)."""
-    pattern = AntipatternPattern.DISTINCT_OVERUSE.value
-    severity = severity_map.get(pattern, "medium")
-    for select in ast.find_all(exp.Select):
-        has_distinct = any(select.find_all(exp.Distinct))
-        if has_distinct:
-            # Count only columns in SELECT expressions, not in WHERE/JOIN/etc
-            select_expressions = select.args.get("expressions", [])
-            column_count = 0
-            
-            for expr in select_expressions:
-                # Count direct columns and columns in simple expressions
-                if isinstance(expr, exp.Column):
-                    column_count += 1
-                else:
-                    # Count columns in the expression (e.g., aliased columns)
-                    column_count += len(list(expr.find_all(exp.Column)))
-            
-            if column_count >= 5:
-                features.has_select_distinct_overuse = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message=f"DISTINCT with {column_count} columns: review data model or use GROUP BY",
-                    location="SELECT DISTINCT"
-                ))
-                break
 
 
 # ============================================================================

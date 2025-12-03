@@ -9,7 +9,7 @@ load:
   name: jsonl # jsonl | json | csv | hf
   params:
     path: data_examples/spider-tiny-9.jsonl
- 
+
 # # Example using HuggingFace datasets (with optional token for private repos)
 # load:
 #   name: hf
@@ -56,70 +56,74 @@ analyze:
   - name: query_antipattern_analyzer
     params:
       enabled: true
-      # Antipattern configuration by SQL dialect and severity
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # ANTIPATTERN SEVERITY LEVELS
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # 
+      # 🔴 CRITICAL: Always produces WRONG RESULTS or causes DATA SAFETY issues
+      #    → Must be fixed immediately
+      #    → Query returns incorrect data or risks data loss
+      # 
+      # ⚠️  HIGH: Produces WRONG RESULTS in specific cases (subtle semantic errors)
+      #    → Dangerous patterns that fail under certain conditions
+      #    → Query works in some cases but breaks with NULL, edge cases, etc.
+      # 
+      # 🔵 MEDIUM: Correct results but PERFORMANCE or CODE QUALITY issues
+      #    → Optimization opportunities (slow queries, index-breaking)
+      #    → Redundant operations that waste resources
+      #    → Modern SQL best practices violations
+      # 
+      # 🟢 LOW: STYLE preferences or CONTEXT-DEPENDENT patterns
+      #    → Acceptable in Text2SQL benchmarks
+      #    → May be problematic in production but not for research datasets
+      # ═══════════════════════════════════════════════════════════════════════════════      
       antipatterns:
         sqlite:
           critical:
-            # Safety-critical: Prevent data loss
-            - unsafe_update_delete          # UPDATE/DELETE without WHERE clause
-            
-            # Correctness: Fundamental SQL errors
-            - cartesian_product              # Missing JOIN condition creates exponential results
-            - null_comparison_equals         # = NULL instead of IS NULL (always false)
-            - missing_group_by               # Aggregates without proper GROUP BY
-            - having_without_group_by        # HAVING clause requires GROUP BY
-          
+            # ❌ ALWAYS WRONG RESULTS
+            - null_comparison_equals         # `= NULL` instead of `IS NULL` (always evaluates to NULL/false)
+            - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
+            # 💥 DATA SAFETY
+            - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
+            # 📊 UNINTENDED RESULTS
+            - cartesian_product              # Missing JOIN condition (exponential result explosion)
           high:
-            # Correctness: Subtle semantic errors
-            - not_in_nullable                # NOT IN with nullable subquery (NULL propagation issues)
-          
-            # Code quality: Modern SQL standards
-            - implicit_join                  # Comma-separated tables instead of explicit JOIN
-            
-            # Performance: Index-breaking patterns
-            - function_in_where              # Functions on indexed columns in WHERE clause
-          
+            # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
+            - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
+            - implicit_join                  # Comma-joins risk accidental cartesian products (missing WHERE)
           medium:
-            # Query optimization opportunities
-            - correlated_subquery            # Often inefficient, may have better alternatives
-            - union_instead_of_union_all     # UNION when duplicates aren't possible/needed
-            - leading_wildcard_like          # LIKE '%pattern' prevents index usage
-            
-            # Redundancy detection
-            - redundant_distinct             # DISTINCT unnecessary with GROUP BY
-            - select_in_exists               # SELECT columns in EXISTS (only checks presence)
-          
+            # 🐌 PERFORMANCE KILLERS
+            - function_in_where              # Functions on indexed columns prevent index usage
+            - correlated_subquery            # Row-by-row execution (often has better alternatives)
+            - leading_wildcard_like          # `LIKE '%pattern'` forces full table scan
+            - union_instead_of_union_all     # UNION deduplicates when not needed (extra sort cost)
+            # ♻️  REDUNDANCY & CODE QUALITY
+            - redundant_distinct             # DISTINCT with GROUP BY (duplicate elimination already guaranteed)
+            - select_in_exists               # `SELECT col` in EXISTS (only checks row presence, wastes I/O)
           low:
-            # Style/context-dependent (disabled by default for Text2SQL)
-            - select_star                  # Often acceptable in Text2SQL benchmarks
-            # - unbounded_query              # Many valid queries don't need LIMIT
-            # - too_many_joins               # Depends on schema complexity
-            # - distinct_overuse             # Context-dependent
-            # - complex_or_conditions        # Sometimes necessary     
+            # 📝 STYLE / ACCEPTABLE IN TEXT2SQL BENCHMARKS
+            - select_star                    # `SELECT *` (common in research datasets, avoided in production)
         postgresql:
           critical:
-            - unsafe_update_delete          
-            - cartesian_product            
-            - null_comparison_equals       
-            - missing_group_by             
-            - having_without_group_by                  
+            - null_comparison_equals         # `= NULL` instead of `IS NULL`
+            - missing_group_by               # Non-aggregated columns without GROUP BY
+            - unsafe_update_delete           # UPDATE/DELETE without WHERE
+            - cartesian_product              # Missing JOIN condition
+          
           high:
-            - not_in_nullable               
-            - implicit_join 
-            - function_in_where                        
+            - not_in_nullable                # `NOT IN` with nullable subquery
+            - implicit_join                  # Comma-joins (error-prone)
+          
           medium:
-            - correlated_subquery           
-            - union_instead_of_union_all   
-            - leading_wildcard_like         
-            - redundant_distinct            
-            - select_in_exists                     
+            - function_in_where              # Index-breaking functions in WHERE
+            - correlated_subquery            # Inefficient row-by-row execution
+            - union_instead_of_union_all     # Unnecessary deduplication cost
+            - leading_wildcard_like          # Full table scan pattern
+            - redundant_distinct             # DISTINCT + GROUP BY redundancy
+            - select_in_exists               # Wasteful column selection in EXISTS
+          
           low:
-            # Style/context-dependent (disabled by default for Text2SQL)
-            # - select_star                  
-            # - unbounded_query              
-            # - too_many_joins             
-            # - distinct_overuse            
-            # - complex_or_conditions       
+            - select_star                    # Style preference (acceptable in Text2SQL)
 
 
   # LLM-as-a-Judge semantic validation (optional)
@@ -172,6 +176,7 @@ analyze:
             # - "${GEMINI_API_KEY_1}"
             # - "${GEMINI_API_KEY_2}"
             # - "${GEMINI_API_KEY_3}"
+
           models:
             - name: gemini-2.5-pro
               weight: 1.0
@@ -184,7 +189,7 @@ analyze:
         #       temperature: 0.0  # Per-model temperature setting
 
 output:
-  dataset_name: spiderTiny9
+  dataset_name: Spider_TEST_TINY_03_12_25
   # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)

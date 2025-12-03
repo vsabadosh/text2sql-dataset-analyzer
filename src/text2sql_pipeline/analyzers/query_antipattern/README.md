@@ -92,7 +92,7 @@ antipatterns:
   postgresql:
     critical: [unsafe_update_delete, null_comparison_equals, ...]
     high: [function_in_where, not_in_nullable, ...]
-    medium: [distinct_overuse, ...]
+    medium: [select_star, ...]
     # correlated_subquery NOT included - PostgreSQL optimizes well
 ```
 
@@ -146,7 +146,6 @@ for ap in result.antipatterns:
 - `null_comparison_equals` - `= NULL` instead of `IS NULL`
 - `cartesian_product` - Missing JOIN conditions
 - `missing_group_by` - Aggregates without GROUP BY
-- `having_without_group_by` - HAVING without GROUP BY
 
 ### ⚠️ High (Performance/Correctness)
 - `function_in_where` - Functions on columns in WHERE
@@ -158,11 +157,7 @@ for ap in result.antipatterns:
 - `redundant_distinct` - DISTINCT with GROUP BY
 - `union_instead_of_union_all` - UNION when UNION ALL works
 - `correlated_subquery` - Correlated subqueries
-- `too_many_joins` - 5+ JOINs
-- `distinct_overuse` - DISTINCT with 5+ columns
-- `complex_or_conditions` - 3+ OR conditions
 - `select_star` - SELECT *
-- `unbounded_query` - No LIMIT
 - `select_in_exists` - SELECT columns in EXISTS
 
 ## Files

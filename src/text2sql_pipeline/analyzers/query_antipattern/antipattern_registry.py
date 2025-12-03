@@ -33,7 +33,6 @@ class AntipatternPattern(str, Enum):
     NULL_COMPARISON_EQUALS = "null_comparison_equals"
     CARTESIAN_PRODUCT = "cartesian_product"
     MISSING_GROUP_BY = "missing_group_by"
-    HAVING_WITHOUT_GROUP_BY = "having_without_group_by"
     
     # High severity antipatterns (performance/correctness)
     FUNCTION_IN_WHERE = "function_in_where"
@@ -45,11 +44,7 @@ class AntipatternPattern(str, Enum):
     REDUNDANT_DISTINCT = "redundant_distinct"
     UNION_INSTEAD_OF_UNION_ALL = "union_instead_of_union_all"
     CORRELATED_SUBQUERY = "correlated_subquery"
-    TOO_MANY_JOINS = "too_many_joins"
-    DISTINCT_OVERUSE = "distinct_overuse"
-    COMPLEX_OR_CONDITIONS = "complex_or_conditions"
     SELECT_STAR = "select_star"
-    UNBOUNDED_QUERY = "unbounded_query"
     SELECT_IN_EXISTS = "select_in_exists"
 
 
@@ -61,7 +56,6 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.NULL_COMPARISON_EQUALS: "= NULL comparison",
     AntipatternPattern.CARTESIAN_PRODUCT: "Cartesian product",
     AntipatternPattern.MISSING_GROUP_BY: "Missing GROUP BY",
-    AntipatternPattern.HAVING_WITHOUT_GROUP_BY: "HAVING without GROUP BY",
     AntipatternPattern.FUNCTION_IN_WHERE: "Function in WHERE",
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
@@ -69,11 +63,7 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.REDUNDANT_DISTINCT: "Redundant DISTINCT",
     AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL: "UNION instead of UNION ALL",
     AntipatternPattern.CORRELATED_SUBQUERY: "Correlated subquery",
-    AntipatternPattern.TOO_MANY_JOINS: "Too many JOINs (5+)",
-    AntipatternPattern.DISTINCT_OVERUSE: "DISTINCT overuse",
-    AntipatternPattern.COMPLEX_OR_CONDITIONS: "Complex OR conditions",
     AntipatternPattern.SELECT_STAR: "SELECT *",
-    AntipatternPattern.UNBOUNDED_QUERY: "Unbounded SELECT",
     AntipatternPattern.SELECT_IN_EXISTS: "SELECT in EXISTS",
 }
 
@@ -86,7 +76,6 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.NULL_COMPARISON_EQUALS: "has_null_comparison_equals",
     AntipatternPattern.CARTESIAN_PRODUCT: "has_cartesian_product",
     AntipatternPattern.MISSING_GROUP_BY: "has_missing_group_by",
-    AntipatternPattern.HAVING_WITHOUT_GROUP_BY: "has_having_without_group_by",
     AntipatternPattern.FUNCTION_IN_WHERE: "has_function_in_where",
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",
@@ -94,11 +83,7 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.REDUNDANT_DISTINCT: "has_redundant_distinct",
     AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL: "has_union_instead_of_union_all",
     AntipatternPattern.CORRELATED_SUBQUERY: "has_correlated_subquery",
-    AntipatternPattern.TOO_MANY_JOINS: "has_too_many_joins",
-    AntipatternPattern.DISTINCT_OVERUSE: "has_select_distinct_overuse",
-    AntipatternPattern.COMPLEX_OR_CONDITIONS: "has_complex_or_conditions",
     AntipatternPattern.SELECT_STAR: "has_select_star",
-    AntipatternPattern.UNBOUNDED_QUERY: "has_unbounded_query",
     AntipatternPattern.SELECT_IN_EXISTS: "has_select_in_exists",
 }
 
