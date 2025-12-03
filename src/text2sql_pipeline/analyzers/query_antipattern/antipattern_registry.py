@@ -22,6 +22,19 @@ SEVERITY_DISPLAY: Dict[str, Dict[str, any]] = {
     # "info": {"emoji": "ℹ️", "label": "Info", "order": 5},
 }
 
+# Default severity penalties for quality score calculation
+# These are used if penalties are not specified in config
+# Quality Score = 100 - sum(penalty * count_at_severity)
+DEFAULT_SEVERITY_PENALTIES: Dict[str, int] = {
+    "critical": 30,
+    "high": 15,
+    "medium": 5,
+    "low": 2,
+}
+
+# Default penalty for custom severity levels not in the mapping
+DEFAULT_CUSTOM_PENALTY: int = 10
+
 
 class AntipatternPattern(str, Enum):
     """Enumeration of all SQL antipattern patterns."""
@@ -210,4 +223,50 @@ def select_config_for_dialect(antipatterns_config: Dict, dialect: str) -> Dict:
     else:
         # No matching dialect found
         return None
+
+
+def get_severity_penalties(penalties_config: Dict[str, int] = None) -> Dict[str, int]:
+    """
+    Get severity penalties for quality score calculation.
+    
+    Args:
+        penalties_config: Optional custom penalties from config.
+                         If None or empty, returns default penalties.
+        
+    Returns:
+        Dict mapping severity level to penalty points.
+        
+    Examples:
+        >>> get_severity_penalties(None)
+        {"critical": 30, "high": 15, "medium": 5, "low": 2, ...}
+        
+        >>> get_severity_penalties({"critical": 50, "high": 20})
+        {"critical": 50, "high": 20, "medium": 5, "low": 2, ...}  # Merged with defaults
+    """
+    # Start with defaults
+    penalties = DEFAULT_SEVERITY_PENALTIES.copy()
+    
+    # Override with config values if provided
+    if penalties_config:
+        penalties.update(penalties_config)
+    
+    return penalties
+
+
+def get_penalty_for_severity(severity: str, penalties: Dict[str, int] = None) -> int:
+    """
+    Get penalty points for a specific severity level.
+    
+    Args:
+        severity: Severity level name (e.g., "critical", "high")
+        penalties: Optional custom penalties dict. If None, uses defaults.
+        
+    Returns:
+        Penalty points for the severity level.
+        Returns DEFAULT_CUSTOM_PENALTY for unknown severity levels.
+    """
+    if penalties is None:
+        penalties = DEFAULT_SEVERITY_PENALTIES
+    
+    return penalties.get(severity, DEFAULT_CUSTOM_PENALTY)
 

@@ -57,6 +57,17 @@ analyze:
     params:
       enabled: true
       # ═══════════════════════════════════════════════════════════════════════════════
+      # SEVERITY PENALTIES (for quality score calculation)
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # Quality Score = 100 - sum(penalty * count_of_antipatterns_at_severity)
+      # Customize penalties based on your dataset's quality requirements
+      penalties:
+        critical: 30    # Severe: always wrong results
+        high: 15        # Dangerous: wrong in edge cases
+        medium: 5       # Performance/quality issues
+        low: 2          # Style preferences
+        # Custom severity levels (if you define your own):
+      # ═══════════════════════════════════════════════════════════════════════════════
       # ANTIPATTERN SEVERITY LEVELS
       # ═══════════════════════════════════════════════════════════════════════════════
       # 

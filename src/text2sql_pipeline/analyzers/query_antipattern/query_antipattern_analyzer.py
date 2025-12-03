@@ -38,20 +38,29 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
     
     Provides:
     - Individual antipattern detection with severity levels
-    - Quality score (0-100)
+    - Quality score (0-100) with configurable severity penalties
     - Quality classification (excellent/good/fair/poor)
     """
     
     name = "query_antipattern_analyzer"
     INJECT = ["db_manager"]  # Declare dependency injection requirements
 
-    def __init__(self, db_manager: DbManager, enabled: bool, antipatterns: dict = None) -> None:
+    def __init__(
+        self, 
+        db_manager: DbManager, 
+        enabled: bool, 
+        antipatterns: dict = None,
+        penalties: dict = None
+    ) -> None:
         self.db_dialect = db_manager.get_sqlglot_dialect()
         self.enabled = enabled
         
         # Use helper function to select config for dialect
         # This keeps the analyzer itself dialect-agnostic - it just uses a helper
         self.antipattern_config = select_config_for_dialect(antipatterns, self.db_dialect)
+        
+        # Store penalties config (will be merged with defaults in detector)
+        self.penalties_config = penalties
 
     # --------------------------- public API ---------------------------
 
@@ -151,11 +160,12 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             return features, stats, tags, False, "Empty or null SQL"
         
         try:
-            # Pass antipattern configuration to detector
+            # Pass antipattern configuration and penalties to detector
             features = detect_antipatterns(
                 item.sql, 
                 self.db_dialect,
-                config=self.antipattern_config
+                config=self.antipattern_config,
+                penalties=self.penalties_config
             )
             ok = features.parseable
             return features, stats, tags, ok, None if ok else "Unparseable SQL"

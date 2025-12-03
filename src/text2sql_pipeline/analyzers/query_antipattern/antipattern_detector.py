@@ -23,7 +23,12 @@ import sqlglot
 from sqlglot import exp
 
 from .metrics import QueryAntipatternFeatures, AntipatternInstance
-from .antipattern_registry import AntipatternPattern
+from .antipattern_registry import (
+    AntipatternPattern,
+    DEFAULT_SEVERITY_PENALTIES,
+    DEFAULT_CUSTOM_PENALTY,
+    get_severity_penalties,
+)
 
 # Default antipattern configuration (enables all antipatterns for backwards compatibility)
 # In production, use dialect-specific configs from pipeline.yaml
@@ -53,7 +58,8 @@ DEFAULT_CONFIG = {
 def detect_antipatterns(
     sql: str, 
     dialect: Optional[str] = "sqlite",
-    config: Optional[Dict[str, List[str]]] = None
+    config: Optional[Dict[str, List[str]]] = None,
+    penalties: Optional[Dict[str, int]] = None
 ) -> QueryAntipatternFeatures:
     """
     Pure public API for antipattern detection.
@@ -63,6 +69,9 @@ def detect_antipatterns(
         dialect: SQL dialect for parsing (default: sqlite)
         config: Antipattern configuration dict with keys: critical, high, medium, optional, disabled
                 If None, uses DEFAULT_CONFIG
+        penalties: Optional dict mapping severity levels to penalty points for scoring.
+                   If None, uses DEFAULT_SEVERITY_PENALTIES from registry.
+                   Example: {"critical": 30, "high": 15, "medium": 5, "low": 2}
         
     Returns:
         QueryAntipatternFeatures with detected antipatterns
@@ -79,6 +88,9 @@ def detect_antipatterns(
     if config is None:
         config = DEFAULT_CONFIG
     
+    # Get penalties (merge with defaults if provided)
+    effective_penalties = get_severity_penalties(penalties)
+    
     # Build set of enabled antipatterns and pattern→severity mapping
     # Iterate through all severity levels in config (don't hardcode them)
     enabled_patterns = set()
@@ -91,10 +103,15 @@ def detect_antipatterns(
                 enabled_patterns.add(pattern)
                 pattern_severity_map[pattern] = severity_level
     
-    return _analyze_ast(ast, enabled_patterns, pattern_severity_map)
+    return _analyze_ast(ast, enabled_patterns, pattern_severity_map, effective_penalties)
 
 
-def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severity_map: Dict[str, str]) -> QueryAntipatternFeatures:
+def _analyze_ast(
+    ast: exp.Expression, 
+    enabled_patterns: Set[str], 
+    pattern_severity_map: Dict[str, str],
+    penalties: Dict[str, int]
+) -> QueryAntipatternFeatures:
     """
     Analyze parsed AST and detect antipatterns.
     
@@ -102,6 +119,7 @@ def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severi
         ast: Parsed SQL AST
         enabled_patterns: Set of enabled pattern names
         pattern_severity_map: Mapping of pattern name to severity level
+        penalties: Mapping of severity level to penalty points for scoring
     """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
@@ -142,8 +160,8 @@ def _analyze_ast(ast: exp.Expression, enabled_patterns: Set[str], pattern_severi
     # NOTE: Severity counts are calculated dynamically from JSON in reports
     features.total_antipatterns = len(antipatterns)
     
-    # Calculate quality score and level
-    features.quality_score = _calculate_quality_score(features)
+    # Calculate quality score and level using config-provided penalties
+    features.quality_score = _calculate_quality_score(features, penalties)
     features.quality_level = _classify_quality(features.quality_score)
     
     return features
@@ -582,37 +600,27 @@ def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[A
 # Scoring and Classification
 # ============================================================================
 
-def _calculate_quality_score(features: QueryAntipatternFeatures) -> int:
+def _calculate_quality_score(features: QueryAntipatternFeatures, penalties: Dict[str, int]) -> int:
     """
     Calculate query quality score (0-100).
     
     100 = perfect (no antipatterns)
     0 = very poor (many serious issues)
     
-    Scoring by severity (works with any custom severity levels):
-    - critical: -30 points
-    - high: -15 points
-    - medium: -5 points
-    - low: -2 points
-    - other severities: -10 points (default)
+    Args:
+        features: QueryAntipatternFeatures with detected antipatterns
+        penalties: Dict mapping severity level to penalty points.
+                   Loaded from config, with defaults from DEFAULT_SEVERITY_PENALTIES.
+                   Example: {"critical": 30, "high": 15, "medium": 5, "low": 2}
+    
+    Returns:
+        Quality score from 0 to 100
     """
     score = 100
     
-    # Severity penalty mapping
-    severity_penalties = {
-        "critical": 30,
-        "high": 15,
-        "medium": 5,
-        "low": 2,
-        # Legacy support
-        "error": 20,
-        "warning": 10,
-        "info": 3,
-    }
-    
-    # Deduct points based on antipatterns' severity
+    # Deduct points based on antipatterns' severity using config-provided penalties
     for ap in features.antipatterns:
-        penalty = severity_penalties.get(ap.severity, 10)  # Default penalty for custom severities
+        penalty = penalties.get(ap.severity, DEFAULT_CUSTOM_PENALTY)
         score -= penalty
     
     # Ensure score stays in valid range
