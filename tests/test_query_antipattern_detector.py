@@ -841,6 +841,225 @@ class TestImprovedDetections:
         assert result.parseable is True
 
 
+class TestMissingGroupBySubqueryFix:
+    """Test missing GROUP BY detection with subqueries (bug fix)."""
+    
+    def test_aggregate_only_in_subquery_not_flagged(self):
+        """Test that aggregate in subquery only is not flagged (bug fix)."""
+        # This was the original bug: aggregate in WHERE subquery incorrectly flagged
+        sql = "SELECT song_name FROM singer WHERE age > (SELECT AVG(age) FROM singer)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+        assert result.parseable is True
+        assert result.total_antipatterns == 0 or not any(
+            ap.pattern == "missing_group_by" for ap in result.antipatterns
+        )
+    
+    def test_aggregate_in_select_with_column_flagged(self):
+        """Test that aggregate in SELECT with non-aggregated column is flagged."""
+        sql = "SELECT singer_name, AVG(age) FROM singer"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is True
+        assert result.total_antipatterns >= 1
+        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)
+    
+    def test_aggregate_with_group_by_not_flagged(self):
+        """Test that aggregate with proper GROUP BY is not flagged."""
+        sql = "SELECT singer_name, AVG(age) FROM singer GROUP BY singer_name"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_scalar_aggregate_not_flagged(self):
+        """Test that scalar aggregate (no columns) is not flagged."""
+        sql = "SELECT AVG(age), COUNT(*), MAX(age) FROM singer"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_no_aggregates_not_flagged(self):
+        """Test that query without aggregates is not flagged."""
+        sql = "SELECT name, age FROM singer WHERE age > 30"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_aggregate_in_having_with_subquery(self):
+        """Test aggregate in HAVING clause with subquery in WHERE."""
+        sql = """
+        SELECT singer_name, COUNT(*) 
+        FROM singer 
+        WHERE age > (SELECT AVG(age) FROM singer)
+        GROUP BY singer_name
+        HAVING COUNT(*) > 1
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_multiple_subqueries_with_aggregates(self):
+        """Test query with aggregates in multiple subqueries but not in main SELECT."""
+        sql = """
+        SELECT name 
+        FROM singer 
+        WHERE age > (SELECT AVG(age) FROM singer)
+        AND song_count < (SELECT MAX(song_count) FROM singer)
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_aggregate_in_select_and_subquery(self):
+        """Test aggregate in both SELECT and subquery - should be flagged if no GROUP BY."""
+        sql = """
+        SELECT singer_name, AVG(age) 
+        FROM singer 
+        WHERE age > (SELECT AVG(age) FROM singer WHERE country = 'USA')
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is True
+    
+    def test_column_in_aggregate_with_subquery_not_flagged(self):
+        """Test column inside aggregate with subquery - should not be flagged."""
+        sql = """
+        SELECT AVG(age) 
+        FROM singer 
+        WHERE age > (SELECT AVG(age) FROM singer)
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_missing_group_by is False
+    
+    def test_nested_subquery_with_aggregate(self):
+        """Test nested subquery with aggregates - outer SELECT has no aggregate."""
+        sql = """
+        SELECT name 
+        FROM singer 
+        WHERE country IN (
+            SELECT country 
+            FROM singer 
+            GROUP BY country 
+            HAVING COUNT(*) > (SELECT AVG(cnt) FROM (SELECT COUNT(*) as cnt FROM singer GROUP BY country))
+        )
+        """
+        result = detect_antipatterns(sql)
+        
+        # Outer SELECT has no aggregates, should not be flagged
+        assert result.has_missing_group_by is False
+    
+    def test_subquery_in_from_clause(self):
+        """Test subquery in FROM clause with aggregates."""
+        sql = """
+        SELECT s.name, s.avg_age
+        FROM (SELECT country, AVG(age) as avg_age FROM singer GROUP BY country) s
+        WHERE s.avg_age > 30
+        """
+        result = detect_antipatterns(sql)
+        
+        # Outer SELECT has no aggregates, subquery has proper GROUP BY
+        assert result.has_missing_group_by is False
+    
+    def test_correlated_subquery_with_aggregate(self):
+        """Test correlated subquery with aggregate in WHERE."""
+        sql = """
+        SELECT s1.name 
+        FROM singer s1 
+        WHERE s1.age > (SELECT AVG(s2.age) FROM singer s2 WHERE s2.country = s1.country)
+        """
+        result = detect_antipatterns(sql)
+        
+        # Outer SELECT has no aggregates
+        assert result.has_missing_group_by is False
+
+    def test_missing_group_by_detected_in_correlated_subquery(self):
+        """Test correlated subquery with aggregate in WHERE."""
+        sql = """
+        SELECT s1.name 
+        FROM singer s1 
+        WHERE s1.age > (SELECT name, AVG(s2.age) FROM singer s2 WHERE s2.country = s1.country)
+        """
+        result = detect_antipatterns(sql)
+        
+        # Outer SELECT has no aggregates
+        assert result.has_missing_group_by is True
+
+    
+    def test_aggregate_in_select_list_subquery(self):
+        """Test aggregate in scalar subquery in SELECT list."""
+        sql = """
+        SELECT name, (SELECT AVG(age) FROM singer) as avg_age
+        FROM singer
+        WHERE age > 25
+        """
+        result = detect_antipatterns(sql)
+        
+        # The aggregate is in a subquery within SELECT, not directly in SELECT
+        # This should NOT be flagged
+        assert result.has_missing_group_by is False
+    
+    def test_multiple_columns_with_aggregate_missing_group_by(self):
+        """Test multiple non-aggregated columns with aggregate."""
+        sql = "SELECT country, city, COUNT(*) FROM singer"
+        result = detect_antipatterns(sql)
+        
+        # Should be flagged: mixing aggregates with multiple non-aggregated columns
+        assert result.has_missing_group_by is True
+    
+    def test_partial_group_by(self):
+        """Test GROUP BY missing one of the columns.
+        
+        Note: Current implementation doesn't validate that all non-aggregated
+        columns are in GROUP BY - it only checks if GROUP BY exists when
+        there are aggregates. This is a known limitation.
+        """
+        sql = "SELECT country, city, COUNT(*) FROM singer GROUP BY country"
+        result = detect_antipatterns(sql)
+        
+        # Current limitation: doesn't detect that city is missing from GROUP BY
+        # The query has GROUP BY, so it's not flagged
+        assert result.has_missing_group_by is False
+
+    def test_window_function_not_treated_as_missing_group_by(self):
+        sql = """
+        SELECT 
+            name,
+            AVG(age) OVER (PARTITION BY country) AS avg_age_by_country
+        FROM singer
+        """
+        result = detect_antipatterns(sql)
+
+        # В більшості проєктів window-функції не вважаються "group aggregate" для цього антипатерну
+        assert result.has_missing_group_by is False
+
+    def test_column_only_inside_aggregate_not_flagged(self):
+        sql = "SELECT SUM(age) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_column_inside_case_with_aggregate_flagged(self):
+        sql = """
+        SELECT 
+            CASE 
+                WHEN age > 30 THEN country 
+                ELSE city 
+            END AS region,
+            COUNT(*) 
+        FROM singer
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_non_aggregate_column_in_expression_flagged(self):
+        sql = "SELECT country || '-' || city, COUNT(*) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True 
+           
 class TestAntipatternConfiguration:
     """Test antipattern configuration and dialect-specific detection."""
 

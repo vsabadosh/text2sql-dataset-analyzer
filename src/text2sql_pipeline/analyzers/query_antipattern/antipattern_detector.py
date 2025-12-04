@@ -275,59 +275,100 @@ def _detect_cartesian_product(ast: exp.Expression, antipatterns: List[Antipatter
         if features.has_cartesian_product:
             break
 
+def _detect_missing_group_by(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """
+    Detect aggregate functions without GROUP BY when non-aggregated columns are selected.
 
-def _detect_missing_group_by(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect aggregate functions without GROUP BY when non-aggregated columns are selected."""
+    Rules:
+    - only consider aggregate functions at the current SELECT level (ignore subqueries);
+    - only consider columns at the current SELECT level (ignore subqueries);
+    - do NOT treat window aggregates (AVG(...) OVER (...)) as group aggregates.
+    """
     pattern = AntipatternPattern.MISSING_GROUP_BY.value
     severity = severity_map.get(pattern, "critical")
+
     for select in ast.find_all(exp.Select):
-        # Check if there are aggregate functions
-        aggregates = list(select.find_all(exp.AggFunc))
+        # --- 1. Aggregates only at the current SELECT level (exclude window aggregates) ---
+        aggregates: List[exp.AggFunc] = []
+        for agg in select.find_all(exp.AggFunc):
+            # Skip window aggregates like AVG(age) OVER (...)
+            if _is_window_aggregate(agg):
+                continue
+
+            parent_select = _closest_parent_of_type(agg, exp.Select)
+            if parent_select is select:
+                aggregates.append(agg)
+
+        # If there are no (non-window) aggregates at this level – skip this SELECT
         if not aggregates:
             continue
-        
-        # Check if there's a GROUP BY
+
+        # --- 2. If there's already a GROUP BY – this is not our antipattern ---
         has_group_by = select.args.get("group") is not None
         if has_group_by:
             continue
-        
-        # Get SELECT expressions
-        select_expressions = select.args.get("expressions", [])
-        
-        # Check if there are non-aggregate columns in SELECT
+
+        # --- 3. Look for non-aggregate columns in the SELECT list ---
+        select_expressions = select.args.get("expressions") or []
         has_non_aggregate_column = False
+
         for expr in select_expressions:
-            # Skip if this expression is itself an aggregate
-            if isinstance(expr, exp.AggFunc):
-                continue
-            
-            # Check if it contains columns that are not inside aggregates
-            columns = list(expr.find_all(exp.Column))
-            for col in columns:
-                # Check if this column is inside an aggregate function
+            # If the whole expression is a non-window aggregate at this level, skip it
+            if isinstance(expr, exp.AggFunc) and not _is_window_aggregate(expr):
+                parent_select = _closest_parent_of_type(expr, exp.Select)
+                if parent_select is select:
+                    continue
+
+            # Find all columns inside this expression
+            for col in expr.find_all(exp.Column):
+                # Only consider columns that belong to the current SELECT (ignore subqueries)
+                col_select = _closest_parent_of_type(col, exp.Select)
+                if col_select is not select:
+                    continue
+
+                # Check whether this column is inside a (non-window) aggregate
                 parent = col.parent
                 inside_aggregate = False
-                while parent:
+                while parent is not None:
                     if isinstance(parent, exp.AggFunc):
-                        inside_aggregate = True
-                        break
+                        # Ignore window aggregates completely for this check
+                        if _is_window_aggregate(parent):
+                            break
+
+                        # Make sure this aggregate belongs to the current SELECT
+                        agg_select = _closest_parent_of_type(parent, exp.Select)
+                        if agg_select is select:
+                            inside_aggregate = True
+                            break
                     parent = parent.parent
-                
+
+                # If the column is not inside a non-window aggregate at this level – this is our case
                 if not inside_aggregate:
                     has_non_aggregate_column = True
                     break
-            
+
             if has_non_aggregate_column:
                 break
-        
+
+        # --- 4. If we found a non-aggregate column together with (non-window) aggregates and no GROUP BY ---
         if has_non_aggregate_column:
             features.has_missing_group_by = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="Aggregate functions with non-aggregated columns require GROUP BY (SQLite allows but returns arbitrary values)",
-                location="SELECT with aggregates"
-            ))
+            antipatterns.append(
+                AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message=(
+                        "Aggregate functions with non-aggregated columns require GROUP BY "
+                        "(SQLite allows but returns arbitrary values)"
+                    ),
+                    location="SELECT with aggregates",
+                )
+            )
             break
 
 
@@ -528,6 +569,71 @@ def _get_column_table(node: exp.Expression) -> Optional[str]:
         if hasattr(node, 'table') and node.table:
             return str(node.table).lower()
     return None
+
+
+def _closest_parent_of_type(node: exp.Expression, cls: Type[exp.Expression]) -> Optional[exp.Expression]:
+    """Return the closest ancestor of the given type (or None if not found)."""
+    parent = node.parent
+    while parent is not None and not isinstance(parent, cls):
+        parent = parent.parent
+    return parent
+
+def _is_window_aggregate(agg: exp.AggFunc) -> bool:
+    """
+    Return True if this aggregate function is used as a window function,
+    i.e. it is inside a Window node (AVG(...) OVER (...)).
+    """
+    parent = agg.parent
+    while parent is not None and not isinstance(parent, exp.Select):
+        if isinstance(parent, exp.Window):
+            return True
+        parent = parent.parent
+    return False
+
+
+def _has_aggregate_not_in_subquery(expr: exp.Expression) -> bool:
+    """
+    Check if expression contains aggregate functions, excluding those in subqueries.
+    
+    This prevents false positives when checking for aggregates in SELECT clauses
+    that have subqueries with aggregates in WHERE or other clauses.
+    """
+    if isinstance(expr, exp.AggFunc):
+        return True
+    
+    # Don't recurse into subqueries
+    if isinstance(expr, exp.Subquery):
+        return False
+    
+    # Recurse into child expressions
+    for child in expr.iter_expressions():
+        if _has_aggregate_not_in_subquery(child):
+            return True
+    
+    return False
+
+
+def _find_columns_not_in_subquery(expr: exp.Expression) -> List[exp.Column]:
+    """
+    Find column nodes in expression, but don't recurse into subqueries.
+    
+    This prevents false positives when checking for non-aggregated columns
+    in SELECT clauses that have subqueries with columns.
+    """
+    results = []
+    
+    if isinstance(expr, exp.Column):
+        results.append(expr)
+    
+    # Don't recurse into subqueries
+    if isinstance(expr, exp.Subquery):
+        return results
+    
+    # Recurse into child expressions
+    for child in expr.iter_expressions():
+        results.extend(_find_columns_not_in_subquery(child))
+    
+    return results
 
 
 def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:

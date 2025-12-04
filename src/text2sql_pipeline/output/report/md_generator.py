@@ -3113,6 +3113,75 @@ class MarkdownReportGenerator:
                 
                 lines.append(f"**By Severity:** {' · '.join(severity_parts)}")
                 lines.append("")
+
+            # Detailed per-antipattern item_id list
+            # For each detected antipattern (pattern + severity), collect all item_id values
+            antipattern_details = self.conn.execute(f"""
+                SELECT DISTINCT
+                    json_extract_string(ap, '$.pattern') as pattern,
+                    json_extract_string(ap, '$.severity') as severity,
+                    item_id
+                FROM (
+                    SELECT 
+                        item_id,
+                        unnest(
+                            COALESCE(
+                                TRY_CAST(antipatterns AS JSON[]),
+                                []
+                            )
+                        ) as ap
+                    FROM {table}
+                    WHERE parseable = true AND status != 'skipped'
+                )
+                WHERE ap IS NOT NULL
+                ORDER BY 
+                    pattern,
+                    severity,
+                    CAST(item_id AS INTEGER) NULLS LAST,
+                    item_id
+            """).fetchall()
+
+            # Build mapping: (pattern, severity) -> [item_id, ...]
+            details_map: dict[tuple[str, str], list[int]] = {}
+            for pattern, severity, item_id in antipattern_details:
+                if pattern is None or severity is None or item_id is None:
+                    continue
+                key = (pattern, severity)
+                details_map.setdefault(key, []).append(item_id)
+
+            # Append detailed section only if we have data
+            if antipattern_stats and antipattern_details:
+                lines.append("#### K1.1) Antipattern Details by item_id")
+                lines.append("")
+
+                # Reuse the same ordering as in the summary table
+                for pattern, severity, message, count, affected_queries in antipattern_stats:
+                    key = (pattern, severity)
+                    item_ids = details_map.get(key, [])
+                    if not item_ids:
+                        continue
+
+                    emoji = get_severity_emoji(severity)
+                    label = get_severity_label(severity)
+                    severity_display = f"{emoji} {label}"
+                    pattern_name = get_antipattern_name(pattern)
+
+                    lines.append(f"##### {pattern_name} ({severity_display})")
+                    lines.append("")
+                    lines.append(f"- **Occurrences:** {count:,}")
+                    lines.append(f"- **Affected queries (item_id): {len(item_ids):,}")
+
+                    # Compact representation of item_id list on a single line,
+                    # ordered numerically by item_id when possible
+                    try:
+                        item_ids_sorted = sorted(item_ids, key=lambda x: int(x))
+                    except (TypeError, ValueError):
+                        # Fallback to string-based ordering if cast fails
+                        item_ids_sorted = sorted(item_ids, key=lambda x: str(x))
+
+                    item_ids_str = ", ".join(str(i) for i in item_ids_sorted)
+                    lines.append(f"- **item_id list:** {item_ids_str}")
+                    lines.append("")
             
         except Exception as e:
             lines.append(f"*Error generating antipatterns: {e}*")
