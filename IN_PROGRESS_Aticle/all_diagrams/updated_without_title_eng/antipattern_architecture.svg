@@ -1,0 +1,413 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1600">
+  <!-- Title -->
+  <text x="700" y="30" font-size="24" font-weight="bold" text-anchor="middle" fill="#333">
+    SQL Antipattern Detection Architecture
+  </text>
+  
+  <!-- ============= CONFIGURATION LAYER ============= -->
+  <g id="config-layer">
+    <rect x="50" y="60" width="350" height="280" fill="#E8F4F8" stroke="#0284C7" stroke-width="2" rx="5"/>
+    <text x="225" y="85" font-size="16" font-weight="bold" text-anchor="middle" fill="#0284C7">
+      📋 Configuration Layer
+    </text>
+    
+    <!-- pipeline.yaml -->
+    <rect x="70" y="100" width="310" height="220" fill="white" stroke="#94A3B8" stroke-width="1" rx="3"/>
+    <text x="225" y="120" font-size="14" font-weight="bold" text-anchor="middle" fill="#333">
+      pipeline.yaml
+    </text>
+    
+    <!-- Config structure -->
+    <text x="85" y="145" font-size="11" fill="#475569" font-family="monospace">antipatterns:</text>
+    <text x="100" y="165" font-size="10" fill="#64748B" font-family="monospace">sqlite:</text>
+    <text x="115" y="182" font-size="10" fill="#10B981" font-family="monospace">critical: [...]</text>
+    <text x="115" y="197" font-size="10" fill="#F59E0B" font-family="monospace">high: [...]</text>
+    <text x="115" y="212" font-size="10" fill="#3B82F6" font-family="monospace">medium: [...]</text>
+    <text x="115" y="227" font-size="10" fill="#6B7280" font-family="monospace">low: [...]</text>
+    
+    <text x="100" y="247" font-size="10" fill="#64748B" font-family="monospace">postgresql:</text>
+    <text x="115" y="264" font-size="10" fill="#10B981" font-family="monospace">critical: [...]</text>
+    <text x="115" y="279" font-size="10" fill="#F59E0B" font-family="monospace">high: [...]</text>
+    <text x="115" y="294" font-size="10" fill="#3B82F6" font-family="monospace">medium: [...]</text>
+    <text x="115" y="309" font-size="10" fill="#6B7280" font-family="monospace">low: [...]</text>
+  </g>
+  
+  <!-- ============= REGISTRY LAYER ============= -->
+  <g id="registry-layer">
+    <rect x="450" y="60" width="500" height="280" fill="#FEF3C7" stroke="#F59E0B" stroke-width="2" rx="5"/>
+    <text x="700" y="85" font-size="16" font-weight="bold" text-anchor="middle" fill="#D97706">
+      🗂️ Registry Layer (antipattern_registry.py)
+    </text>
+    
+    <!-- Registry components -->
+    <rect x="470" y="100" width="220" height="220" fill="white" stroke="#FCD34D" stroke-width="1" rx="3"/>
+    <text x="580" y="120" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">AntipatternPattern (Enum)</text>
+    <text x="480" y="140" font-size="9" fill="#475569" font-family="monospace">• UNSAFE_UPDATE_DELETE</text>
+    <text x="480" y="155" font-size="9" fill="#475569" font-family="monospace">• NULL_COMPARISON_EQUALS</text>
+    <text x="480" y="170" font-size="9" fill="#475569" font-family="monospace">• CARTESIAN_PRODUCT</text>
+    <text x="480" y="185" font-size="9" fill="#475569" font-family="monospace">• MISSING_GROUP_BY</text>
+    <text x="480" y="200" font-size="9" fill="#475569" font-family="monospace">• FUNCTION_IN_WHERE</text>
+    <text x="480" y="215" font-size="9" fill="#475569" font-family="monospace">• NOT_IN_NULLABLE</text>
+    <text x="480" y="230" font-size="9" fill="#475569" font-family="monospace">• IMPLICIT_JOIN</text>
+    <text x="480" y="245" font-size="9" fill="#475569" font-family="monospace">• SELECT_STAR</text>
+    <text x="480" y="260" font-size="9" fill="#475569" font-family="monospace">• CORRELATED_SUBQUERY</text>
+    <text x="480" y="275" font-size="9" fill="#475569" font-family="monospace">• ...</text>
+    
+    <rect x="710" y="100" width="220" height="100" fill="white" stroke="#FCD34D" stroke-width="1" rx="3"/>
+    <text x="820" y="120" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">SEVERITY_DISPLAY</text>
+    <text x="720" y="140" font-size="9" fill="#475569" font-family="monospace">🔴 critical (order: 1)</text>
+    <text x="720" y="155" font-size="9" fill="#475569" font-family="monospace">⚠️  high (order: 2)</text>
+    <text x="720" y="170" font-size="9" fill="#475569" font-family="monospace">🔵 medium (order: 3)</text>
+    <text x="720" y="185" font-size="9" fill="#475569" font-family="monospace">🟢 low (order: 4)</text>
+    
+    <rect x="710" y="210" width="220" height="110" fill="white" stroke="#FCD34D" stroke-width="1" rx="3"/>
+    <text x="820" y="230" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">Helper Functions</text>
+    <text x="720" y="250" font-size="9" fill="#475569" font-family="monospace">• get_antipattern_name()</text>
+    <text x="720" y="265" font-size="9" fill="#475569" font-family="monospace">• get_severity_emoji()</text>
+    <text x="720" y="280" font-size="9" fill="#475569" font-family="monospace">• get_severity_label()</text>
+    <text x="720" y="295" font-size="9" fill="#475569" font-family="monospace">• select_config_for_dialect()</text>
+  </g>
+  
+  <!-- Arrow: Config to Registry -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#64748B"/>
+    </marker>
+  </defs>
+  <line x1="400" y1="200" x2="450" y2="200" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="425" y="195" font-size="10" fill="#64748B" text-anchor="middle">uses</text>
+  
+  <!-- ============= ANALYZER LAYER ============= -->
+  <g id="analyzer-layer">
+    <rect x="50" y="380" width="450" height="300" fill="#DBEAFE" stroke="#2563EB" stroke-width="2" rx="5"/>
+    <text x="275" y="405" font-size="16" font-weight="bold" text-anchor="middle" fill="#1D4ED8">
+      🔄 Analyzer Layer (query_antipattern_analyzer.py)
+    </text>
+    
+    <rect x="70" y="420" width="410" height="240" fill="white" stroke="#93C5FD" stroke-width="1" rx="3"/>
+    <text x="275" y="440" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">QueryAntipatternAnalyzer</text>
+    
+    <!-- Initialization -->
+    <rect x="85" y="455" width="380" height="65" fill="#F0F9FF" stroke="#BAE6FD" stroke-width="1" rx="2"/>
+    <text x="95" y="472" font-size="11" font-weight="bold" fill="#0369A1">__init__()</text>
+    <text x="105" y="488" font-size="9" fill="#475569" font-family="monospace">1. Get db_dialect from DbManager</text>
+    <text x="105" y="502" font-size="9" fill="#475569" font-family="monospace">2. select_config_for_dialect(antipatterns, dialect)</text>
+    <text x="105" y="516" font-size="9" fill="#475569" font-family="monospace">3. Store: self.antipattern_config</text>
+    
+    <!-- Analysis -->
+    <rect x="85" y="530" width="380" height="115" fill="#F0F9FF" stroke="#BAE6FD" stroke-width="1" rx="2"/>
+    <text x="95" y="547" font-size="11" font-weight="bold" fill="#0369A1">analyze(items) → Iterator[DataItem]</text>
+    <text x="105" y="563" font-size="9" fill="#475569" font-family="monospace">For each item:</text>
+    <text x="115" y="577" font-size="9" fill="#475569" font-family="monospace">1. Check if enabled + previous failures</text>
+    <text x="115" y="591" font-size="9" fill="#475569" font-family="monospace">2. Call detect_antipatterns(sql, dialect, config)</text>
+    <text x="115" y="605" font-size="9" fill="#475569" font-family="monospace">3. Create QueryAntipatternMetricEvent</text>
+    <text x="115" y="619" font-size="9" fill="#475569" font-family="monospace">4. sink.write(metric)</text>
+    <text x="115" y="633" font-size="9" fill="#475569" font-family="monospace">5. Annotate item.metadata, yield item</text>
+  </g>
+  
+  <!-- ============= DETECTOR LAYER ============= -->
+  <g id="detector-layer">
+    <rect x="550" y="380" width="800" height="300" fill="#F3E8FF" stroke="#9333EA" stroke-width="2" rx="5"/>
+    <text x="950" y="405" font-size="16" font-weight="bold" text-anchor="middle" fill="#7C3AED">
+      🔍 Detector Layer (antipattern_detector.py)
+    </text>
+    
+    <!-- Main function -->
+    <rect x="570" y="420" width="360" height="240" fill="white" stroke="#D8B4FE" stroke-width="1" rx="3"/>
+    <text x="750" y="440" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">detect_antipatterns()</text>
+    
+    <text x="580" y="460" font-size="10" fill="#475569" font-family="monospace">Input:</text>
+    <text x="590" y="475" font-size="9" fill="#64748B" font-family="monospace">• sql: str</text>
+    <text x="590" y="488" font-size="9" fill="#64748B" font-family="monospace">• dialect: str</text>
+    <text x="590" y="501" font-size="9" fill="#64748B" font-family="monospace">• config: Dict[severity → patterns]</text>
+    
+    <text x="580" y="525" font-size="10" fill="#475569" font-family="monospace">Process:</text>
+    <text x="590" y="540" font-size="9" fill="#64748B" font-family="monospace">1. Parse SQL → AST (sqlglot)</text>
+    <text x="590" y="553" font-size="9" fill="#64748B" font-family="monospace">2. Build enabled_patterns set</text>
+    <text x="590" y="566" font-size="9" fill="#64748B" font-family="monospace">3. Build pattern_severity_map</text>
+    <text x="590" y="579" font-size="9" fill="#64748B" font-family="monospace">4. Call _analyze_ast()</text>
+    
+    <text x="580" y="600" font-size="10" fill="#475569" font-family="monospace">Output:</text>
+    <text x="590" y="615" font-size="9" fill="#64748B" font-family="monospace">• QueryAntipatternFeatures</text>
+    <text x="595" y="628" font-size="8" fill="#94A3B8" font-family="monospace">  (antipatterns, score, level)</text>
+    
+    <!-- Detection rules -->
+    <rect x="950" y="420" width="380" height="240" fill="white" stroke="#D8B4FE" stroke-width="1" rx="3"/>
+    <text x="1140" y="440" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">Detection Rules (_analyze_ast)</text>
+    
+    <text x="960" y="460" font-size="9" fill="#475569">For each enabled pattern, run detector:</text>
+    
+    <rect x="970" y="470" width="180" height="180" fill="#FEF2F2" stroke="#FCA5A5" stroke-width="1" rx="2"/>
+    <text x="1060" y="485" font-size="10" font-weight="bold" fill="#DC2626">Critical Severity</text>
+    <text x="980" y="500" font-size="8" fill="#475569" font-family="monospace">_detect_unsafe_update_delete()</text>
+    <text x="980" y="513" font-size="8" fill="#475569" font-family="monospace">_detect_null_comparison_equals()</text>
+    <text x="980" y="526" font-size="8" fill="#475569" font-family="monospace">_detect_cartesian_product()</text>
+    <text x="980" y="539" font-size="8" fill="#475569" font-family="monospace">_detect_missing_group_by()</text>
+    
+    <text x="1060" y="560" font-size="10" font-weight="bold" fill="#EA580C">High Severity</text>
+    <text x="980" y="575" font-size="8" fill="#475569" font-family="monospace">_detect_function_in_where()</text>
+    <text x="980" y="588" font-size="8" fill="#475569" font-family="monospace">_detect_not_in_nullable()</text>
+    <text x="980" y="601" font-size="8" fill="#475569" font-family="monospace">_detect_implicit_join()</text>
+    
+    <text x="1060" y="622" font-size="10" font-weight="bold" fill="#2563EB">Medium/Low</text>
+    <text x="980" y="637" font-size="8" fill="#475569" font-family="monospace">_detect_select_star(), ...</text>
+    
+    <rect x="1160" y="470" width="155" height="180" fill="#FEF9E7" stroke="#FBBF24" stroke-width="1" rx="2"/>
+    <text x="1237" y="485" font-size="10" font-weight="bold" fill="#92400E">Scoring</text>
+    <text x="1170" y="505" font-size="8" fill="#475569" font-family="monospace">_calculate_quality_score()</text>
+    <text x="1175" y="520" font-size="7" fill="#64748B">• critical: -30 pts</text>
+    <text x="1175" y="532" font-size="7" fill="#64748B">• high: -15 pts</text>
+    <text x="1175" y="544" font-size="7" fill="#64748B">• medium: -5 pts</text>
+    <text x="1175" y="556" font-size="7" fill="#64748B">• low: -2 pts</text>
+    <text x="1175" y="568" font-size="7" fill="#64748B">• custom: -10 pts</text>
+    
+    <text x="1170" y="588" font-size="8" fill="#475569" font-family="monospace">_classify_quality()</text>
+    <text x="1175" y="603" font-size="7" fill="#64748B">• 90+: excellent</text>
+    <text x="1175" y="615" font-size="7" fill="#64748B">• 70+: good</text>
+    <text x="1175" y="627" font-size="7" fill="#64748B">• 50+: fair</text>
+    <text x="1175" y="639" font-size="7" fill="#64748B">• &lt;50: poor</text>
+  </g>
+  
+  <!-- Arrows: Analyzer to Detector -->
+  <line x1="500" y1="540" x2="550" y2="540" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="525" y="535" font-size="10" fill="#64748B" text-anchor="middle">calls</text>
+  
+  <!-- ============= METRICS/OUTPUT LAYER ============= -->
+  <g id="metrics-layer">
+    <rect x="50" y="720" width="1300" height="320" fill="#F0FDF4" stroke="#16A34A" stroke-width="2" rx="5"/>
+    <text x="700" y="745" font-size="16" font-weight="bold" text-anchor="middle" fill="#15803D">
+      📊 Metrics &amp; Output Layer (metrics.py)
+    </text>
+    
+    <!-- AntipatternInstance -->
+    <rect x="70" y="760" width="280" height="120" fill="white" stroke="#86EFAC" stroke-width="1" rx="3"/>
+    <text x="210" y="780" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">AntipatternInstance</text>
+    <text x="80" y="800" font-size="9" fill="#475569" font-family="monospace">• pattern: str</text>
+    <text x="80" y="815" font-size="9" fill="#475569" font-family="monospace">• severity: str</text>
+    <text x="80" y="830" font-size="9" fill="#475569" font-family="monospace">• message: str</text>
+    <text x="80" y="845" font-size="9" fill="#475569" font-family="monospace">• location: str</text>
+    <text x="80" y="865" font-size="8" fill="#10B981" font-style="italic">→ Stored in antipatterns[] list</text>
+    
+    <!-- QueryAntipatternFeatures -->
+    <rect x="370" y="760" width="450" height="260" fill="white" stroke="#86EFAC" stroke-width="1" rx="3"/>
+    <text x="595" y="780" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">QueryAntipatternFeatures</text>
+    
+    <text x="380" y="800" font-size="9" fill="#475569" font-family="monospace">• parseable: bool</text>
+    <text x="380" y="815" font-size="9" fill="#475569" font-family="monospace">• total_antipatterns: int</text>
+    <text x="380" y="830" font-size="9" fill="#475569" font-family="monospace">• antipatterns: List[AntipatternInstance]</text>
+    
+    <text x="380" y="855" font-size="9" fill="#475569">Boolean flags (for quick filtering):</text>
+    <text x="390" y="870" font-size="8" fill="#64748B" font-family="monospace">• has_unsafe_update_delete</text>
+    <text x="390" y="883" font-size="8" fill="#64748B" font-family="monospace">• has_null_comparison_equals</text>
+    <text x="390" y="896" font-size="8" fill="#64748B" font-family="monospace">• has_cartesian_product</text>
+    <text x="390" y="909" font-size="8" fill="#64748B" font-family="monospace">• has_function_in_where</text>
+    <text x="390" y="922" font-size="8" fill="#64748B" font-family="monospace">• has_select_star</text>
+    <text x="390" y="935" font-size="8" fill="#64748B" font-family="monospace">• ... (13+ boolean flags)</text>
+    
+    <text x="380" y="960" font-size="9" fill="#475569">Quality assessment:</text>
+    <text x="390" y="975" font-size="8" fill="#64748B" font-family="monospace">• quality_score: int (0-100)</text>
+    <text x="390" y="988" font-size="8" fill="#64748B" font-family="monospace">• quality_level: str</text>
+    <text x="395" y="1003" font-size="7" fill="#94A3B8" font-style="italic">(excellent/good/fair/poor)</text>
+    
+    <!-- Stats and Tags -->
+    <rect x="840" y="760" width="230" height="130" fill="white" stroke="#86EFAC" stroke-width="1" rx="3"/>
+    <text x="955" y="780" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">QueryAntipatternStats</text>
+    <text x="850" y="800" font-size="9" fill="#475569" font-family="monospace">• collect_ms: float</text>
+    <text x="850" y="815" font-size="9" fill="#475569" font-family="monospace">• parser: str</text>
+    <text x="850" y="830" font-size="9" fill="#475569" font-family="monospace">• dialect: str</text>
+    <text x="850" y="845" font-size="9" fill="#475569" font-family="monospace">• errors: List[Dict]</text>
+    <text x="850" y="860" font-size="9" fill="#475569" font-family="monospace">• warnings: List[Dict]</text>
+    
+    <rect x="840" y="900" width="230" height="120" fill="white" stroke="#86EFAC" stroke-width="1" rx="3"/>
+    <text x="955" y="920" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">QueryAntipatternTags</text>
+    <text x="850" y="940" font-size="9" fill="#475569" font-family="monospace">• dialect: str</text>
+    <text x="850" y="955" font-size="9" fill="#475569" font-family="monospace">• analyzer_version: str</text>
+    
+    <!-- Metric Event -->
+    <rect x="1090" y="760" width="240" height="260" fill="white" stroke="#86EFAC" stroke-width="1" rx="3"/>
+    <text x="1210" y="780" font-size="12" font-weight="bold" text-anchor="middle" fill="#333">QueryAntipatternMetricEvent</text>
+    
+    <text x="1100" y="800" font-size="9" fill="#475569" font-family="monospace">• event_type: str</text>
+    <text x="1100" y="815" font-size="9" fill="#475569" font-family="monospace">• name: str</text>
+    <text x="1100" y="830" font-size="9" fill="#475569" font-family="monospace">• dataset_id: str</text>
+    <text x="1100" y="845" font-size="9" fill="#475569" font-family="monospace">• item_id: str</text>
+    <text x="1100" y="860" font-size="9" fill="#475569" font-family="monospace">• db_id: str</text>
+    <text x="1100" y="875" font-size="9" fill="#475569" font-family="monospace">• status: str</text>
+    <text x="1105" y="890" font-size="8" fill="#94A3B8" font-style="italic">(ok/warns/failed/skipped)</text>
+    <text x="1100" y="905" font-size="9" fill="#475569" font-family="monospace">• success: bool</text>
+    <text x="1100" y="920" font-size="9" fill="#475569" font-family="monospace">• duration_ms: float</text>
+    <text x="1100" y="935" font-size="9" fill="#475569" font-family="monospace">• err: Optional[str]</text>
+    
+    <text x="1100" y="960" font-size="9" fill="#16A34A" font-weight="bold">Composition:</text>
+    <text x="1100" y="975" font-size="9" fill="#475569" font-family="monospace">• features: Features</text>
+    <text x="1100" y="990" font-size="9" fill="#475569" font-family="monospace">• stats: Stats</text>
+    <text x="1100" y="1005" font-size="9" fill="#475569" font-family="monospace">• tags: Tags</text>
+  </g>
+  
+  <!-- Arrows: Detector to Metrics -->
+  <line x1="750" y1="680" x2="595" y2="720" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="665" y="695" font-size="10" fill="#64748B" text-anchor="middle">returns</text>
+  
+  <!-- ============= DATA FLOW ============= -->
+  <g id="data-flow">
+    <rect x="50" y="1080" width="1300" height="250" fill="#FEF2F2" stroke="#DC2626" stroke-width="2" rx="5"/>
+    <text x="700" y="1105" font-size="16" font-weight="bold" text-anchor="middle" fill="#DC2626">
+      🔄 Data Flow Pipeline
+    </text>
+    
+    <!-- Flow steps -->
+    <rect x="70" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="160" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">1️⃣ Configuration</text>
+    <text x="80" y="1170" font-size="9" fill="#475569">Load pipeline.yaml</text>
+    <text x="80" y="1185" font-size="9" fill="#475569">↓</text>
+    <text x="80" y="1200" font-size="9" fill="#16A34A">antipatterns:</text>
+    <text x="85" y="1215" font-size="8" fill="#64748B">  sqlite:</text>
+    <text x="90" y="1230" font-size="8" fill="#64748B">    critical: [...]</text>
+    <text x="90" y="1243" font-size="8" fill="#64748B">    high: [...]</text>
+    <text x="90" y="1256" font-size="8" fill="#64748B">    medium: [...]</text>
+    <text x="90" y="1269" font-size="8" fill="#64748B">    low: [...]</text>
+    <text x="80" y="1290" font-size="9" fill="#475569">→ Dialect-specific config</text>
+    
+    <rect x="270" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="360" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">2️⃣ Initialization</text>
+    <text x="280" y="1170" font-size="9" fill="#475569">QueryAntipatternAnalyzer</text>
+    <text x="280" y="1185" font-size="9" fill="#475569">.__init__()</text>
+    <text x="280" y="1200" font-size="9" fill="#475569">↓</text>
+    <text x="280" y="1215" font-size="9" fill="#64748B">Get db_dialect</text>
+    <text x="280" y="1230" font-size="9" fill="#64748B">↓</text>
+    <text x="280" y="1245" font-size="9" fill="#16A34A">select_config_for_dialect()</text>
+    <text x="280" y="1260" font-size="9" fill="#64748B">↓</text>
+    <text x="280" y="1275" font-size="9" fill="#64748B">Store config</text>
+    
+    <rect x="470" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="560" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">3️⃣ Analysis</text>
+    <text x="480" y="1170" font-size="9" fill="#475569">For each DataItem:</text>
+    <text x="480" y="1190" font-size="8" fill="#64748B">Check enabled/failures</text>
+    <text x="480" y="1205" font-size="8" fill="#64748B">↓</text>
+    <text x="480" y="1220" font-size="8" fill="#16A34A">detect_antipatterns(</text>
+    <text x="485" y="1233" font-size="7" fill="#64748B">  sql,</text>
+    <text x="485" y="1244" font-size="7" fill="#64748B">  dialect,</text>
+    <text x="485" y="1255" font-size="7" fill="#64748B">  config</text>
+    <text x="480" y="1268" font-size="8" fill="#16A34A">)</text>
+    <text x="480" y="1283" font-size="8" fill="#64748B">↓</text>
+    <text x="480" y="1298" font-size="8" fill="#64748B">Returns Features</text>
+    
+    <rect x="670" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="760" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">4️⃣ Detection</text>
+    <text x="680" y="1170" font-size="9" fill="#475569">Parse SQL → AST</text>
+    <text x="680" y="1185" font-size="9" fill="#64748B">↓</text>
+    <text x="680" y="1200" font-size="9" fill="#64748B">Build enabled set</text>
+    <text x="680" y="1215" font-size="9" fill="#64748B">Build severity map</text>
+    <text x="680" y="1230" font-size="9" fill="#64748B">↓</text>
+    <text x="680" y="1245" font-size="9" fill="#16A34A">Run detection rules</text>
+    <text x="680" y="1260" font-size="9" fill="#64748B">↓</text>
+    <text x="680" y="1275" font-size="9" fill="#64748B">Collect antipatterns[]</text>
+    <text x="680" y="1290" font-size="9" fill="#64748B">Calculate score</text>
+    
+    <rect x="870" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="960" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">5️⃣ Metric Event</text>
+    <text x="880" y="1170" font-size="9" fill="#475569">Create event:</text>
+    <text x="880" y="1190" font-size="8" fill="#64748B">• dataset_id, item_id</text>
+    <text x="880" y="1205" font-size="8" fill="#64748B">• status (ok/warns/failed)</text>
+    <text x="880" y="1220" font-size="8" fill="#64748B">• features</text>
+    <text x="880" y="1235" font-size="8" fill="#64748B">• stats</text>
+    <text x="880" y="1250" font-size="8" fill="#64748B">• tags</text>
+    <text x="880" y="1270" font-size="9" fill="#475569">↓</text>
+    <text x="880" y="1285" font-size="9" fill="#16A34A">sink.write(metric)</text>
+    
+    <rect x="1070" y="1130" width="180" height="180" fill="white" stroke="#FCA5A5" stroke-width="1" rx="3"/>
+    <text x="1160" y="1150" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">6️⃣ Output</text>
+    <text x="1080" y="1170" font-size="9" fill="#475569">Annotate DataItem</text>
+    <text x="1080" y="1190" font-size="8" fill="#64748B">metadata.analysisSteps:</text>
+    <text x="1085" y="1205" font-size="8" fill="#64748B">  - name: query_antipattern</text>
+    <text x="1085" y="1220" font-size="8" fill="#64748B">    status: ok/warns</text>
+    <text x="1085" y="1235" font-size="8" fill="#64748B">    quality_score: 85</text>
+    <text x="1085" y="1250" font-size="8" fill="#64748B">    quality_level: good</text>
+    <text x="1085" y="1265" font-size="8" fill="#64748B">    antipattern_count: 2</text>
+    <text x="1080" y="1285" font-size="9" fill="#475569">↓</text>
+    <text x="1080" y="1300" font-size="9" fill="#16A34A">yield item</text>
+    
+    <!-- Flow arrows -->
+    <path d="M 250 1220 L 270 1220" stroke="#DC2626" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+    <path d="M 450 1220 L 470 1220" stroke="#DC2626" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+    <path d="M 650 1220 L 670 1220" stroke="#DC2626" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+    <path d="M 850 1220 L 870 1220" stroke="#DC2626" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+    <path d="M 1050 1220 L 1070 1220" stroke="#DC2626" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  </g>
+  
+  <!-- ============= KEY INSIGHTS ============= -->
+  <g id="insights">
+    <rect x="50" y="1370" width="630" height="190" fill="#FFF7ED" stroke="#EA580C" stroke-width="2" rx="5"/>
+    <text x="365" y="1395" font-size="14" font-weight="bold" text-anchor="middle" fill="#EA580C">
+      💡 Key Architecture Insights
+    </text>
+    
+    <text x="70" y="1420" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">1. Dialect-Aware Configuration:</tspan>
+    </text>
+    <text x="80" y="1435" font-size="9" fill="#64748B">
+      Config defines severity levels per dialect (sqlite vs postgresql).
+    </text>
+    <text x="80" y="1450" font-size="9" fill="#64748B">
+      Custom severity levels supported (critical, high, p0, blocker, etc.)
+    </text>
+    
+    <text x="70" y="1475" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">2. Separation of Concerns:</tspan>
+    </text>
+    <text x="80" y="1490" font-size="9" fill="#64748B">
+      Registry (metadata) → Detector (logic) → Analyzer (orchestration)
+    </text>
+    
+    <text x="70" y="1515" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">3. Dual Storage Strategy:</tspan>
+    </text>
+    <text x="80" y="1530" font-size="9" fill="#64748B">
+      Boolean flags (fast filtering) + JSON list (detailed inspection)
+    </text>
+    
+    <text x="70" y="1550" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">4. Pluggable Severity System:</tspan>
+    </text>
+  </g>
+  
+  <g id="scoring-insights">
+    <rect x="720" y="1370" width="630" height="190" fill="#EFF6FF" stroke="#2563EB" stroke-width="2" rx="5"/>
+    <text x="1035" y="1395" font-size="14" font-weight="bold" text-anchor="middle" fill="#2563EB">
+      📈 Scoring &amp; Quality Assessment
+    </text>
+    
+    <text x="740" y="1420" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">Quality Score Calculation (100 → 0):</tspan>
+    </text>
+    <text x="750" y="1435" font-size="9" fill="#64748B">
+      🔴 Critical: -30 pts  |  ⚠️  High: -15 pts  |  🔵 Medium: -5 pts  |  🟢 Low: -2 pts
+    </text>
+    <text x="750" y="1450" font-size="9" fill="#64748B">
+      Custom severity: -10 pts (default)
+    </text>
+    
+    <text x="740" y="1475" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">Quality Classification:</tspan>
+    </text>
+    <text x="750" y="1490" font-size="9" fill="#64748B">
+      90-100: excellent  |  70-89: good  |  50-69: fair  |  0-49: poor
+    </text>
+    
+    <text x="740" y="1515" font-size="10" fill="#475569">
+      <tspan font-weight="bold" fill="#DC2626">Status Determination:</tspan>
+    </text>
+    <text x="750" y="1530" font-size="9" fill="#64748B">
+      failed: unparseable  |  warns: has antipatterns  |  ok: clean
+    </text>
+    <text x="750" y="1545" font-size="9" fill="#64748B">
+      skipped: previous analyzer failed
+    </text>
+  </g>
+  
+  <!-- Footer -->
+  <text x="700" y="1590" font-size="9" text-anchor="middle" fill="#94A3B8" font-style="italic">
+    Architecture supports flexible, dialect-aware antipattern detection with configurable severity levels
+  </text>
+</svg>
+

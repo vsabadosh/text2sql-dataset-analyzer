@@ -3,7 +3,7 @@
    viewBox="0 0 1200 950"
    version="1.1"
    id="svg57"
-   sodipodi:docname="01_system_architecture_v5.svg"
+   sodipodi:docname="01_system_architecture.svg"
    inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
@@ -20,7 +20,7 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:zoom="0.74818324"
      inkscape:cx="484.50698"
-     inkscape:cy="462.45356"
+     inkscape:cy="457.10727"
      inkscape:window-width="1512"
      inkscape:window-height="865"
      inkscape:window-x="0"
@@ -375,34 +375,33 @@
        id="tspan24">Schema Validation</tspan></text>
   <text
      x="170"
-     y="521"
+     y="519"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text21"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan35">• Foreign Keys</tspan></text>
+     id="text21">• Foreign Keys</text>
   <text
      x="164"
-     y="542"
+     y="536"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text22"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan36">• Duplicates</tspan></text>
+     id="text22">• Duplicates</text>
   <text
      x="164"
-     y="561"
+     y="553"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text23"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan37">• Data types</tspan></text>
+     id="text23">• Data types</text>
+  <text
+     x="172"
+     y="572"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     font-weight="bold"
+     id="text24">Cache by db_id</text>
   <rect
      x="284.85617"
      y="478.85617"
@@ -429,30 +428,29 @@
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text26"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan40">• AST parsing</tspan></text>
+     id="text26">• AST parsing</text>
   <text
      x="385"
-     y="540"
+     y="536"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text27"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan39">• Complexity</tspan></text>
+     id="text27">• Complexity</text>
   <text
      x="383"
-     y="561"
+     y="553"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text28"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan38">• JOIN/CTE</tspan></text>
+     id="text28">• JOIN/CTE</text>
+  <text
+     x="387"
+     y="574"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     font-weight="bold"
+     id="text29">Easy/Medium/Hard</text>
   <rect
      x="499.84744"
      y="478.84744"
@@ -475,24 +473,33 @@
        id="tspan26">Query Execution</tspan></text>
   <text
      x="600"
-     y="521"
+     y="519"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text31"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan43">• SELECT-only/Full</tspan></text>
+     id="text31">• SELECT-only/Full</text>
   <text
      x="594"
-     y="540"
+     y="534"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text32"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan42">• Execution time</tspan></text>
+     id="text32">• Execution time</text>
+  <text
+     x="574"
+     y="547"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     id="text33">• Errors</text>
+  <text
+     x="596.88287"
+     y="571.71375"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     font-weight="bold"
+     id="text34">Safe execution</text>
   <rect
      x="714.84747"
      y="478.84744"
@@ -514,35 +521,34 @@
        style="font-style:normal;font-variant:normal;font-weight:500;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Medium';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan27">Antipattern</tspan></text>
   <text
-     x="815"
-     y="521"
+     x="817"
+     y="519"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text36"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan46">• 13 patterns</tspan></text>
+     id="text36">• 13 patterns</text>
   <text
-     x="803"
-     y="540"
+     x="805"
+     y="536"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text37"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan45">• Quality</tspan></text>
+     id="text37">•  Quality</text>
   <text
      x="829"
-     y="559"
+     y="551"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text38"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan44">• SELECT */LIMIT</tspan></text>
+     id="text38">• SELECT */LIMIT</text>
+  <text
+     x="817"
+     y="572"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     font-weight="bold"
+     id="text39">Score 0-100</text>
   <rect
      x="929.84747"
      y="478.84744"
@@ -565,34 +571,33 @@
        id="tspan28">LLM Judge</tspan></text>
   <text
      x="1032"
-     y="521"
+     y="519"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text41"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan49">• Multi-voter</tspan></text>
+     id="text41">• Multi-voter</text>
   <text
      x="1034"
-     y="540"
+     y="536"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text42"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan48">• 4 providers</tspan></text>
+     id="text42">• 4 providers</text>
   <text
      x="1032"
-     y="559"
+     y="553"
      text-anchor="middle"
      class="small-text"
      fill="white"
-     id="text43"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan47">• Consensus</tspan></text>
+     id="text43">• Consensus</text>
+  <text
+     x="1032"
+     y="570"
+     text-anchor="middle"
+     class="small-text"
+     fill="white"
+     font-weight="bold"
+     id="text44">Smart DDL</text>
   <path
      d="m 600,594 v 20.80444"
      class="arrow"
@@ -951,14 +956,4 @@
      transform="scale(0.99573819,1.00428)"><tspan
        style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan10">Wires components from config specs</tspan></text>
-  <text
-     x="570.36261"
-     y="558.29523"
-     text-anchor="middle"
-     class="small-text"
-     fill="white"
-     id="text32-8"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:middle;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-       id="tspan42-7">• Errors</tspan></text>
 </svg>

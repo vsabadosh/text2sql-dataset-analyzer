@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 1400 900"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: bold 18px sans-serif; fill: #333; }
+      .subtitle { font: 14px sans-serif; fill: #666; }
+      .box-text { font: 13px sans-serif; fill: #333; }
+      .small-text { font: 11px sans-serif; fill: #555; }
+      .italic-text { font: italic 11px sans-serif; fill: #666; }
+      .code-text { font: 11px monospace; fill: #444; }
+      .stage-title { font: bold 15px sans-serif; fill: #333; }
+      .config-text { font: 10px monospace; fill: #1565c0; }
+      
+      /* Boxes */
+      .input-box { fill: #e3f2fd; stroke: #2196f3; stroke-width: 2; }
+      .config-box { fill: #fff8e1; stroke: #ffa000; stroke-width: 2; }
+      .process-box { fill: #f5f5f5; stroke: #757575; stroke-width: 2; }
+      .detection-box { fill: #fce4ec; stroke: #c2185b; stroke-width: 2; }
+      .output-box { fill: #f3e5f5; stroke: #8e24aa; stroke-width: 2; }
+      .highlight-box { fill: #e8f5e9; stroke: #2e7d32; stroke-width: 3; }
+      
+      /* Arrows */
+      .arrow { stroke: #666; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-config { stroke: #ffa000; stroke-width: 2; fill: none; marker-end: url(#arrowhead-config); stroke-dasharray: 5,3; }
+    </style>
+    <marker
+       id="arrowhead"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#666"/>
+    </marker>
+    <marker
+       id="arrowhead-config"
+       markerWidth="10"
+       markerHeight="10"
+       refX="9"
+       refY="3"
+       orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ffa000"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="700" y="30" text-anchor="middle" class="title">Query Antipattern Analyzer Architecture</text>
+
+  <!-- ==================== INPUTS ==================== -->
+  
+  <!-- Input: SQL Query -->
+  <g id="input-sql">
+    <rect x="200" y="70" width="300" height="70" rx="5" class="input-box"/>
+    <text x="350" y="95" text-anchor="middle" class="stage-title">🔍 Input: SQL Query</text>
+    <text x="350" y="115" text-anchor="middle" class="small-text">Parsed AST (sqlglot)</text>
+    <text x="350" y="130" text-anchor="middle" class="italic-text">e.g., SELECT * FROM t WHERE x = NULL</text>
+  </g>
+
+  <!-- Input: Config -->
+  <g id="input-config">
+    <rect x="900" y="70" width="300" height="70" rx="5" class="config-box"/>
+    <text x="1050" y="95" text-anchor="middle" class="stage-title">⚙️ Input: Config</text>
+    <text x="1050" y="115" text-anchor="middle" class="small-text">antipatterns: {critical: [...], high: [...]}</text>
+    <text x="1050" y="130" text-anchor="middle" class="italic-text">Defines enabled patterns + severities</text>
+  </g>
+
+  <!-- Arrows from inputs -->
+  <path d="M 350 140 L 350 185" class="arrow"/>
+  <path d="M 1050 140 L 1050 200 L 820 200" class="arrow-config"/>
+
+  <!-- ==================== STAGE 1: CONFIG PROCESSING ==================== -->
+  
+  <g id="stage1">
+    <rect x="250" y="185" width="820" height="90" rx="5" class="config-box"/>
+    <text x="660" y="210" text-anchor="middle" class="stage-title">Stage 1: Config Processing</text>
+    
+    <rect x="270" y="225" width="380" height="40" rx="4" fill="#fffde7" stroke="#f57c00" stroke-width="1"/>
+    <text x="280" y="242" class="small-text" font-weight="bold">1. Build enabled_patterns:</text>
+    <text x="290" y="258" class="config-text">{"null_comparison_equals", "select_star", ...}</text>
+
+    <rect x="670" y="225" width="380" height="40" rx="4" fill="#fffde7" stroke="#f57c00" stroke-width="1"/>
+    <text x="680" y="242" class="small-text" font-weight="bold">2. Build pattern_severity_map:</text>
+    <text x="690" y="258" class="config-text">{"null_comparison_equals": "critical", "select_star": "medium", ...}</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M 660 275 L 660 310" class="arrow"/>
+
+  <!-- ==================== STAGE 2: DETECTION ==================== -->
+  
+  <g id="stage2">
+    <rect x="200" y="310" width="900" height="180" rx="5" class="detection-box"/>
+    <text x="650" y="335" text-anchor="middle" class="stage-title">Stage 2: Config-Driven Detection (Only Enabled Patterns)</text>
+    
+    <text x="220" y="360" class="small-text">For each pattern in config → Check if enabled → Run detector → Assign severity from config</text>
+
+    <!-- Example detectors -->
+    <rect x="220" y="375" width="250" height="100" rx="4" fill="#fff" stroke="#c2185b" stroke-width="1"/>
+    <text x="345" y="395" text-anchor="middle" class="box-text" font-weight="bold">Example: NULL Comparison</text>
+    <text x="230" y="415" class="small-text">if "null_comparison_equals" in enabled:</text>
+    <text x="240" y="433" class="config-text">  found = _detect_null_comparison(ast)</text>
+    <text x="240" y="448" class="config-text">  if found:</text>
+    <text x="250" y="463" class="config-text">    severity = map["null_comparison_equals"]</text>
+
+    <rect x="500" y="375" width="250" height="100" rx="4" fill="#fff" stroke="#c2185b" stroke-width="1"/>
+    <text x="625" y="395" text-anchor="middle" class="box-text" font-weight="bold">Example: SELECT *</text>
+    <text x="510" y="415" class="small-text">if "select_star" in enabled:</text>
+    <text x="520" y="433" class="config-text">  found = _detect_select_star(ast)</text>
+    <text x="520" y="448" class="config-text">  if found:</text>
+    <text x="530" y="463" class="config-text">    severity = map["select_star"]</text>
+
+    <rect x="780" y="375" width="300" height="100" rx="4" fill="#f5f5f5" stroke="#757575" stroke-width="1"/>
+    <text x="930" y="415" text-anchor="middle" class="small-text" font-weight="bold">+ 11 more detectors</text>
+    <text x="930" y="435" text-anchor="middle" class="small-text">(13 patterns total)</text>
+    <text x="930" y="455" text-anchor="middle" class="italic-text">Each with config-defined severity</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M 650 490 L 650 525" class="arrow"/>
+
+  <!-- ==================== STAGE 3: OUTPUT ==================== -->
+  
+  <g id="stage3">
+    <rect x="250" y="525" width="800" height="140" rx="5" class="output-box"/>
+    <text x="650" y="555" text-anchor="middle" class="stage-title">Stage 3: Results with Config-Derived Severities</text>
+    
+    <!-- Antipatterns list -->
+    <rect x="270" y="575" width="380" height="75" rx="4" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1"/>
+    <text x="460" y="595" text-anchor="middle" class="box-text" font-weight="bold">Detected Antipatterns</text>
+    <text x="280" y="615" class="config-text">{ pattern: "null_comparison_equals",</text>
+    <text x="290" y="630" class="config-text">  severity: "critical" }  ← from config</text>
+    <text x="280" y="645" class="config-text">{ pattern: "select_star",</text>
+
+    <!-- Quality score -->
+    <rect x="670" y="575" width="360" height="75" rx="4" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1"/>
+    <text x="850" y="595" text-anchor="middle" class="box-text" font-weight="bold">Quality Score</text>
+    <text x="680" y="615" class="small-text">score = 100 - Σ penalty[ap.severity]</text>
+    <text x="680" y="635" class="small-text">quality_level = classify(score)</text>
+
+  </g>
+
+  <!-- ==================== KEY INSIGHT ==================== -->
+  
+  <g id="key-insight">
+    <rect x="100" y="710" width="1200" height="160" rx="8" class="highlight-box"/>
+    <text x="700" y="745" text-anchor="middle" class="stage-title" fill="#2e7d32" font-size="17px">🔑 Key Architectural Principle: Configuration-Driven Detection</text>
+    
+    <!-- Three columns -->
+    <rect x="120" y="760" width="360" height="90" rx="5" fill="#fff" stroke="#4caf50" stroke-width="1"/>
+    <text x="300" y="785" text-anchor="middle" class="box-text" font-weight="bold">❌ Not Classification</text>
+    <text x="130" y="805" class="small-text">Severities are NOT determined</text>
+    <text x="130" y="822" class="small-text">by the analyzer at runtime.</text>
+    <text x="130" y="839" class="small-text">They are PRE-DEFINED in the</text>
+
+    <rect x="520" y="760" width="360" height="90" rx="5" fill="#fff" stroke="#4caf50" stroke-width="1"/>
+    <text x="700" y="785" text-anchor="middle" class="box-text" font-weight="bold">✅ Config-Driven</text>
+    <text x="530" y="805" class="small-text">Config defines WHICH patterns to</text>
+    <text x="530" y="822" class="small-text">check AND WHAT severity each has.</text>
+    <text x="530" y="839" class="small-text">Disabled patterns = skip detection.</text>
+
+    <rect x="920" y="760" width="360" height="90" rx="5" fill="#fff" stroke="#4caf50" stroke-width="1"/>
+    <text x="1100" y="785" text-anchor="middle" class="box-text" font-weight="bold">🔧 Flexible</text>
+    <text x="930" y="805" class="small-text">Same pattern can have different</text>
+    <text x="930" y="822" class="small-text">severities per dialect (SQLite vs</text>
+    <text x="930" y="839" class="small-text">PostgreSQL) via configuration.</text>
+  </g>
+
+</svg>

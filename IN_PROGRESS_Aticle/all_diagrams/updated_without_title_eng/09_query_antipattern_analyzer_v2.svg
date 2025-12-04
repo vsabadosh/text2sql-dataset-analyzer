@@ -1,0 +1,204 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000">
+  <defs>
+    <style>
+      .title { font: bold 18px sans-serif; fill: #333; }
+      .subtitle { font: 14px sans-serif; fill: #666; }
+      .box-text { font: 13px sans-serif; fill: #333; }
+      .small-text { font: 11px sans-serif; fill: #555; }
+      .italic-text { font: italic 11px sans-serif; fill: #666; }
+      .code-text { font: 11px monospace; fill: #444; }
+      .stage-title { font: bold 15px sans-serif; fill: #333; }
+      
+      /* Boxes */
+      .input-box { fill: #e3f2fd; stroke: #2196f3; stroke-width: 2; }
+      .process-box { fill: #f5f5f5; stroke: #757575; stroke-width: 2; }
+      .critical-box { fill: #ffebee; stroke: #e53935; stroke-width: 2; }
+      .high-box { fill: #fff3e0; stroke: #fb8c00; stroke-width: 2; }
+      .medium-box { fill: #e8f5e9; stroke: #43a047; stroke-width: 2; }
+      .low-box { fill: #e0f2f1; stroke: #00897b; stroke-width: 2; }
+      .output-box { fill: #f3e5f5; stroke: #8e24aa; stroke-width: 2; }
+      
+      /* Arrows */
+      .arrow { stroke: #666; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-branch { stroke: #999; stroke-width: 1.5; fill: none; stroke-dasharray: 5,3; }
+      
+      /* Icons */
+      .icon-sql { fill: #2196f3; }
+      .icon-rule { fill: #757575; }
+      .icon-critical { fill: #e53935; }
+      .icon-high { fill: #fb8c00; }
+      .icon-medium { fill: #43a047; }
+      .icon-low { fill: #00897b; }
+      .icon-score { fill: #8e24aa; }
+    </style>
+    
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#666" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="700" y="30" text-anchor="middle" class="title">Query Antipattern Analyzer Architecture</text>
+
+  <!-- Stage 1: Input -->
+  <g id="input-stage">
+    <rect x="550" y="60" width="300" height="80" rx="5" class="input-box"/>
+    <text x="700" y="85" text-anchor="middle" class="stage-title">🔍 Input: SQL Query</text>
+    <text x="700" y="105" text-anchor="middle" class="small-text">Parsed SQL statement (AST via sqlglot)</text>
+    <text x="700" y="122" text-anchor="middle" class="italic-text">Analyzed for code quality issues</text>
+  </g>
+
+  <!-- Arrow to Stage 2 -->
+  <path d="M 700 140 L 700 170" class="arrow"/>
+
+  <!-- Stage 2: Rule-Based Detection Engine -->
+  <g id="detection-stage">
+    <rect x="230" y="170" width="940" height="100" rx="5" class="process-box"/>
+    <text x="700" y="195" text-anchor="middle" class="stage-title">🔧 Stage 1: Rule-Based Detection Engine</text>
+    <text x="260" y="215" class="small-text">• 13 independent detection rules traverse AST in parallel</text>
+    <text x="260" y="232" class="small-text">• Each rule identifies specific antipattern through structural matching</text>
+    <text x="260" y="249" class="small-text">• Operates on sqlglot AST nodes (EQ, NEQ, AggFunc, Join, Subquery, Like, etc.)</text>
+  </g>
+
+  <!-- Arrow to Stage 3 -->
+  <path d="M 700 270 L 700 300" class="arrow"/>
+
+  <!-- Stage 3: Pattern Classification by Severity (4 boxes) -->
+  <g id="classification-stage">
+    <rect x="50" y="300" width="1300" height="380" rx="5" fill="#e8f5e9" stroke="#4caf50" stroke-width="3"/>
+    <text x="700" y="330" text-anchor="middle" class="stage-title">🎯 Stage 2: Pattern Classification by Severity</text>
+
+    <!-- Critical Box -->
+    <g id="critical-severity">
+      <rect x="80" y="350" width="290" height="305" rx="5" class="critical-box"/>
+      <text x="225" y="375" text-anchor="middle" class="stage-title">🔴 Critical</text>
+      
+      <text x="95" y="400" class="box-text" font-weight="bold">Impact: Always wrong results / Data safety</text>
+      
+      <text x="95" y="430" class="small-text">• NULL comparison with = or !=</text>
+      <text x="95" y="447" class="italic-text">   Always evaluates to NULL (use IS NULL)</text>
+      
+      <text x="95" y="477" class="small-text">• Missing GROUP BY clause</text>
+      <text x="95" y="494" class="italic-text">   Non-aggregated columns → random values</text>
+      
+      <text x="95" y="524" class="small-text">• Unsafe UPDATE/DELETE</text>
+      <text x="95" y="541" class="italic-text">   Missing WHERE → affects ALL rows</text>
+      
+      <text x="95" y="571" class="small-text">• Cartesian product</text>
+      <text x="95" y="588" class="italic-text">   Missing JOIN condition → exponential rows</text>
+      
+      <text x="95" y="625" class="box-text" font-weight="bold">Penalty: -30 points per occurrence</text>
+      <text x="95" y="645" class="italic-text">Catastrophic errors requiring immediate fix</text>
+    </g>
+
+    <!-- High Box -->
+    <g id="high-severity">
+      <rect x="390" y="350" width="290" height="305" rx="5" class="high-box"/>
+      <text x="535" y="375" text-anchor="middle" class="stage-title">⚠️ High</text>
+      
+      <text x="405" y="400" class="box-text" font-weight="bold">Impact: Wrong results in edge cases</text>
+      
+      <text x="405" y="425" class="small-text">• NOT IN subquery with NULLs</text>
+      <text x="405" y="442" class="italic-text">   NULL propagation returns unexpected false</text>
+      
+      <text x="405" y="465" class="small-text">• Implicit (comma) JOIN</text>
+      <text x="405" y="482" class="italic-text">   Risk accidental cartesian product</text>
+      
+      <text x="405" y="530" class="box-text" font-weight="bold">Penalty: -15 points per occurrence</text>
+      <text x="405" y="547" class="italic-text">Semantic traps - dangerous in production</text>
+      <text x="405" y="564" class="italic-text">Requires careful review</text>
+    </g>
+
+    <!-- Medium Box -->
+    <g id="medium-severity">
+      <rect x="700" y="350" width="290" height="305" rx="5" class="medium-box"/>
+      <text x="845" y="375" text-anchor="middle" class="stage-title">🔵 Medium</text>
+      
+      <text x="715" y="400" class="box-text" font-weight="bold">Impact: Performance &amp; code quality</text>
+      
+      <text x="715" y="425" class="small-text">• Function applied in WHERE</text>
+      <text x="715" y="442" class="italic-text">   Prevents index usage (full table scan)</text>
+      
+      <text x="715" y="465" class="small-text">• Correlated subquery</text>
+      <text x="715" y="482" class="italic-text">   Often has better alternatives (JOIN)</text>
+      
+      <text x="715" y="505" class="small-text">• Leading-wildcard LIKE</text>
+      <text x="715" y="522" class="italic-text">   Forces full table scan</text>
+      
+      <text x="715" y="545" class="small-text">• UNION instead of UNION ALL</text>
+      <text x="715" y="562" class="italic-text">   Unnecessary deduplication cost</text>
+      
+      <text x="715" y="585" class="small-text">• Redundant DISTINCT with GROUP BY</text>
+      <text x="715" y="602" class="small-text">• Columns selected inside EXISTS</text>
+      
+      <text x="715" y="625" class="box-text" font-weight="bold">Penalty: -5 points per occurrence</text>
+      <text x="715" y="642" class="italic-text">Optimization opportunities</text>
+    </g>
+
+    <!-- Low Box -->
+    <g id="low-severity">
+      <rect x="1010" y="350" width="290" height="305" rx="5" class="low-box"/>
+      <text x="1155" y="375" text-anchor="middle" class="stage-title">🟢 Low</text>
+      
+      <text x="1025" y="400" class="box-text" font-weight="bold">Impact: Style / Context-dependent</text>
+      
+      <text x="1025" y="425" class="small-text">• SELECT * usage</text>
+      <text x="1025" y="442" class="italic-text">   Acceptable in Text2SQL benchmarks</text>
+      <text x="1025" y="459" class="italic-text">   Avoided in production code</text>
+      
+      <text x="1025" y="505" class="box-text" font-weight="bold">Penalty: -2 points per occurrence</text>
+      <text x="1025" y="525" class="italic-text">Suggestions for improvement</text>
+      <text x="1025" y="545" class="italic-text">May be acceptable in specific contexts</text>
+    </g>
+  </g>
+
+  <!-- Arrow to Stage 4 -->
+  <path d="M 700 680 L 700 710" class="arrow"/>
+
+  <!-- Stage 4: Quality Score Computation -->
+  <g id="scoring-stage">
+    <rect x="350" y="710" width="700" height="120" rx="5" class="output-box"/>
+    <text x="700" y="735" text-anchor="middle" class="stage-title">📊 Stage 3: Quality Score Computation</text>
+    
+    <text x="380" y="760" class="box-text">Weighted scoring algorithm:</text>
+    <text x="380" y="780" class="code-text">Score = 100 - (30*critical + 15*high + 5*medium + 2*low)</text>
+    
+    <text x="380" y="805" class="small-text">• Zero antipatterns = 100 (perfect quality)</text>
+    <text x="380" y="822" class="small-text">• Multiple critical issues = 0 (unacceptable quality)</text>
+  </g>
+
+  <!-- Arrow to Stage 5 -->
+  <path d="M 700 830 L 700 860" class="arrow"/>
+
+  <!-- Stage 5: Quality Level Classification -->
+  <g id="classification-output">
+    <rect x="140" y="860" width="1120" height="110" rx="5" fill="#f3e5f5" stroke="#8e24aa" stroke-width="3"/>
+    <text x="700" y="885" text-anchor="middle" class="stage-title">🎯 Stage 4: Quality Level Classification</text>
+    
+    <g id="excellent">
+      <rect x="170" y="900" width="230" height="50" rx="3" fill="#c8e6c9" stroke="#4caf50" stroke-width="2"/>
+      <text x="285" y="925" text-anchor="middle" class="box-text" font-weight="bold">Excellent (90-100)</text>
+      <text x="285" y="942" text-anchor="middle" class="small-text">No/minimal issues</text>
+    </g>
+    
+    <g id="good">
+      <rect x="420" y="900" width="230" height="50" rx="3" fill="#fff9c4" stroke="#fbc02d" stroke-width="2"/>
+      <text x="535" y="925" text-anchor="middle" class="box-text" font-weight="bold">Good (70-89)</text>
+      <text x="535" y="942" text-anchor="middle" class="small-text">Minor issues only</text>
+    </g>
+    
+    <g id="fair">
+      <rect x="670" y="900" width="230" height="50" rx="3" fill="#ffe0b2" stroke="#ff9800" stroke-width="2"/>
+      <text x="785" y="925" text-anchor="middle" class="box-text" font-weight="bold">Fair (50-69)</text>
+      <text x="785" y="942" text-anchor="middle" class="small-text">Needs optimization</text>
+    </g>
+    
+    <g id="poor">
+      <rect x="920" y="900" width="230" height="50" rx="3" fill="#ffcdd2" stroke="#f44336" stroke-width="2"/>
+      <text x="1035" y="925" text-anchor="middle" class="box-text" font-weight="bold">Poor (0-49)</text>
+      <text x="1035" y="942" text-anchor="middle" class="small-text">Critical fixes needed</text>
+    </g>
+  </g>
+
+</svg>
+

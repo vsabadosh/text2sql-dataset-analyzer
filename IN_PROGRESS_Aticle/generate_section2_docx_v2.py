@@ -251,10 +251,11 @@ def generate_section2_docx():
         "executing queries in a sandboxed SELECT-only mode to prevent data modification, measuring execution time with microsecond "
         "precision to identify performance outliers, counting returned row counts to detect empty result sets that may indicate "
         "semantic errors, and classifying execution failures into categories to distinguish syntax errors from semantic errors and "
-        "database connection issues. The Query Antipattern Detector implements a rule-based system for identifying 14 common SQL "
-        "antipatterns including unbounded SELECT statements lacking LIMIT clauses, SELECT * projections that reduce query "
-        "maintainability, functions applied in WHERE clauses that prevent index utilization, correlated subqueries with "
-        "quadratic complexity characteristics, and implicit joins lacking explicit JOIN syntax, with each detected pattern "
+        "database connection issues. The Query Antipattern Detector implements a rule-based system for identifying 13 common SQL "
+        "antipatterns organized across four severity levels: 4 Critical patterns (NULL comparison errors, missing GROUP BY, unsafe "
+        "UPDATE/DELETE, Cartesian products), 2 High severity patterns (NOT IN with nullable subqueries, implicit comma joins), "
+        "6 Medium severity patterns (index-breaking functions in WHERE, correlated subqueries, leading-wildcard LIKE, UNION without ALL, "
+        "redundant DISTINCT, wasteful EXISTS projections), and 1 Low severity pattern (SELECT * usage), with each detected pattern "
         "assigned a severity weight contributing to an overall quality score ranging from 0 to 100.",
     )
 
@@ -430,63 +431,139 @@ def generate_section2_docx():
     
     add_paragraph(
         doc,
-        "The Query Antipattern Detector implements rule-based static analysis identifying SQL code smells compromising maintainability, "
-        "performance, correctness, or data safety. While the Syntax Analyzer characterizes complexity, the antipattern detector evaluates "
-        "quality by detecting problematic patterns practitioners recognize as suboptimal or dangerous. The detector processes queries through "
-        "four stages: AST traversal with pattern matching, severity classification, weighted scoring, and quality assignment (Figure 2c).",
+        "The Query Antipattern Detector implements a rule-based static analysis framework for identifying SQL constructs that compromise "
+        "query correctness, data integrity, execution performance, or code maintainability. This component complements the Query Syntax "
+        "Analyzer by evaluating queries against established database engineering principles rather than merely characterizing structural "
+        "complexity: whereas syntax analysis quantifies the presence and nesting of SQL constructs without normative judgment, antipattern "
+        "detection applies domain-specific knowledge to identify patterns empirically associated with incorrect results, data corruption "
+        "vulnerabilities, or substantial performance degradation. The detection methodology employs a four-stage analytical pipeline (Figure 2c) "
+        "encompassing: (1) AST-based pattern recognition through structural matching against a library of antipattern signatures; "
+        "(2) dialect-configurable severity classification assigning detected patterns to a four-level hierarchy based on their technical "
+        "impact; (3) weighted penalty aggregation synthesizing antipattern frequencies into a normalized quality score via a calibrated "
+        "mathematical formula; and (4) categorical quality level assignment through threshold-based discretization of the continuous score "
+        "space. This systematic approach enables both fine-grained per-query quality assessment and aggregate dataset-level quality profiling.",
     )
 
     add_image_from_svg(
         doc,
         DIAGRAMS["fig2c"],
-        "Figure 2c. Query Antipattern Detector with four-stage quality assessment pipeline",
+        "Figure 2c. Query Antipattern Detector: four-stage pipeline with dialect-aware severity classification and weighted quality scoring",
         width=6.5,
     )
 
     add_paragraph(
         doc,
-        "The Rule-Based Detection Engine implements 14 independent rules traversing the AST to identify antipattern signatures. Each rule "
-        "encapsulates domain knowledge about SQL best practices, performance optimization, and correctness pitfalls. Rules operate in parallel, "
-        "enabling compositional analysis detecting multiple antipatterns simultaneously. The engine leverages sqlglot's AST node types: SELECT * "
-        "detection searches for Star nodes; implicit join identifies FROM with multiple Tables but no Joins; function-in-WHERE locates Func nodes "
-        "with Column references; leading wildcard LIKE examines patterns for wildcard prefixes; NOT IN combines Not wrapping In with Subqueries; "
-        "correlated subquery performs scope analysis; unbounded query checks for missing Limits; unsafe UPDATE/DELETE identifies modifications "
-        "lacking Where clauses; and additional rules target redundant DISTINCT with GROUP BY, unnecessary columns in EXISTS, UNION versus UNION ALL, "
-        "complex OR chains, and DISTINCT overuse.",
+        "The Rule-Based Detection Engine implements 13 independent detection rules that traverse the abstract syntax tree to identify "
+        "antipattern signatures through structural pattern matching. Each rule encapsulates domain-specific knowledge about SQL correctness "
+        "and performance characteristics, operating independently to enable parallel detection of multiple concurrent antipatterns within a "
+        "single query. The detection logic leverages sqlglot's typed AST node hierarchy to implement precise pattern matching, systematically "
+        "examining node types (EQ, NEQ, AggFunc, Update, Delete, Where, Join, Subquery, Like, etc.) and their structural relationships to "
+        "identify problematic constructs. Detection rules span four quality dimensions: correctness violations that produce semantically "
+        "incorrect results regardless of data content; data safety issues enabling unintended data modification or loss; performance "
+        "degradations that prevent index utilization or introduce quadratic complexity; and code quality concerns affecting maintainability "
+        "and interface stability. The AST-based approach enables dialect-aware detection that accounts for syntactic variations across SQL "
+        "implementations while maintaining consistent semantic interpretation of antipattern categories.",
+    )
+    
+    add_paragraph(
+        doc,
+        "A critical architectural feature of the detection system is its dialect-configurable severity assignment, acknowledging that "
+        "antipattern impact varies across SQL implementations due to vendor-specific optimizations, semantic extensions, and standard SQL "
+        "compliance levels. The system maintains separate severity configuration mappings for SQLite, PostgreSQL, MySQL, and other dialects, "
+        "enabling context-appropriate quality assessment tailored to the specific technical characteristics of each database system. Certain "
+        "antipatterns warrant uniform Critical severity classification across all dialects due to their fundamental impact on correctness. "
+        "For example, the missing GROUP BY antipattern—where SELECT statements contain both aggregate functions and non-aggregated columns—"
+        "produces non-deterministic, arbitrary row selection behavior in SQLite despite syntactic permissibility (implemented for MySQL "
+        "compatibility), while causing outright execution errors in standard-compliant systems like PostgreSQL and MySQL strict mode. Although "
+        "SQLite technically allows this construct, the resulting non-determinism violates the reproducibility requirements essential for "
+        "high-quality benchmark datasets, justifying Critical classification regardless of dialect. Conversely, certain performance antipatterns "
+        "exhibit dialect-dependent severity profiles. Correlated subqueries, for instance, may warrant Medium severity in database systems with "
+        "sophisticated subquery decorrelation optimizers (PostgreSQL, Oracle) that can automatically transform them into more efficient join "
+        "operations, while potentially meriting High severity in systems lacking such optimizations where the O(n²) execution characteristics "
+        "directly manifest. Similarly, implicit comma-separated joins carry different risk profiles: SQLite's optimizer exhibits documented "
+        "limitations in recognizing join predicates distributed across WHERE clauses, whereas PostgreSQL's advanced cost-based query planner "
+        "can often identify and optimize such patterns effectively, potentially justifying severity differentiation based on optimizer "
+        "capabilities. This dialect-aware configuration architecture enables nuanced quality assessment that distinguishes between universal "
+        "correctness violations requiring consistent severity assignments and performance considerations whose impact depends on system-specific "
+        "optimization sophistication.",
     )
 
     add_paragraph(
         doc,
-        "The Pattern Classification by Severity stage organizes antipatterns into three categories. Critical antipatterns (error severity) "
-        "represent catastrophic patterns: unsafe UPDATE and DELETE lacking WHERE clauses unconditionally modifying or removing all rows. "
-        "Significant antipatterns (warning severity) substantially compromise maintainability, performance, or correctness: SELECT * breaking "
-        "interface contracts; implicit joins risking Cartesian products; functions in WHERE preventing index utilization; LIKE with leading "
-        "wildcards; NOT IN with nullable subqueries; five or more JOINs; and DISTINCT on five or more columns. Advisory antipatterns (info "
-        "severity) suggest optimization opportunities: correlated subqueries with N+1 patterns; unbounded SELECT queries; redundant DISTINCT "
-        "with GROUP BY; unnecessary columns in EXISTS; UNION where UNION ALL suffices; and complex OR predicates.",
+        "The Severity Classification stage implements a four-level hierarchy that distinguishes antipatterns by their impact on query "
+        "correctness and system integrity, with specific patterns assigned to severity levels through dialect-specific configuration. "
+        "Critical severity (4 patterns) encompasses antipatterns that invariably produce incorrect results or enable data corruption: "
+        "(1) NULL comparison errors utilizing equality operators (= or !=) instead of IS NULL predicates, which always evaluate to NULL "
+        "rather than true/false; (2) missing GROUP BY clauses with non-aggregated column references, producing non-deterministic results "
+        "with arbitrary row selection; (3) unsafe UPDATE/DELETE operations lacking WHERE restrictions, risking unintended modification or "
+        "deletion of all table rows; and (4) Cartesian product joins resulting from absent JOIN conditions, causing exponential row "
+        "multiplication. High severity (2 patterns) identifies constructs that produce incorrect results under specific scenarios: "
+        "(1) NOT IN comparisons with nullable subquery results, where NULL propagation semantics cause the entire expression to evaluate "
+        "to false unexpectedly; and (2) implicit comma-separated table specifications, which risk accidental Cartesian products when WHERE "
+        "predicates inadequately constrain the join relationship. Medium severity (6 patterns) targets performance degradations and code "
+        "quality issues that do not compromise correctness: index-breaking constructs forcing full table scans (function applications in "
+        "WHERE predicates, leading-wildcard LIKE patterns), inefficient query formulations with quadratic complexity (correlated subqueries), "
+        "unnecessary deduplication operations (UNION when UNION ALL suffices), and redundant constructs (DISTINCT combined with GROUP BY, "
+        "column selections in EXISTS subqueries that only check row existence). Low severity (1 pattern) encompasses style preferences, "
+        "specifically SELECT * usage, which is acceptable in Text-to-SQL research benchmarks but avoided in production systems for "
+        "maintainability reasons. This four-level taxonomy (4+2+6+1 patterns) enables graduated quality assessment distinguishing queries "
+        "requiring immediate correction from those warranting optimization or stylistic refinement.",
     )
 
     add_paragraph(
         doc,
-        "The Quality Score Computation stage synthesizes antipatterns into a 0-100 metric through weighted penalties. Scoring begins at 100 points. "
-        "Critical antipatterns subtract 20 points; significant antipatterns 10 points; advisory antipatterns 3 points. The formula: Quality Score = "
-        "max(0, 100 - 20×critical - 10×warning - 3×info). This produces intuitive distributions: zero antipatterns achieve 100; advisory issues "
-        "score 90s; several significant antipatterns score 50-70; critical antipatterns score below 50 necessitating revision or exclusion.",
+        "The Quality Score Computation stage synthesizes detected antipatterns into a scalar metric through a weighted penalty aggregation "
+        "formula that maps antipattern severity and frequency to a normalized quality score in the interval [0, 100]. The scoring algorithm "
+        "employs differential weighting coefficients calibrated to reflect the relative technical impact of each severity category. The "
+        "computational formula is defined as Quality_Score = max(0, 100 - 30·n_critical - 15·n_high - 5·n_medium - 2·n_low), where n_severity "
+        "denotes the observed frequency of antipatterns within each severity classification. The weighting coefficients (30, 15, 5, 2) encode "
+        "domain expertise regarding the relative importance of correctness violations (Critical: -30), edge-case failures (High: -15), "
+        "performance degradations (Medium: -5), and stylistic concerns (Low: -2). The max(0, ·) operator enforces a lower bound preventing "
+        "negative valuations when multiple severe antipatterns accumulate. This formula produces a monotonically decreasing quality function "
+        "with respect to antipattern frequency, exhibiting the following characteristic score ranges: queries devoid of antipatterns achieve "
+        "the maximum score of 100 (perfect quality); queries exhibiting only low-severity patterns score 90-98 (excellent quality); queries "
+        "containing isolated medium-severity issues score 80-95 (good quality); queries with multiple medium-severity or few high-severity "
+        "antipatterns score 60-85 (fair quality); queries manifesting critical antipatterns or numerous high-severity issues score below 60 "
+        "(poor quality). The weighted penalty approach enables fine-grained quality discrimination while maintaining intuitive score "
+        "interpretability for dataset curation and quality-aware evaluation methodologies.",
     )
 
     add_paragraph(
         doc,
-        "The Quality Level Classification stage maps scores to categorical labels with empirically calibrated thresholds. Excellent (90-100) "
-        "designates professional-grade SQL with zero significant antipatterns. Good (70-89) encompasses one or two significant antipatterns "
-        "representing acceptable quality. Fair (50-69) identifies multiple significant antipatterns requiring remediation. Poor (0-49) "
-        "designates critical antipatterns or numerous issues requiring extensive revision or exclusion. This enables dataset-level profiling, "
-        "quality-based filtering, correlation analyses with semantic correctness, and targeted improvement campaigns.",
+        "The Quality Level Classification stage discretizes the continuous score space into four categorical labels through empirically "
+        "calibrated threshold boundaries that partition the [0, 100] interval into qualitatively distinct quality strata. The classification "
+        "mapping employs the following thresholds: Excellent quality (90 ≤ score ≤ 100) designates queries exhibiting minimal antipattern "
+        "presence, typically containing at most minor stylistic deviations without correctness or performance implications, and thus suitable "
+        "for inclusion in high-quality training corpora without modification. Good quality (70 ≤ score < 90) encompasses queries with isolated "
+        "medium-severity antipatterns that represent acceptable quality for benchmark applications despite identifiable refinement opportunities. "
+        "Fair quality (50 ≤ score < 70) identifies queries manifesting multiple medium-severity or limited high-severity antipatterns that "
+        "warrant remediation prior to incorporation into curated datasets, though potentially remaining valuable for error pattern analysis or "
+        "as negative examples in training scenarios. Poor quality (0 ≤ score < 50) designates queries containing critical antipatterns or "
+        "numerous high-severity issues requiring substantial revision or exclusion from quality-controlled datasets. This categorical taxonomy "
+        "serves multiple research and engineering functions: facilitating dataset-level quality distribution analysis through aggregate "
+        "statistics over category memberships; enabling quality-threshold-based filtering strategies for training data curation; supporting "
+        "stratified evaluation methodologies that analyze model performance across quality strata; informing correlation analyses investigating "
+        "relationships between syntactic quality metrics and semantic correctness judgments; and guiding targeted quality improvement initiatives "
+        "by identifying antipattern categories exhibiting highest prevalence within specific quality ranges.",
     )
 
     add_paragraph(
         doc,
-        "The detector outputs quality metrics to the DuckDB database enabling quality profiling, filtering, correlation studies with semantic "
-        "correctness, targeted remediation campaigns, and quality-aware evaluation frameworks.",
+        "The antipattern detection subsystem persists comprehensive metrics to the DuckDB analytical database through a dual-representation "
+        "schema design that balances query efficiency with evidentiary completeness. For each analyzed query, the metrics record comprises: "
+        "(i) scalar quality indicators including the computed quality score and assigned categorical level; (ii) a structured JSON array "
+        "enumerating all detected antipatterns with their severity classifications, pattern identifiers, diagnostic messages, and source "
+        "location metadata; (iii) a set of 13 boolean indicator variables corresponding to individual antipattern types to enable efficient "
+        "SQL-based filtering and aggregation operations; and (iv) execution provenance metadata documenting analysis duration and any "
+        "exceptional conditions encountered during detection. This hybrid storage architecture facilitates multiple analytical methodologies: "
+        "computing dataset-wide frequency distributions of antipattern categories to characterize systematic quality issues; performing "
+        "correlation analyses between antipattern presence and semantic correctness verdicts obtained from LLM judges to empirically validate "
+        "whether detected patterns correspond to actual semantic errors; conducting stratified evaluation studies that partition datasets by "
+        "quality level to assess whether model performance exhibits differential behavior across quality strata; and generating prioritized "
+        "remediation reports that rank antipattern categories by their frequency, severity weighting, and observed correlation with execution "
+        "failures or semantic incorrectness. The architectural decision to maintain both boolean predicates (optimized for predicate pushdown "
+        "in analytical queries) and detailed JSON evidence (essential for root cause analysis and debugging workflows) represents a pragmatic "
+        "engineering trade-off between query execution performance and diagnostic capability in the metrics persistence layer.",
     )
 
     # 2.5. Data flow
@@ -898,12 +975,13 @@ def generate_section2_docx():
         "scores, difficulty classifications, structural feature vectors (JOIN counts, subquery depths, CTE usage, aggregation functions, "
         "window functions), and parsing success/failure flags. Query execution metrics capture execution success/failure status, execution "
         "time in microseconds, returned row counts, and categorized error messages for failed executions. Antipattern detection metrics "
-        "record individual antipattern flags for each of the 14 detected patterns, pattern severity scores, and overall quality scores "
-        "computed from the weighted combination of detected patterns. Semantic validation metrics store individual model verdicts and "
-        "confidence scores, consensus verdicts and types, weighted confidence aggregates, and the full text of model explanations for "
-        "qualitative analysis. All tables share a common record identifier field enabling join operations that correlate metrics across "
-        "different validation dimensions, facilitating research questions such as whether queries with higher syntactic complexity exhibit "
-        "higher rates of semantic errors or whether certain antipattern combinations correlate with execution failures.",
+        "record individual antipattern flags for each of the 13 detected patterns (distributed across four severity levels: 4 Critical, "
+        "2 High, 6 Medium, 1 Low), pattern severity scores, and overall quality scores computed from the weighted combination of detected "
+        "patterns. Semantic validation metrics store individual model verdicts and confidence scores, consensus verdicts and types, weighted "
+        "confidence aggregates, and the full text of model explanations for qualitative analysis. All tables share a common record identifier "
+        "field enabling join operations that correlate metrics across different validation dimensions, facilitating research questions such "
+        "as whether queries with higher syntactic complexity exhibit higher rates of semantic errors or whether certain antipattern "
+        "combinations correlate with execution failures.",
     )
 
     add_paragraph(
