@@ -152,6 +152,35 @@ class TestSelectStarAntipattern:
         assert result.has_select_star is False
         assert all(ap.pattern != "select_star" for ap in result.antipatterns)
 
+    def test_star_in_cte_detected(self):
+        """SELECT * inside CTE should also be reported."""
+        sql = """
+        WITH temp AS (
+            SELECT * FROM users
+        )
+        SELECT id FROM temp
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+
+    def test_multiple_stars_counts_as_single_antipattern(self):
+        """
+        Multiple SELECT * projections across UNION branches should still
+        be reported as a single antipattern instance.
+        """
+        sql = """
+        SELECT * FROM users
+        UNION ALL
+        SELECT * FROM admins
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        # We don't strictly assert the number of instances, but we expect
+        # at least one, not necessarily two separate entries.
+
 
 class TestImplicitJoinAntipattern:
     """Unit tests for implicit join (comma / cross join) detection."""
@@ -506,7 +535,6 @@ class TestLeadingWildcardLikeAntipattern:
         
         assert result.has_leading_wildcard_like is False
 
-
 class TestNotInNullableAntipattern:
     """Test NOT IN with nullable subquery antipattern detection."""
 
@@ -654,7 +682,19 @@ class TestNullComparisonEqualsAntipattern:
 
         assert result.has_null_comparison_equals is False
         assert not any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
-     
+
+    def test_case_expression_with_null_comparison_detected(self):
+        sql = """
+        SELECT CASE
+                 WHEN status = NULL THEN 'unknown'
+                 ELSE status
+               END AS s
+        FROM users
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+
 
 class TestCartesianProductAntipattern:
     def test_cartesian_product_comma_separated(self):

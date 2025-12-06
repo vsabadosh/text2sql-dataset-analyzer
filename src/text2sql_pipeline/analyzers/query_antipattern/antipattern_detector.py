@@ -211,29 +211,15 @@ def _detect_null_comparison_equals(
     Detect suspicious comparisons against NULL using standard comparison operators.
 
     Flags cases where NULL appears on either side of:
-        =, !=, <>, <, >, <=, >=
+      =, !=, <>, <, >, <=, >=
 
     In SQL three-valued logic, any comparison with NULL using these operators
-    evaluates to NULL (unknown), not true or false. This usually indicates that
+    evaluates to NULL (unknown), not TRUE or FALSE. This usually indicates that
     IS NULL / IS NOT NULL was intended instead.
-
-    Examples that should be flagged:
-        col = NULL
-        col != NULL
-        col <> NULL
-        col < NULL
-        col >= NULL
-        NULL = col
-
-    Correct patterns (NOT flagged):
-        col IS NULL
-        col IS NOT NULL
-        col <=> NULL    -- MySQL NULL-safe equality (if you choose to allow it)
     """
     pattern = AntipatternPattern.NULL_COMPARISON_EQUALS.value
     severity = severity_map.get(pattern, "critical")
 
-    # All comparison operator classes where comparing to NULL is suspicious
     comparison_nodes: Tuple[Type[exp.Expression], ...] = (
         exp.EQ,   # =
         exp.NEQ,  # != and <>
@@ -245,7 +231,6 @@ def _detect_null_comparison_equals(
 
     for node_type in comparison_nodes:
         for node in ast.find_all(node_type):
-            # node.left and node.right are the two sides of the comparison
             if _is_null_literal(node.left) or _is_null_literal(node.right):
                 features.has_null_comparison_equals = True
                 antipatterns.append(
@@ -257,10 +242,10 @@ def _detect_null_comparison_equals(
                             "In SQL, such comparisons always evaluate to NULL (unknown). "
                             "Use IS NULL / IS NOT NULL instead."
                         ),
-                        location="WHERE clause",
+                        location="expression with NULL comparison",
                     )
                 )
-                # We only need to record this antipattern once per query
+                # One instance per query is enough
                 return
 
 
@@ -559,61 +544,71 @@ def _detect_missing_group_by(
             # Stop after the first offending SELECT for this antipattern
             break
 
-
 def _detect_select_star(
     ast: exp.Expression,
     antipatterns: List[AntipatternInstance],
     features: QueryAntipatternFeatures,
     severity_map: Dict[str, str],
 ) -> None:
-    """Detects SELECT * or table.* usage."""
+    """
+    Detects SELECT * or table.* usage in any SELECT clause.
 
+    Rationale:
+    - SELECT * makes queries harder to maintain and can cause performance
+      regressions when new columns are added.
+    - SELECT table.* has similar issues at a smaller scale.
+    - COUNT(*) and other aggregates that use * as an internal argument are NOT
+      considered SELECT *, because the top-level projection is the aggregate.
+    """
     pattern = AntipatternPattern.SELECT_STAR.value
     severity = severity_map.get(pattern, "medium")
 
     for select in ast.find_all(exp.Select):
-        # List of projected expressions in SELECT
         select_expressions = list(select.expressions or [])
+        found_star = False
 
         for expr in select_expressions:
-            # Case 1: bare star – covers `SELECT *`
+            # Case 1: plain SELECT * from this SELECT level
             if isinstance(expr, exp.Star):
-                features.has_select_star = True
-
-                antipatterns.append(
-                    AntipatternInstance(
-                        pattern=pattern,
-                        severity=severity,
-                        message=(
-                            "SELECT * found: specify explicit columns for better "
-                            "maintainability and performance"
-                        ),
-                        location="SELECT clause",
+                # Ensure the Star belongs directly to this SELECT (not nested)
+                star_select = _closest_parent_of_type(expr, exp.Select)
+                if star_select is select:
+                    features.has_select_star = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                "SELECT * found: specify explicit columns for better "
+                                "maintainability and performance."
+                            ),
+                            location="SELECT clause",
+                        )
                     )
-                )
-                break
+                    found_star = True
+                    break
 
             # Case 2: qualified star – e.g. `SELECT u.*`
             # Many parsers represent this as a Column whose inner expression is Star.
             if isinstance(expr, exp.Column) and isinstance(expr.this, exp.Star):
                 features.has_select_star = True
-
                 antipatterns.append(
                     AntipatternInstance(
                         pattern=pattern,
                         severity=severity,
                         message=(
                             "SELECT table.* found: specify explicit columns for better "
-                            "maintainability and performance"
+                            "maintainability and performance."
                         ),
                         location="SELECT clause",
                     )
                 )
+                found_star = True
                 break
 
-        if features.has_select_star:
-            break
-
+        # If we already found a SELECT *, no need to scan more SELECT nodes
+        if found_star:
+            return
 
 def _detect_implicit_join(
     ast: exp.Expression,
