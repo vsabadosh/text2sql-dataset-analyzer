@@ -339,7 +339,71 @@ class TestNullComparisonEqualsAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_null_comparison_equals is False
+    # NEW TESTS
+    def test_not_equals_angle_bracket_null_detected(self):
+        """Test that <> NULL is detected as not-equals NULL."""
+        sql = "SELECT * FROM users WHERE status <> NULL"
+        result = detect_antipatterns(sql)
 
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_less_than_null_detected(self):
+        """Test that < NULL is detected as a suspicious NULL comparison."""
+        sql = "SELECT * FROM users WHERE status < NULL"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_greater_than_null_detected(self):
+        """Test that > NULL is detected as a suspicious NULL comparison."""
+        sql = "SELECT * FROM users WHERE status > NULL"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_less_or_equal_null_detected(self):
+        """Test that <= NULL is detected as a suspicious NULL comparison."""
+        sql = "SELECT * FROM users WHERE status <= NULL"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_greater_or_equal_null_detected(self):
+        """Test that >= NULL is detected as a suspicious NULL comparison."""
+        sql = "SELECT * FROM users WHERE status >= NULL"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_null_equals_column_detected(self):
+        """Test that NULL = column is also detected (NULL on the left side)."""
+        sql = "SELECT * FROM users WHERE NULL = status"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_null_safe_equal_mysql_not_flagged(self):
+        """
+        Test that MySQL NULL-safe equality <=> NULL is not flagged.
+
+        NOTE:
+        This test only makes sense if detect_antipatterns parses the query
+        using a MySQL-compatible dialect so that `<=>` becomes a dedicated
+        NullSafeEQ node in the AST. If you always use SQLite dialect, you may
+        skip or adapt this test.
+        """
+        sql = "SELECT * FROM users WHERE status <=> NULL"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is False
+        assert not any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+     
 
 class TestCartesianProductAntipattern:
     def test_pure_cartesian_from_comma(self):

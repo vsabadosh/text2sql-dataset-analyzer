@@ -18,7 +18,7 @@ This module detects common SQL antipatterns and code smells:
 """
 
 from __future__ import annotations
-from typing import Optional, List, Dict, Set, Type
+from typing import Optional, List, Dict, Set, Tuple, Type
 import sqlglot
 from sqlglot import exp
 
@@ -201,34 +201,67 @@ def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[Antipat
             ))
 
 
-def _detect_null_comparison_equals(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect = NULL or != NULL comparisons (should use IS NULL / IS NOT NULL)."""
+def _detect_null_comparison_equals(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """
+    Detect suspicious comparisons against NULL using standard comparison operators.
+
+    Flags cases where NULL appears on either side of:
+        =, !=, <>, <, >, <=, >=
+
+    In SQL three-valued logic, any comparison with NULL using these operators
+    evaluates to NULL (unknown), not true or false. This usually indicates that
+    IS NULL / IS NOT NULL was intended instead.
+
+    Examples that should be flagged:
+        col = NULL
+        col != NULL
+        col <> NULL
+        col < NULL
+        col >= NULL
+        NULL = col
+
+    Correct patterns (NOT flagged):
+        col IS NULL
+        col IS NOT NULL
+        col <=> NULL    -- MySQL NULL-safe equality (if you choose to allow it)
+    """
     pattern = AntipatternPattern.NULL_COMPARISON_EQUALS.value
     severity = severity_map.get(pattern, "critical")
-    
-    # Look for EQ (=) and NEQ (!=, <>) with NULL
-    for eq in ast.find_all(exp.EQ):
-        if _is_null_literal(eq.left) or _is_null_literal(eq.right):
-            features.has_null_comparison_equals = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="Use IS NULL instead of = NULL (= NULL always returns NULL, not true/false)",
-                location="WHERE clause"
-            ))
-            break
-    
-    if not features.has_null_comparison_equals:
-        for neq in ast.find_all(exp.NEQ):
-            if _is_null_literal(neq.left) or _is_null_literal(neq.right):
+
+    # All comparison operator classes where comparing to NULL is suspicious
+    comparison_nodes: Tuple[Type[exp.Expression], ...] = (
+        exp.EQ,   # =
+        exp.NEQ,  # != and <>
+        exp.LT,   # <
+        exp.GT,   # >
+        exp.LTE,  # <=
+        exp.GTE,  # >=
+    )
+
+    for node_type in comparison_nodes:
+        for node in ast.find_all(node_type):
+            # node.left and node.right are the two sides of the comparison
+            if _is_null_literal(node.left) or _is_null_literal(node.right):
                 features.has_null_comparison_equals = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message="Use IS NOT NULL instead of != NULL (!= NULL always returns NULL, not true/false)",
-                    location="WHERE clause"
-                ))
-                break
+                antipatterns.append(
+                    AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message=(
+                            "Do not compare directly with NULL using =, !=, <>, <, >, <=, or >=. "
+                            "In SQL, such comparisons always evaluate to NULL (unknown). "
+                            "Use IS NULL / IS NOT NULL instead."
+                        ),
+                        location="WHERE clause",
+                    )
+                )
+                # We only need to record this antipattern once per query
+                return
 
 
 def _detect_cartesian_product(
