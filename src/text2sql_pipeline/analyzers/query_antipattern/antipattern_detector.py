@@ -716,33 +716,70 @@ def _detect_function_in_where(
     features: QueryAntipatternFeatures,
     severity_map: Dict[str, str],
 ) -> None:
-    """Detect function calls applied to columns inside the WHERE clause (may prevent index usage)."""
+    """
+    Detect function calls applied to columns inside the WHERE clause.
+
+    Rationale:
+    - Expressions like UPPER(col), DATE(col), COALESCE(col, ...) in WHERE
+      usually prevent index usage on 'col' unless a functional index exists.
+    - Functions that only operate on literals (e.g. name = UPPER('John'))
+      are not problematic for indexing and should not be flagged.
+    - We only analyze functions at the current SELECT level and ignore
+      functions that live entirely inside nested subqueries.
+    """
     pattern = AntipatternPattern.FUNCTION_IN_WHERE.value
     severity = severity_map.get(pattern, "high")
 
     for where in ast.find_all(exp.Where):
-        # Look for any function calls inside WHERE
+        # Identify the SELECT this WHERE clause belongs to
+        where_select = _closest_parent_of_type(where, exp.Select)
+        if where_select is None:
+            continue
+
+        # Scan all function-style expressions under this WHERE
         for func in where.find_all(exp.Func):
-            # Skip logical operators (they are not true function calls)
+            # Skip logical nodes that sqlglot may represent as Func-like
             if isinstance(func, (exp.And, exp.Or, exp.Not)):
                 continue
 
-            # Check if the function contains any column reference
-            # (this ensures we only detect cases like UPPER(col),
-            #  not col = UPPER('value'))
+            # Collect all column references used inside this function
             columns = list(func.find_all(exp.Column))
             if not columns:
+                # Pure literal function, e.g. LOWER('x') → harmless
                 continue
 
-            # Mark antipattern
+            # Check if at least one of these columns belongs to the same
+            # SELECT level as the WHERE clause.
+            has_column_at_this_level = False
+            for col in columns:
+                col_select = _closest_parent_of_type(col, exp.Select)
+                if col_select is where_select:
+                    has_column_at_this_level = True
+                    break
+
+            if not has_column_at_this_level:
+                # The function only touches columns from a nested subquery;
+                # that subquery should be analyzed by its own WHERE/SELECT.
+                continue
+
+            # At this point we know:
+            # - func is a function expression in WHERE
+            # - it references at least one column at the current SELECT level
             features.has_function_in_where = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="Function applied to column in WHERE clause may prevent index usage",
-                location=f"WHERE clause: {func.__class__.__name__}",
-            ))
-            return  # One instance is enough
+            antipatterns.append(
+                AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message=(
+                        "Function applied to column in WHERE clause may prevent "
+                        "index usage. Consider rewriting the predicate or using "
+                        "a functional index if supported."
+                    ),
+                    location=f"WHERE clause: {func.sql()}",
+                )
+            )
+            # One instance is enough per query
+            return
 
 
 def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:

@@ -193,73 +193,285 @@ class TestImplicitJoinAntipattern:
 
         assert result.has_implicit_join is False
 
-
 class TestFunctionInWhereAntipattern:
     """Test function in WHERE clause antipattern detection."""
 
+    # ========================================
+    # BASIC DETECTION
+    # ========================================
+    
     def test_function_on_column_detected(self):
-        """Test that function applied to column in WHERE is detected."""
+        """Function applied to column in WHERE is detected."""
         sql = "SELECT * FROM users WHERE UPPER(name) = 'JOHN'"
         result = detect_antipatterns(sql)
         
         assert result.has_function_in_where is True
         assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "function_in_where" and ap.severity == "high" for ap in result.antipatterns)
+        assert any(
+            ap.pattern == "function_in_where" and ap.severity == "high" 
+            for ap in result.antipatterns
+        )
 
-    def test_function_on_literal_not_flagged1(self):
-        """Test that function on literal value is not flagged."""
-        sql = "SELECT * FROM users WHERE name = UPPER('john')"
-        result = detect_antipatterns(sql)
-        
-        # This might still be flagged due to conservative detection
-        # but it's less problematic than function on column
-        assert result.parseable is True
-
-    def test_date_function_on_column(self):
-        """Test date function on column is detected."""
+    def test_date_function_on_column_detected(self):
+        """DATE() function on column is detected."""
         sql = "SELECT * FROM orders WHERE DATE(created_at) = '2024-01-01'"
         result = detect_antipatterns(sql)
-        
         assert result.has_function_in_where is True
 
-    def test_function_on_literal_not_flagged2(self):
-        """
-        A function applied only to a literal should NOT be considered an index killer.
-        """
+    def test_coalesce_on_column_detected(self):
+        """COALESCE on column prevents index usage."""
+        sql = "SELECT * FROM users WHERE COALESCE(status, 'active') = 'active'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_cast_on_column_detected(self):
+        """CAST on column is detected."""
+        sql = "SELECT * FROM orders WHERE CAST(amount AS INTEGER) > 100"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_substr_on_column_detected(self):
+        """SUBSTR on column is detected."""
+        sql = "SELECT * FROM users WHERE SUBSTR(email, 1, 5) = 'admin'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_left_function_on_column_detected(self):
+        """LEFT function on column is detected."""
+        sql = "SELECT * FROM users WHERE LEFT(email, 5) = 'admin'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_trim_on_column_detected(self):
+        """TRIM on column is detected."""
+        sql = "SELECT * FROM users WHERE TRIM(name) = 'John'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    # ========================================
+    # NEGATIVE TESTS (should NOT be flagged)
+    # ========================================
+
+    def test_function_on_literal_not_flagged(self):
+        """Function on literal only is not flagged."""
         sql = "SELECT * FROM users WHERE name = UPPER('john')"
         result = detect_antipatterns(sql)
-
         assert result.has_function_in_where is False
         assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
 
-    def test_coalesce_on_column_detected(self):
-        """COALESCE(column, default) in WHERE usually prevents index usage on the column."""
-        sql = "SELECT * FROM users WHERE COALESCE(status, 'active') = 'active'"
+    def test_function_in_select_list_not_flagged(self):
+        """Function in SELECT list is not flagged by this detector."""
+        sql = "SELECT UPPER(name) FROM users WHERE status = 'active'"
         result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
 
-        assert result.has_function_in_where is True
-        assert any(ap.pattern == "function_in_where" for ap in result.antipatterns)
-
-    def test_cast_on_column_detected(self):
-        """CAST(column AS type) in WHERE is a typical function-on-column pattern."""
-        sql = "SELECT * FROM orders WHERE CAST(amount AS INTEGER) > 100"
-        result = detect_antipatterns(sql)
-
-        assert result.has_function_in_where is True
-
-    def test_function_in_join_on_not_counted_as_function_in_where(self):
-        """
-        The detector is supposed to look only at WHERE clause, not JOIN ON.
-        """
+    def test_function_in_join_on_not_flagged(self):
+        """Function in JOIN ON is not flagged (only WHERE matters)."""
         sql = """
-        SELECT * 
-        FROM a 
+        SELECT * FROM a 
         JOIN b ON UPPER(a.name) = UPPER(b.name)
         """
         result = detect_antipatterns(sql)
-
         assert result.has_function_in_where is False
 
+    def test_function_in_having_not_flagged(self):
+        """Function in HAVING is not flagged by this detector."""
+        sql = """
+        SELECT country, COUNT(*) 
+        FROM users 
+        GROUP BY country 
+        HAVING UPPER(country) = 'USA'
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_column_without_function_not_flagged(self):
+        """Simple column comparison is not flagged."""
+        sql = "SELECT * FROM users WHERE status = 'active'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_aggregate_in_where_not_flagged(self):
+        """Aggregate functions in WHERE are syntax errors, but not this antipattern."""
+        sql = "SELECT * FROM users WHERE COUNT(*) > 5"
+        # This would be a syntax error in most DBs, but if it parses, 
+        # we don't flag it as function_in_where
+        try:
+            result = detect_antipatterns(sql)
+            if result.parseable:
+                assert result.has_function_in_where is False
+        except:
+            pass  # Expected to not parse
+
+    # ========================================
+    # NESTED QUERIES
+    # ========================================
+
+    def test_function_on_column_in_subquery_where_detected(self):
+        """Function in subquery WHERE is detected at that level."""
+        sql = """
+        SELECT * FROM users u
+        WHERE EXISTS (
+            SELECT 1 FROM orders o 
+            WHERE UPPER(o.status) = 'PAID'
+              AND o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        assert any("UPPER" in ap.location for ap in result.antipatterns)
+
+    def test_function_on_outer_column_with_subquery_detected(self):
+        """Function on outer column is detected."""
+        sql = """
+        SELECT * FROM users u
+        WHERE UPPER(u.name) = 'JOHN'
+          AND EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id)
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_correlated_column_reference_not_flagged(self):
+        """Correlated column reference without function is not flagged."""
+        sql = """
+        SELECT * FROM users u
+        WHERE EXISTS (
+            SELECT 1 FROM orders o WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_function_in_scalar_subquery_where_detected(self):
+        """Function in scalar subquery WHERE is detected."""
+        sql = """
+        SELECT 
+            name,
+            (SELECT COUNT(*) FROM orders WHERE UPPER(status) = 'PAID') as cnt
+        FROM users
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_cte_where_detected(self):
+        """Function in CTE WHERE is detected."""
+        sql = """
+        WITH active_users AS (
+            SELECT * FROM users WHERE UPPER(status) = 'ACTIVE'
+        )
+        SELECT * FROM active_users WHERE age > 18
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_derived_table_where_detected(self):
+        """Function in derived table WHERE is detected."""
+        sql = """
+        SELECT u.id, sub.order_count
+        FROM users u
+        JOIN (
+            SELECT user_id, COUNT(*) as order_count
+            FROM orders
+            WHERE DATE(created_at) = '2024-01-01'
+            GROUP BY user_id
+        ) sub ON sub.user_id = u.id
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    # ========================================
+    # COMPLEX EXPRESSIONS
+    # ========================================
+
+    def test_nested_functions_on_column_detected(self):
+        """Nested functions (UPPER(TRIM(...))) are detected."""
+        sql = "SELECT * FROM users WHERE UPPER(TRIM(name)) = 'JOHN'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        
+        # Should only report ONE antipattern (early return)
+        function_aps = [ap for ap in result.antipatterns if ap.pattern == "function_in_where"]
+        assert len(function_aps) == 1
+
+    def test_case_with_function_on_column_detected(self):
+        """CASE expression with function on column is detected."""
+        sql = """
+        SELECT * FROM users
+        WHERE CASE 
+            WHEN UPPER(status) = 'ACTIVE' THEN 1 
+            ELSE 0 
+        END = 1
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_or_condition_detected(self):
+        """Function in OR branch is detected."""
+        sql = """
+        SELECT * FROM users 
+        WHERE name = 'John' OR UPPER(email) = 'ADMIN@EXAMPLE.COM'
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_and_condition_detected(self):
+        """Function in AND branch is detected."""
+        sql = """
+        SELECT * FROM users 
+        WHERE UPPER(name) = 'JOHN' AND age > 18
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_multiple_functions_on_different_columns_detected_once(self):
+        """Multiple functions detected but only first reported (early return)."""
+        sql = """
+        SELECT * FROM users 
+        WHERE UPPER(name) = 'JOHN' AND DATE(created_at) = '2024-01-01'
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        
+        # Early return means only one antipattern
+        function_aps = [ap for ap in result.antipatterns if ap.pattern == "function_in_where"]
+        assert len(function_aps) == 1
+
+    # ========================================
+    # EDGE CASES
+    # ========================================
+
+    def test_function_with_multiple_arguments_one_column_detected(self):
+        """Function with mixed column/literal args is detected."""
+        sql = "SELECT * FROM users WHERE SUBSTR(name, 1, 3) = 'Joh'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_on_expression_with_column_detected(self):
+        """Function on expression containing column is detected."""
+        sql = "SELECT * FROM users WHERE UPPER(name || ' Smith') = 'JOHN SMITH'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_between_with_functions_detected(self):
+        """BETWEEN with function on column is detected."""
+        sql = """
+        SELECT * FROM orders 
+        WHERE DATE(created_at) BETWEEN '2024-01-01' AND '2024-12-31'
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_in_list_with_function_on_column_detected(self):
+        """IN list with function on column is detected."""
+        sql = "SELECT * FROM users WHERE UPPER(status) IN ('ACTIVE', 'PENDING')"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_not_condition_detected(self):
+        """Function in NOT condition is detected."""
+        sql = "SELECT * FROM users WHERE NOT (UPPER(name) = 'JOHN')"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
 
 class TestLeadingWildcardLikeAntipattern:
     """Test leading wildcard LIKE antipattern detection."""
