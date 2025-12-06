@@ -828,6 +828,19 @@ class TestCartesianProductAntipattern:
 
         assert result.has_cartesian_product is True
 
+    def test_where_join_condition_with_and_still_connects_tables(self):
+        """
+        WHERE with multiple predicates combined by AND must still detect a join
+        across tables when there is at least one a.col = b.col.
+        """
+        sql = """
+        SELECT *
+        FROM a, b
+        WHERE a.id = 1 AND b.id = 2 AND a.x = b.x
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is False
 
 class TestMissingGroupByAntipattern:
     """Test missing GROUP BY antipattern detection."""

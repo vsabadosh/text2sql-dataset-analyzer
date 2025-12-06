@@ -263,6 +263,7 @@ def _detect_null_comparison_equals(
                 # We only need to record this antipattern once per query
                 return
 
+
 def _detect_cartesian_product(
     ast: exp.Expression,
     antipatterns: List[AntipatternInstance],
@@ -270,70 +271,43 @@ def _detect_cartesian_product(
     severity_map: Dict[str, str],
 ) -> None:
     """
-    Detect Cartesian products: multiple tables without proper join conditions between them.
+    Detect Cartesian products: multiple tables without proper join conditions.
 
-    Heuristics:
-    - Normal case: we look for join conditions that explicitly connect two different tables
-      via ON / USING / WHERE (old-style joins).
-    - Special heuristic: if there are exactly two tables in the SELECT and we see an ON
-      condition that is an equality between two columns (Column = Column), and they are
-      NOT both from the same table, we treat it as a join between both tables even if
-      one side is unqualified, e.g.:
-          JOIN T2 ON T1.StuID = Class_Senator_Vote
-      This approximates how a database would usually resolve the unqualified column.
-      We explicitly avoid treating tautologies like T2.actid = T2.actid as joins.
+    High-level rules per SELECT:
+      1. If there are fewer than 2 tables → no Cartesian product.
+      2. We consider join conditions coming from:
+         - JOIN ... ON
+         - JOIN ... USING(...)
+         - old-style joins in WHERE: a.col = b.col
+      3. If we find no inter-table conditions at all, and there is more than
+         one table, we treat it as a Cartesian product.
+      4. If some tables never appear in any inter-table condition, we also
+         treat it as a Cartesian product (floating table).
     """
-
     pattern = AntipatternPattern.CARTESIAN_PRODUCT.value
     severity = severity_map.get(pattern, "critical")
 
     for select in ast.find_all(exp.Select):
-        # ------------------------------------------------------------------
-        # 1) Collect all tables in this SELECT (FROM + JOIN sources)
-        # ------------------------------------------------------------------
-        tables: List[str] = []
-
-        def _add_table(expr: exp.Expression) -> None:
-            """
-            Add table/subquery aliases for this SELECT level.
-            We normalize to lowercase to match _get_column_table().
-            """
-            if isinstance(expr, exp.Table):
-                tables.append(expr.alias_or_name.lower())
-            elif isinstance(expr, exp.Subquery):
-                if expr.alias:
-                    tables.append(expr.alias.lower())
-
-        # FROM clause
-        from_clause = select.args.get("from")
-        if isinstance(from_clause, exp.From) and from_clause.this is not None:
-            _add_table(from_clause.this)
-
-        # All JOINs (including comma-joins that sqlglot might normalize)
-        joins: List[exp.Expression] = list(select.args.get("joins") or [])
-        for join in joins:
-            if isinstance(join, exp.Join) and join.this is not None:
-                _add_table(join.this)
-
-        # Fewer than 2 tables → cannot have a Cartesian product
+        tables = _collect_tables_for_select(select)
         if len(tables) < 2:
+            # Cannot have a Cartesian product with fewer than 2 tables
             continue
 
         all_tables: Set[str] = set(tables)
-
-        # ------------------------------------------------------------------
-        # 2) Collect tables that participate in inter-table join conditions
-        #    (ON / USING / WHERE) at THIS query level
-        # ------------------------------------------------------------------
         tables_in_conditions: Set[str] = set()
-        has_using_join: bool = False
+        has_using_join = False
 
+        joins: List[exp.Expression] = list(select.args.get("joins") or [])
+        from_clause = select.args.get("from")
+
+        # ------------------------------------------------------------------
         # 2a) JOIN ... ON / USING
+        # ------------------------------------------------------------------
         for join in joins:
             if not isinstance(join, exp.Join):
                 continue
 
-            # --- ON clause: look for EQs that connect two tables ---
+            # --- ON clause: explicit join conditions ---
             on_clause = join.args.get("on")
             if on_clause is not None:
                 for eq in on_clause.find_all(exp.EQ):
@@ -355,11 +329,9 @@ def _detect_cartesian_product(
                         tables_in_conditions.add(right_table)
                         continue
 
-                    # Heuristic: exactly two tables, equality between two columns
-                    # (Column = Column). We use it to handle cases where one side
-                    # is unqualified (bare column) but DB would resolve it to the
-                    # other table. We must NOT treat same-table equalities as joins
-                    # (e.g., T2.actid = T2.actid).
+                    # Heuristic: exactly two tables, equality between two columns.
+                    # We use it to handle cases where one side is unqualified
+                    # but the database would resolve it to the other table.
                     if (
                         len(all_tables) == 2
                         and isinstance(left, exp.Column)
@@ -403,8 +375,9 @@ def _detect_cartesian_product(
                     elif isinstance(from_clause.this, exp.Subquery) and from_clause.this.alias:
                         tables_in_conditions.add(from_clause.this.alias.lower())
 
+        # ------------------------------------------------------------------
         # 2b) WHERE clause: old-style joins (a.col = b.col)
-        # Only check conditions at this SELECT level, not inside subqueries
+        # ------------------------------------------------------------------
         where_clause = select.args.get("where")
         if where_clause is not None:
 
@@ -486,8 +459,7 @@ def _detect_cartesian_product(
                     location="FROM clause",
                 )
             )
-            return
-                        
+            return                        
 
 def _detect_missing_group_by(
     ast: exp.Expression,
@@ -1372,3 +1344,29 @@ def _collect_non_aggregated_columns_for_select(
             non_aggregate_columns.append(col)
 
     return has_non_window_aggregate, has_star, non_aggregate_columns
+
+
+def _collect_tables_for_select(select: exp.Select) -> List[str]:
+    """
+    Collect table/subquery aliases for a single SELECT level.
+
+    We normalize everything to lowercase to align with _get_column_table().
+    """
+    tables: List[str] = []
+
+    def _add_table(expr: exp.Expression) -> None:
+        if isinstance(expr, exp.Table):
+            tables.append(expr.alias_or_name.lower())
+        elif isinstance(expr, exp.Subquery) and expr.alias:
+            tables.append(expr.alias.lower())
+
+    from_clause = select.args.get("from")
+    if isinstance(from_clause, exp.From) and from_clause.this is not None:
+        _add_table(from_clause.this)
+
+    joins: List[exp.Expression] = list(select.args.get("joins") or [])
+    for join in joins:
+        if isinstance(join, exp.Join) and join.this is not None:
+            _add_table(join.this)
+
+    return tables
