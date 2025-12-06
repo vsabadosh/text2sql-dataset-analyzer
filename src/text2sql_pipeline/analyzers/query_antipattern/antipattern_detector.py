@@ -19,8 +19,8 @@ This module detects common SQL antipatterns and code smells:
 
 from __future__ import annotations
 from typing import Optional, List, Dict, Set, Tuple, Type
-import sqlglot
 from sqlglot import exp
+import sqlglot
 
 from .metrics import QueryAntipatternFeatures, AntipatternInstance
 from .antipattern_registry import (
@@ -269,51 +269,63 @@ def _detect_cartesian_product(
     features: QueryAntipatternFeatures,
     severity_map: Dict[str, str],
 ) -> None:
-    """Detect Cartesian products: multiple tables without proper join conditions between them."""
+    """
+    Detect Cartesian products: multiple tables without proper join conditions between them.
+
+    Heuristics:
+    - Normal case: we look for join conditions that explicitly connect two different tables
+      via ON / USING / WHERE (old-style joins).
+    - Special heuristic: if there are exactly two tables in the SELECT and we see an ON
+      condition that is an equality between two columns (Column = Column), and they are
+      NOT both from the same table, we treat it as a join between both tables even if
+      one side is unqualified, e.g.:
+          JOIN T2 ON T1.StuID = Class_Senator_Vote
+      This approximates how a database would usually resolve the unqualified column.
+      We explicitly avoid treating tautologies like T2.actid = T2.actid as joins.
+    """
 
     pattern = AntipatternPattern.CARTESIAN_PRODUCT.value
     severity = severity_map.get(pattern, "critical")
 
     for select in ast.find_all(exp.Select):
-        # ---------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 1) Collect all tables in this SELECT (FROM + JOIN sources)
-        # ---------------------------------------------------------------------
+        # ------------------------------------------------------------------
         tables: List[str] = []
 
         def _add_table(expr: exp.Expression) -> None:
+            """
+            Add table/subquery aliases for this SELECT level.
+            We normalize to lowercase to match _get_column_table().
+            """
             if isinstance(expr, exp.Table):
-                # Normalize to lowercase to match _get_column_table()
                 tables.append(expr.alias_or_name.lower())
             elif isinstance(expr, exp.Subquery):
-                # Handle subqueries with aliases
                 if expr.alias:
                     tables.append(expr.alias.lower())
 
-        # Get FROM clause
+        # FROM clause
         from_clause = select.args.get("from")
-        if isinstance(from_clause, exp.From):
-            # Main table/subquery
-            if from_clause.this is not None:
-                _add_table(from_clause.this)
+        if isinstance(from_clause, exp.From) and from_clause.this is not None:
+            _add_table(from_clause.this)
 
-        # Get all JOINs (including implicit CROSS JOINs from comma syntax)
+        # All JOINs (including comma-joins that sqlglot might normalize)
         joins: List[exp.Expression] = list(select.args.get("joins") or [])
         for join in joins:
             if isinstance(join, exp.Join) and join.this is not None:
                 _add_table(join.this)
 
-        # Fewer than 2 tables → cannot be a Cartesian product
+        # Fewer than 2 tables → cannot have a Cartesian product
         if len(tables) < 2:
             continue
 
-        all_tables = set(tables)
+        all_tables: Set[str] = set(tables)
 
-        # ---------------------------------------------------------------------
+        # ------------------------------------------------------------------
         # 2) Collect tables that participate in inter-table join conditions
-        #    (ON / USING / WHERE)
-        #    IMPORTANT: Only check conditions at THIS query level, not subqueries
-        # ---------------------------------------------------------------------
-        tables_in_conditions: set[str] = set()
+        #    (ON / USING / WHERE) at THIS query level
+        # ------------------------------------------------------------------
+        tables_in_conditions: Set[str] = set()
         has_using_join: bool = False
 
         # 2a) JOIN ... ON / USING
@@ -321,24 +333,59 @@ def _detect_cartesian_product(
             if not isinstance(join, exp.Join):
                 continue
 
-            # ON clause: look for EQs that connect two *different* tables
+            # --- ON clause: look for EQs that connect two tables ---
             on_clause = join.args.get("on")
             if on_clause is not None:
                 for eq in on_clause.find_all(exp.EQ):
-                    left_table = _get_column_table(eq.left)
-                    right_table = _get_column_table(eq.right)
-                    # Only count tables that exist in THIS query level
-                    if (left_table and right_table and 
-                        left_table != right_table and
-                        left_table in all_tables and right_table in all_tables):
+                    left = eq.left
+                    right = eq.right
+
+                    left_table = _get_column_table(left)
+                    right_table = _get_column_table(right)
+
+                    # Normal case: both sides are columns from different tables
+                    if (
+                        left_table
+                        and right_table
+                        and left_table != right_table
+                        and left_table in all_tables
+                        and right_table in all_tables
+                    ):
                         tables_in_conditions.add(left_table)
                         tables_in_conditions.add(right_table)
+                        continue
 
-            # USING (col...) is also a join condition between tables
+                    # Heuristic: exactly two tables, equality between two columns
+                    # (Column = Column). We use it to handle cases where one side
+                    # is unqualified (bare column) but DB would resolve it to the
+                    # other table. We must NOT treat same-table equalities as joins
+                    # (e.g., T2.actid = T2.actid).
+                    if (
+                        len(all_tables) == 2
+                        and isinstance(left, exp.Column)
+                        and isinstance(right, exp.Column)
+                    ):
+                        # If both sides resolve to the same table (including tautology),
+                        # do NOT treat it as an inter-table join.
+                        if (
+                            left_table
+                            and right_table
+                            and left_table == right_table
+                        ):
+                            # Example: T2.actid = T2.actid → ignore as join
+                            continue
+
+                        # If at least one side resolves to a table at this level,
+                        # assume this condition connects both tables.
+                        if (left_table in all_tables) or (right_table in all_tables):
+                            tables_in_conditions |= all_tables
+                            continue
+
+            # --- USING (col...) also represents a join condition between tables ---
             using_clause = join.args.get("using")
             if using_clause is not None:
                 has_using_join = True
-                # USING creates a join condition between the current table and all previous tables
+
                 # Add the joined table
                 if isinstance(join.this, exp.Table):
                     joined_table = join.this.alias_or_name.lower()
@@ -348,7 +395,7 @@ def _detect_cartesian_product(
                     joined_table = join.this.alias.lower()
                     if joined_table in all_tables:
                         tables_in_conditions.add(joined_table)
-                
+
                 # Also add the FROM table (USING always joins to something before it)
                 if from_clause and from_clause.this:
                     if isinstance(from_clause.this, exp.Table):
@@ -356,46 +403,56 @@ def _detect_cartesian_product(
                     elif isinstance(from_clause.this, exp.Subquery) and from_clause.this.alias:
                         tables_in_conditions.add(from_clause.this.alias.lower())
 
-        # 2b) WHERE clause: old-style joins
-        # IMPORTANT: Only look at direct children of WHERE, not nested subqueries
+        # 2b) WHERE clause: old-style joins (a.col = b.col)
+        # Only check conditions at this SELECT level, not inside subqueries
         where_clause = select.args.get("where")
         if where_clause is not None:
-            # Only check EQ at the top level of WHERE, not inside subqueries
+
             def _check_eq_at_level(node: exp.Expression) -> None:
-                """Check EQ expressions only at current WHERE level, skip subqueries."""
+                """
+                Check EQ expressions only at the current WHERE level,
+                skipping nested subqueries.
+                """
                 if isinstance(node, (exp.Select, exp.Subquery)):
-                    # Don't descend into subqueries
+                    # Do not descend into subqueries
                     return
-                    
+
                 if isinstance(node, exp.EQ):
-                    left_table = _get_column_table(node.left)
-                    right_table = _get_column_table(node.right)
-                    # Only count tables that exist in THIS query level
-                    if (left_table and right_table and 
-                        left_table != right_table and
-                        left_table in all_tables and right_table in all_tables):
+                    left = node.left
+                    right = node.right
+
+                    left_table = _get_column_table(left)
+                    right_table = _get_column_table(right)
+
+                    # Only count conditions that connect two different tables
+                    if (
+                        left_table
+                        and right_table
+                        and left_table != right_table
+                        and left_table in all_tables
+                        and right_table in all_tables
+                    ):
                         tables_in_conditions.add(left_table)
                         tables_in_conditions.add(right_table)
-                
-                # Recurse to children (but skip subqueries)
+
+                # Recurse into children (but we already skip subqueries above)
                 for child in node.iter_expressions():
                     _check_eq_at_level(child)
-            
+
             _check_eq_at_level(where_clause)
 
-        # ---------------------------------------------------------------------
-        # 3) Decide if this is a Cartesian product
-        # ---------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # 3) Decide if this SELECT has a Cartesian product
+        # ------------------------------------------------------------------
 
         # Case A: no inter-table join conditions at all
         if not tables_in_conditions:
             # Special case: exactly two tables with JOIN ... USING
-            # We treat that as a proper join, not Cartesian.
+            # Treat that as a proper join, not a Cartesian product.
             if len(all_tables) == 2 and has_using_join:
                 continue
 
-            # Otherwise: pure Cartesian product
-            # FROM a, b or CROSS JOIN without conditions
+            # Otherwise: pure Cartesian product (FROM a, b or JOIN without conditions)
             features.has_cartesian_product = True
             antipatterns.append(
                 AntipatternInstance(
@@ -411,9 +468,11 @@ def _detect_cartesian_product(
             return
 
         # Case B: some tables never appear in any inter-table condition
-        # Example: FROM a, b JOIN c ON b.id = c.b_id
-        # tables       = {a, b, c}
-        # in_conditions = {b, c}  → 'a' is floating → Cartesian a × (b ⋈ c)
+        # Example:
+        #   FROM a, b JOIN c ON b.id = c.b_id
+        #   tables               = {a, b, c}
+        #   tables_in_conditions = {b, c}  → 'a' is floating
+        #   This means: a × (b ⋈ c)
         if tables_in_conditions != all_tables:
             features.has_cartesian_product = True
             antipatterns.append(
@@ -428,8 +487,7 @@ def _detect_cartesian_product(
                 )
             )
             return
-
-        # Otherwise: all tables are connected via join conditions → not a Cartesian product
+                        
 
 def _detect_missing_group_by(
     ast: exp.Expression,
@@ -442,107 +500,51 @@ def _detect_missing_group_by(
 
     A SELECT block is flagged when ALL of the following are true:
 
-    1. It contains at least one non-window aggregate function at this SELECT level.
-    2. It contains at least one non-aggregated column (or SELECT *) at this level.
-    3. Either:
-       - there is no GROUP BY clause; or
-       - GROUP BY exists but does not cover all non-aggregated columns.
+      1. It contains at least one non-window aggregate function at this SELECT level.
+      2. It contains at least one non-aggregated column (or SELECT *) at this level.
+      3. Either:
+         - there is no GROUP BY clause; or
+         - GROUP BY exists but does not cover all non-aggregated columns.
 
     Notes:
-    - Only the current SELECT level is analyzed. Subqueries are ignored.
-    - Window aggregates (AVG(...) OVER (...)) are ignored.
-    - GROUP BY matching supports:
-        * simple column references (exp.Column)
-        * simple aliases: SELECT col AS alias ... GROUP BY alias
-    - SELECT * together with aggregates and no GROUP BY is treated as
-      a Missing GROUP BY antipattern, because * expands to non-aggregated columns.
+    - We analyze each SELECT level independently (subqueries are handled
+      by their own SELECT nodes).
+    - Window aggregates (AVG(...) OVER (...)) are ignored for this rule.
+    - SQLite technically allows missing GROUP BY columns and returns
+      arbitrary values; we still treat it as an antipattern.
     """
     pattern = AntipatternPattern.MISSING_GROUP_BY.value
-    severity = severity_map.get(pattern, "critical")
+    severity = severity_map.get(pattern, "medium")
 
+    # Walk all SELECT statements (including subqueries).
     for select in ast.find_all(exp.Select):
-        # 1) Collect non-window aggregates at this SELECT level
-        aggregates: List[exp.AggFunc] = []
+        # Build alias map and positional references for this SELECT.
+        alias_map, select_items_for_position = _build_select_alias_map(select)
 
-        for agg in select.find_all(exp.AggFunc):
-            if _is_window_aggregate(agg):
-                continue
+        # Normalize GROUP BY expressions for this SELECT.
+        normalized_group_exprs = _normalize_group_by_expressions(
+            select,
+            alias_map,
+            select_items_for_position,
+        )
 
-            parent_select = _closest_parent_of_type(agg, exp.Select)
-            if parent_select is select:
-                aggregates.append(agg)
+        # Collect non-aggregated columns and detect aggregates / SELECT *.
+        has_non_window_aggregate, has_star, non_aggregate_columns = (
+            _collect_non_aggregated_columns_for_select(select, normalized_group_exprs)
+        )
 
-        if not aggregates:
-            # No aggregates at this level → nothing to check
+        # If this SELECT has no non-window aggregates, there is no missing GROUP BY here.
+        if not has_non_window_aggregate:
             continue
 
-        group: Optional[exp.Group] = select.args.get("group")
-        group_expressions = (group.args.get("expressions") or []) if group else []
-
-        select_expressions = select.args.get("expressions") or []
-
-        # 2) Build alias map for this SELECT (alias -> underlying expression)
-        alias_map: Dict[str, exp.Expression] = {}
-        has_star = False
-
-        for expr in select_expressions:
-            # Track SELECT * at this level
-            if isinstance(expr, exp.Star):
-                star_select = _closest_parent_of_type(expr, exp.Select)
-                if star_select is select:
-                    has_star = True
-
-            # Track aliases: SELECT something AS alias
-            if isinstance(expr, exp.Alias):
-                alias_identifier = expr.args.get("alias")
-                if alias_identifier is not None:
-                    alias_name = getattr(alias_identifier, "name", None) or getattr(
-                        alias_identifier, "this", None
-                    )
-                    if isinstance(alias_name, str):
-                        alias_map[alias_name] = expr.this
-
-        # 3) Collect all non-aggregated columns at this SELECT level
-        non_aggregate_columns: List[exp.Column] = []
-
-        for expr in select_expressions:
-            # If the whole expression is a non-window aggregate at this level, skip it
-            if isinstance(expr, exp.AggFunc) and not _is_window_aggregate(expr):
-                parent_select = _closest_parent_of_type(expr, exp.Select)
-                if parent_select is select:
-                    continue
-
-            # Find columns inside the expression
-            for col in expr.find_all(exp.Column):
-                col_select = _closest_parent_of_type(col, exp.Select)
-                if col_select is not select:
-                    continue
-
-                # Check if this column is inside a non-window aggregate at this level
-                parent = col.parent
-                inside_aggregate = False
-
-                while parent is not None:
-                    if isinstance(parent, exp.AggFunc):
-                        if _is_window_aggregate(parent):
-                            break  # ignore window aggregates for this rule
-
-                        agg_select = _closest_parent_of_type(parent, exp.Select)
-                        if agg_select is select:
-                            inside_aggregate = True
-                            break
-
-                    parent = parent.parent
-
-                if not inside_aggregate:
-                    non_aggregate_columns.append(col)
-
         # If there are no non-aggregated columns and no SELECT *,
-        # we do not consider this a missing GROUP BY.
+        # this SELECT is either pure aggregate or does not need GROUP BY.
         if not non_aggregate_columns and not has_star:
             continue
 
-        # 4) No GROUP BY at all → classic missing GROUP BY (including SELECT *)
+        group = select.args.get("group")
+
+        # Case 1: No GROUP BY at all → classic missing GROUP BY (including SELECT *).
         if group is None and (non_aggregate_columns or has_star):
             features.has_missing_group_by = True
             antipatterns.append(
@@ -551,49 +553,18 @@ def _detect_missing_group_by(
                     severity=severity,
                     message=(
                         "Aggregate functions with non-aggregated columns (or SELECT *) "
-                        "require a GROUP BY clause (SQLite allows this but returns "
-                        "arbitrary values)."
+                        "require a GROUP BY clause. SQLite allows this but can return "
+                        "arbitrary values for non-grouped columns."
                     ),
                     location="SELECT with aggregates and no GROUP BY",
                 )
             )
-            # Continue to other SELECTs; if you want only one hit per query, you could break here
+            # We continue scanning other SELECTs, as a query may contain multiple.
             continue
 
-        # 5) GROUP BY exists – check for partial GROUP BY (missing columns).
-        def _same_column(a: exp.Column, b: exp.Column) -> bool:
-            same_name = a.name == b.name
-            same_table = (not a.table or not b.table or a.table == b.table)
-            return same_name and same_table
-
-        def _column_in_group(c: exp.Column) -> bool:
-            """
-            Return True if column `c` is effectively grouped:
-            - directly listed in GROUP BY as a column; or
-            - GROUP BY uses an alias whose expression is (or contains) this column.
-            """
-            for gb_expr in group_expressions:
-                if isinstance(gb_expr, exp.Column):
-                    # Direct column in GROUP BY
-                    if _same_column(gb_expr, c):
-                        return True
-
-                    # Alias in GROUP BY: look up its expression in alias_map
-                    alias_expr = alias_map.get(gb_expr.name)
-                    if alias_expr is not None:
-                        if isinstance(alias_expr, exp.Column):
-                            if _same_column(alias_expr, c):
-                                return True
-                        else:
-                            # Alias is an expression; consider it grouped if it contains this column
-                            for alias_col in alias_expr.find_all(exp.Column):
-                                if _same_column(alias_col, c):
-                                    return True
-
-            return False
-
+        # Case 2: GROUP BY exists – check for partial GROUP BY (missing columns).
         missing_from_group: List[exp.Column] = [
-            col for col in non_aggregate_columns if not _column_in_group(col)
+            col for col in non_aggregate_columns if not _column_in_group(col, normalized_group_exprs)
         ]
 
         if missing_from_group:
@@ -607,13 +578,13 @@ def _detect_missing_group_by(
                     severity=severity,
                     message=(
                         "Aggregate functions with non-aggregated columns require a complete "
-                        f"GROUP BY; the following columns are not grouped: {missing_cols_str} "
-                        "(SQLite allows this but returns arbitrary values)."
+                        f"GROUP BY; the following columns are not grouped: {missing_cols_str}. "
+                        "SQLite allows this but can return arbitrary values for these columns."
                     ),
                     location="SELECT with aggregates and partial GROUP BY",
                 )
             )
-            # Stop after the first offending SELECT in this query
+            # Stop after the first offending SELECT for this antipattern
             break
 
 
@@ -1131,3 +1102,236 @@ def _classify_quality(score: int) -> str:
     else:
         return "poor"
 
+def _same_column(a: exp.Column, b: exp.Column) -> bool:
+    """
+    Compare two column references for semantic equality.
+
+    We intentionally compare:
+      - column names case-sensitively as returned by sqlglot
+      - tables only if both are present and equal
+
+    This keeps the behavior consistent with how other detectors
+    and tests treat column identity.
+    """
+    if a.name != b.name:
+        return False
+
+    # If at least one side has no table qualifier, we treat them as compatible.
+    if not a.table or not b.table:
+        return True
+
+    return str(a.table) == str(b.table)
+
+
+def _build_select_alias_map(select: exp.Select) -> Tuple[Dict[str, exp.Expression], List[exp.Expression]]:
+    """
+    Build a mapping of alias -> underlying expression for a SELECT list and
+    also a list of expressions that correspond to ordinal positions (GROUP BY 1).
+
+    For positional references, we store *expressions*, not Aliases:
+      - SELECT expr AS alias -> we store expr
+      - SELECT expr          -> we store expr
+
+    Returns:
+        (alias_map, select_items_for_position)
+    """
+    alias_map: Dict[str, exp.Expression] = {}
+    select_items_for_position: List[exp.Expression] = []
+
+    select_expressions = list(select.expressions or [])
+
+    for expr in select_expressions:
+        # Positional items for GROUP BY 1,2
+        if isinstance(expr, exp.Alias):
+            select_items_for_position.append(expr.this)
+        else:
+            select_items_for_position.append(expr)
+
+        # Alias tracking: SELECT something AS alias
+        if isinstance(expr, exp.Alias):
+            alias_identifier = expr.args.get("alias")
+            if alias_identifier is not None:
+                # sqlglot may expose alias name either as .name or .this (str)
+                alias_name = getattr(alias_identifier, "name", None) or getattr(
+                    alias_identifier, "this", None
+                )
+                if isinstance(alias_name, str):
+                    alias_map[alias_name] = expr.this
+
+    return alias_map, select_items_for_position
+
+
+def _normalize_group_by_expressions(
+    select: exp.Select,
+    alias_map: Dict[str, exp.Expression],
+    select_items_for_position: List[exp.Expression],
+) -> List[exp.Expression]:
+    """
+    Normalize GROUP BY expressions for a SELECT:
+
+    - GROUP BY 1 -> the 1st expression in the SELECT list
+    - GROUP BY alias -> the underlying expression for that alias
+    - any other expression is used as-is
+
+    The result is a list of expressions that we can compare against
+    SELECT expressions and columns.
+    """
+    group = select.args.get("group")
+    if group is None:
+        return []
+
+    normalized: List[exp.Expression] = []
+    raw_group_expressions = list(group.expressions or [])
+
+    for gb_expr in raw_group_expressions:
+        # Positional: GROUP BY 1
+        if isinstance(gb_expr, exp.Literal) and gb_expr.is_int:
+            try:
+                index = int(gb_expr.this) - 1
+            except (TypeError, ValueError):
+                normalized.append(gb_expr)
+                continue
+
+            if 0 <= index < len(select_items_for_position):
+                normalized.append(select_items_for_position[index])
+            else:
+                # Fallback: keep the literal as-is
+                normalized.append(gb_expr)
+            continue
+
+        # GROUP BY alias -> replace with underlying expression
+        if isinstance(gb_expr, exp.Column) and not gb_expr.table:
+            alias_name = gb_expr.name
+            if alias_name and alias_name in alias_map:
+                normalized.append(alias_map[alias_name])
+                continue
+
+        # Default: keep expression as-is
+        normalized.append(gb_expr)
+
+    return normalized
+
+
+def _expression_grouped(
+    expr: exp.Expression,
+    normalized_group_exprs: List[exp.Expression],
+) -> bool:
+    """
+    Return True if the *whole* expression is considered grouped.
+
+    Rules:
+    - If expr is a Column -> we check membership via _column_in_group.
+    - Otherwise we compare expr.sql() with each GROUP BY expr.sql().
+
+    NOTE: We keep string-based comparison to preserve existing semantics
+    and rely on sqlglot to normalize SQL formatting.
+    """
+    if isinstance(expr, exp.Column):
+        return _column_in_group(expr, normalized_group_exprs)
+
+    expr_sql = expr.sql()
+    for gb in normalized_group_exprs:
+        if expr_sql == gb.sql():
+            return True
+
+    return False
+
+
+def _column_in_group(col: exp.Column, normalized_group_exprs: List[exp.Expression]) -> bool:
+    """
+    Check if a column is covered by GROUP BY.
+
+    We treat a column as grouped if there is a column in GROUP BY
+    with the same name and compatible table qualifier.
+    """
+    for gb in normalized_group_exprs:
+        if isinstance(gb, exp.Column) and _same_column(col, gb):
+            return True
+
+    return False
+
+
+def _collect_non_aggregated_columns_for_select(
+    select: exp.Select,
+    normalized_group_exprs: List[exp.Expression],
+) -> Tuple[bool, bool, List[exp.Column]]:
+    """
+    Collect non-aggregated columns for a given SELECT.
+
+    Returns:
+        (has_non_window_aggregate, has_star, non_aggregate_columns)
+
+    - has_non_window_aggregate: True if there is at least one aggregate
+      function at this SELECT level (non-window).
+    - has_star: True if there is a SELECT * at this level.
+    - non_aggregate_columns: columns that are:
+        * in this SELECT (not inside subqueries),
+        * not inside a non-window aggregate on this level,
+        * not part of an expression that is fully grouped by GROUP BY.
+    """
+    select_expressions = list(select.expressions or [])
+    has_non_window_aggregate = False
+    has_star = False
+    non_aggregate_columns: List[exp.Column] = []
+
+    # First pass: detect aggregates and SELECT *
+    for expr in select_expressions:
+        # Detect SELECT * at this level
+        if isinstance(expr, exp.Star):
+            star_select = _closest_parent_of_type(expr, exp.Select)
+            if star_select is select:
+                has_star = True
+
+        # Detect non-window aggregates at this level (ignoring aggregates only in subqueries)
+        if _has_aggregate_not_in_subquery(expr):
+            # But we still need to ensure they are not window aggregates
+            for agg in expr.find_all(exp.AggFunc):
+                if not _is_window_aggregate(agg):
+                    has_non_window_aggregate = True
+                    break
+
+    if not has_non_window_aggregate:
+        return False, has_star, []
+
+    # Second pass: collect non-aggregated columns
+    for expr in select_expressions:
+        # Underlying expression if it's an alias
+        if isinstance(expr, exp.Alias):
+            resolved_expr = expr.this
+        else:
+            resolved_expr = expr
+
+        # If the entire expression is an aggregate at this level, skip it
+        if isinstance(resolved_expr, exp.AggFunc) and not _is_window_aggregate(resolved_expr):
+            continue
+
+        # If the entire expression is grouped by GROUP BY, skip it
+        if _expression_grouped(resolved_expr, normalized_group_exprs):
+            continue
+
+        # Otherwise inspect columns inside the expression
+        for col in resolved_expr.find_all(exp.Column):
+            # Only consider columns that belong to this SELECT level
+            col_select = _closest_parent_of_type(col, exp.Select)
+            if col_select is not select:
+                continue
+
+            # Check if this column is inside a non-window aggregate at this level
+            parent = col.parent
+            inside_nonwindow_aggregate = False
+
+            while parent is not None and parent is not select:
+                if isinstance(parent, exp.AggFunc) and not _is_window_aggregate(parent):
+                    inside_nonwindow_aggregate = True
+                    break
+                if isinstance(parent, exp.Subquery):
+                    # If we hit a subquery, this column logically belongs to a different SELECT
+                    break
+                parent = parent.parent
+
+            if inside_nonwindow_aggregate:
+                continue
+
+            non_aggregate_columns.append(col)
+
+    return has_non_window_aggregate, has_star, non_aggregate_columns

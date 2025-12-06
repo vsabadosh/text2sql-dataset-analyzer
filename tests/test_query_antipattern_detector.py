@@ -152,6 +152,7 @@ class TestSelectStarAntipattern:
         assert result.has_select_star is False
         assert all(ap.pattern != "select_star" for ap in result.antipatterns)
 
+
 class TestImplicitJoinAntipattern:
     """Unit tests for implicit join (comma / cross join) detection."""
 
@@ -205,7 +206,7 @@ class TestFunctionInWhereAntipattern:
         assert result.total_antipatterns >= 1
         assert any(ap.pattern == "function_in_where" and ap.severity == "high" for ap in result.antipatterns)
 
-    def test_function_on_literal_not_flagged(self):
+    def test_function_on_literal_not_flagged1(self):
         """Test that function on literal value is not flagged."""
         sql = "SELECT * FROM users WHERE name = UPPER('john')"
         result = detect_antipatterns(sql)
@@ -220,6 +221,44 @@ class TestFunctionInWhereAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_function_in_where is True
+
+    def test_function_on_literal_not_flagged2(self):
+        """
+        A function applied only to a literal should NOT be considered an index killer.
+        """
+        sql = "SELECT * FROM users WHERE name = UPPER('john')"
+        result = detect_antipatterns(sql)
+
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_coalesce_on_column_detected(self):
+        """COALESCE(column, default) in WHERE usually prevents index usage on the column."""
+        sql = "SELECT * FROM users WHERE COALESCE(status, 'active') = 'active'"
+        result = detect_antipatterns(sql)
+
+        assert result.has_function_in_where is True
+        assert any(ap.pattern == "function_in_where" for ap in result.antipatterns)
+
+    def test_cast_on_column_detected(self):
+        """CAST(column AS type) in WHERE is a typical function-on-column pattern."""
+        sql = "SELECT * FROM orders WHERE CAST(amount AS INTEGER) > 100"
+        result = detect_antipatterns(sql)
+
+        assert result.has_function_in_where is True
+
+    def test_function_in_join_on_not_counted_as_function_in_where(self):
+        """
+        The detector is supposed to look only at WHERE clause, not JOIN ON.
+        """
+        sql = """
+        SELECT * 
+        FROM a 
+        JOIN b ON UPPER(a.name) = UPPER(b.name)
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_function_in_where is False
 
 
 class TestLeadingWildcardLikeAntipattern:
@@ -507,19 +546,75 @@ class TestCartesianProductAntipattern:
 
         assert result.has_cartesian_product is False
 
-    def test_chained_joins_not_cartesian(self):
-        """Chained JOINs with proper ON conditions connecting all tables.
-        T1 ↔ T2 ↔ T3 via ON clauses → NOT a Cartesian product."""
+    def test_two_table_join_with_unqualified_column_is_not_cartesian(self):
+        """JOIN between STUDENT and VOTING_RECORD using an unqualified column; should NOT be detected as Cartesian."""
+        sql = (
+            'SELECT count(*) FROM STUDENT AS T1 '
+            'JOIN VOTING_RECORD AS T2 ON T1.StuID = Class_Senator_Vote '
+            'WHERE T1.Sex = "M" AND T2.Election_Cycle = "Fall"'
+        )
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is False
+
+
+    def test_tautological_join_condition_creates_cartesian_three_tables(self):
+        """Tautological join condition T2.actid = T2.actid leaves ACTIVITY unconnected; should be detected as Cartesian."""
+        sql = (
+            "SELECT DISTINCT T1.lname "
+            "FROM Faculty AS T1 "
+            "JOIN Faculty_participates_in AS T2 ON T1.facID = T2.facID "
+            "JOIN activity AS T3 ON T2.actid = T2.actid "
+            "WHERE T3.activity_name = 'Canoeing' OR T3.activity_name = 'Kayaking'"
+        )
+        result = detect_antipatterns(sql)
+        assert result.has_cartesian_product is True
+
+
+    def test_tautological_join_with_intersect_still_cartesian(self):
+        """Tautological join T2.actid = T2.actid between participates_in and activity; each side of INTERSECT is Cartesian."""
+        sql = (
+            "SELECT T1.stuid "
+            "FROM participates_in AS T1 "
+            "JOIN activity AS T2 ON T2.actid = T2.actid "
+            "WHERE T2.activity_name = 'Canoeing' "
+            "INTERSECT "
+            "SELECT T1.stuid "
+            "FROM participates_in AS T1 "
+            "JOIN activity AS T2 ON T2.actid = T2.actid "
+            "WHERE T2.activity_name = 'Kayaking'"
+        )
+        result = detect_antipatterns(sql)
+        assert result.has_cartesian_product is True
+
+    def test_cross_join_detected_as_cartesian(self):
+        """Explicit CROSS JOIN is still a Cartesian product."""
+        sql = "SELECT * FROM a CROSS JOIN b"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
+        assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
+
+    def test_self_join_with_different_aliases_not_cartesian(self):
+        """Proper self-join using aliases should NOT be reported as Cartesian."""
         sql = """
-        SELECT DISTINCT T1.creation 
-        FROM department AS T1 
-        JOIN management AS T2 ON T1.department_id = T2.department_id 
-        JOIN head AS T3 ON T2.head_id = T3.head_id 
-        WHERE T3.born_state = 'Alabama'
+        SELECT * 
+        FROM users u1, users u2 
+        WHERE u1.manager_id = u2.id
         """
         result = detect_antipatterns(sql)
 
         assert result.has_cartesian_product is False
+
+    def test_three_table_comma_join_with_one_table_unjoined_is_cartesian(self):
+        """
+        If one of the tables in a comma join has no join condition at all,
+        the resulting plan includes a Cartesian product for that table.
+        """
+        sql = "SELECT * FROM a, b, c WHERE a.id = b.id"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
 
 
 class TestMissingGroupByAntipattern:
@@ -723,6 +818,112 @@ class TestMissingGroupByAdditional:
             ap.pattern == "missing_group_by" for ap in result.antipatterns
         )
 
+    def test_group_by_position_reference_not_flagged(self):
+        """
+        Non-aggregated column: col1.
+        GROUP BY 1 groups by the first select expression (col1).
+        This is equivalent to GROUP BY col1 and should not be flagged.
+        """
+        sql = "SELECT col1, COUNT(*) FROM t GROUP BY 1"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_group_by_expression_matching_select_not_flagged(self):
+        """
+        Non-aggregated expression: YEAR(date).
+        GROUP BY uses the same expression YEAR(date).
+        This is logically correct and should not be flagged.
+        """
+        sql = "SELECT YEAR(date), COUNT(*) FROM t GROUP BY YEAR(date)"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+        
+    def test_group_by_expression_whitespace_insensitive(self):
+        """
+        YEAR(date) and YEAR( date ) should be treated as the same expression
+        when used in GROUP BY.
+        """
+        sql = """
+        SELECT YEAR(date) AS y, COUNT(*) 
+        FROM t 
+        GROUP BY YEAR( date )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_commutative_expression_in_group_by_still_flagged_or_explicit(self):
+        """
+        Optional: if you decide to treat a + b and b + a as equivalent, 
+        this test can assert False; otherwise assert True.
+
+        For now we keep it explicit and *expect* a warning, because GROUP BY uses
+        a different expression than the SELECT expression.
+        """
+        sql = """
+        SELECT a + b, COUNT(*) 
+        FROM t 
+        GROUP BY b + a
+        """
+        result = detect_antipatterns(sql)
+
+        # Choose one behavior and keep it consistent:
+        # If you implement commutative equivalence in _expression_grouped:
+        # assert result.has_missing_group_by is False
+        # Otherwise (current behavior, stricter):
+        assert result.has_missing_group_by is True
+
+    def test_select_star_with_aggregate_and_no_group_by_flagged(self):
+        """SELECT * together with aggregates and no GROUP BY is a classic antipattern."""
+        sql = "SELECT *, COUNT(*) FROM users"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)
+
+    def test_only_aggregates_without_group_by_not_flagged(self):
+        """Pure aggregate query without non-aggregated columns is allowed."""
+        sql = "SELECT COUNT(*), SUM(total) FROM orders"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_scalar_subquery_in_select_does_not_trigger_missing_group_by(self):
+        """
+        Scalar subquery in SELECT is independent from GROUP BY in the outer query.
+        Only columns from the outer SELECT level should be considered.
+        """
+        sql = """
+        SELECT 
+            d.name,
+            (SELECT MAX(salary) FROM employees e WHERE e.dept = d.name) AS max_sal,
+            COUNT(*) 
+        FROM departments d
+        GROUP BY d.name
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_column_in_subquery_not_counted_as_outer_non_aggregated(self):
+        """
+        Columns inside nested SELECT should be handled by that inner SELECT, not by the outer one.
+        """
+        sql = """
+        SELECT 
+            name,
+            COUNT(*) 
+        FROM (
+            SELECT name, age FROM singer WHERE age > 25
+        ) s
+        GROUP BY name
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+    
 
 class TestUnsafeUpdateDeleteAntipattern:
     """Test unsafe UPDATE/DELETE antipattern detection."""
