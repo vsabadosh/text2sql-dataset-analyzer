@@ -3075,7 +3075,24 @@ class MarkdownReportGenerator:
             if summary_stats:
                 avg_quality, avg_antipatterns = summary_stats
                 lines.append(f"**Summary:** Avg quality score: {avg_quality or 0}/100 · Avg antipatterns per query: {avg_antipatterns or 0}")
-                lines.append("")
+            
+            # Count how many queries have no antipatterns at all
+            no_antipatterns_count = self.conn.execute(f"""
+                SELECT COUNT(*)
+                FROM {table}
+                WHERE 
+                    parseable = true 
+                    AND status != 'skipped'
+                    AND COALESCE(total_antipatterns, 0) = 0
+            """).fetchone()[0]
+            
+            if total > 0:
+                no_antipatterns_pct = round(no_antipatterns_count * 100.0 / total, 1)
+            else:
+                no_antipatterns_pct = 0.0
+            
+            lines.append(f"**Queries without antipatterns:** {no_antipatterns_count:,} ({no_antipatterns_pct}% of analyzed queries)")
+            lines.append("")
             
             # Count antipatterns by severity dynamically from JSON
             severity_counts = self.conn.execute(f"""

@@ -18,7 +18,7 @@ This module detects common SQL antipatterns and code smells:
 """
 
 from __future__ import annotations
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict, Set, Type
 import sqlglot
 from sqlglot import exp
 
@@ -157,7 +157,6 @@ def _analyze_ast(
     features.antipatterns = antipatterns
     
     # Count total antipatterns
-    # NOTE: Severity counts are calculated dynamically from JSON in reports
     features.total_antipatterns = len(antipatterns)
     
     # Calculate quality score and level using config-provided penalties
