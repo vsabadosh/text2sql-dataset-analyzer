@@ -388,7 +388,180 @@ class TestMissingGroupByAntipattern:
         
         assert result.has_missing_group_by is False
 
+    def test_group_by_missing_when_column_is_wrapped_but_alias_grouped(self):
+        sql = "SELECT UPPER(country) AS c, COUNT(*) FROM singer GROUP BY country"
+        result = detect_antipatterns(sql)
 
+        assert result.has_missing_group_by is False
+
+class TestMissingGroupByAdditional:
+    """Additional tests for the Missing GROUP BY antipattern (semantic behavior)."""
+
+    def test_group_by_alias_not_matching_column_not_flagged(self):
+        """
+        Non-aggregated expression: country (via alias c).
+        GROUP BY groups by alias c, which refers to country.
+        This is logically equivalent to GROUP BY country and should not be flagged.
+        """
+        sql = "SELECT country AS c, AVG(age) FROM singer GROUP BY c"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_wrapped_column_grouped_by_underlying_column_not_flagged(self):
+        """
+        Non-aggregated expression: UPPER(country).
+        GROUP BY country; the expression is a pure function of the grouped column.
+        This is logically valid (expression is functionally dependent on GROUP BY)
+        and should not be flagged.
+        """
+        sql = "SELECT UPPER(country) AS c, COUNT(*) FROM singer GROUP BY country"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_group_by_expression_not_matching_select_column_flagged(self):
+        """
+        Non-aggregated column: country.
+        GROUP BY uses LOWER(country), which may group multiple distinct country
+        values into a single group, while SELECT returns a raw country value.
+        This can produce arbitrary country values per group and should be flagged.
+        """
+        sql = "SELECT country, COUNT(*) FROM singer GROUP BY LOWER(country)"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_duplicate_columns_with_aggregate_missing_group_by_flagged(self):
+        """
+        Non-aggregated columns: country, country (the same column twice).
+        There is a group aggregate COUNT(*) and no GROUP BY at all.
+        This is the classic Missing GROUP BY antipattern.
+        """
+        sql = "SELECT country, country, COUNT(*) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_distinct_does_not_replace_group_by_flagged(self):
+        """
+        DISTINCT does not replace GROUP BY in terms of aggregate semantics.
+        This query still mixes aggregates with non-aggregated columns
+        without a GROUP BY clause and should be flagged.
+        """
+        sql = "SELECT DISTINCT country, COUNT(*) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_order_by_non_grouped_column_not_considered_missing_group_by(self):
+        """
+        Non-aggregated column city appears only in ORDER BY, not in the SELECT list.
+        The Missing GROUP BY rule is defined for non-aggregated columns in the SELECT
+        list, not for ORDER BY. This should not be flagged by this specific detector.
+        """
+        sql = "SELECT country, COUNT(*) FROM singer GROUP BY country ORDER BY city"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_having_non_grouped_column_not_in_scope_for_this_detector(self):
+        """
+        Most SQL engines do not allow non-grouped column city in HAVING without
+        an aggregate or GROUP BY on that column.
+
+        However, the Missing GROUP BY detector is defined to inspect the SELECT
+        list only (non-aggregated columns mixed with aggregates), not HAVING.
+        This test documents that behavior: it should not be flagged here.
+        """
+        sql = (
+            "SELECT country, COUNT(*) FROM singer "
+            "GROUP BY country HAVING city = 'NY'"
+        )
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+    def test_select_star_with_aggregate_flagged(self):
+        """
+        SELECT * expands to a set of non-aggregated columns.
+        There is at least one aggregate (COUNT(*)) and no GROUP BY clause.
+        This is a Missing GROUP BY antipattern and should be flagged.
+        """
+        sql = "SELECT *, COUNT(*) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_deeply_nested_column_expression_flagged(self):
+        """
+        The CASE expression contains non-aggregated columns age, country, and city.
+        There is a group aggregate COUNT(*) and no GROUP BY clause.
+        This should be flagged as a Missing GROUP BY antipattern.
+        """
+        sql = """
+        SELECT 
+            CASE 
+                WHEN (age + 10) > 40 THEN country 
+                ELSE city 
+            END AS region,
+            COUNT(*)
+        FROM singer
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_case_expression_with_window_and_group_aggregate_flagged(self):
+        """
+        AVG(age) OVER () is a window aggregate and is ignored by this detector.
+        The CASE expression still contains non-aggregated columns age, country, city.
+        There is also a group aggregate COUNT(*), and no GROUP BY clause.
+        This should be flagged as a Missing GROUP BY antipattern.
+        """
+        sql = """
+        SELECT 
+            CASE 
+                WHEN age > AVG(age) OVER () THEN country 
+                ELSE city 
+            END AS region,
+            COUNT(*)
+        FROM singer
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_window_and_group_aggregate_without_group_by_flagged(self):
+        """
+        COUNT(*) OVER () is a window aggregate and does not affect grouping rules.
+        SUM(age) is a group aggregate.
+        The query also selects a non-aggregated column country and has no GROUP BY.
+        This is a Missing GROUP BY antipattern and should be flagged.
+        """
+        sql = "SELECT country, COUNT(*) OVER (), SUM(age) FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+
+    def test_constant_with_aggregate_not_flagged(self):
+        """
+        Constant literals in SELECT together with aggregates and no GROUP BY
+        should NOT be treated as missing GROUP BY, because they are not
+        non-aggregated columns.
+
+        Example:
+            SELECT COUNT(*), 'constant' FROM singer
+
+        This query is logically valid and should not be flagged.
+        """
+        sql = "SELECT COUNT(*), 'constant' AS label FROM singer"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+        assert result.total_antipatterns == 0 or not any(
+            ap.pattern == "missing_group_by" for ap in result.antipatterns
+        )
 
 
 class TestUnsafeUpdateDeleteAntipattern:
@@ -914,12 +1087,9 @@ class TestImprovedDetections:
         )
         LIMIT 10
         """
-        result = detect_antipatterns(sql)
-        
-        # This IS correlated (o.user_id = u.id), should be detected
-        # Note: This depends on improved heuristic recognizing table references
-        # May or may not flag depending on implementation
-        assert result.parseable is True
+        result = detect_antipatterns(sql)        
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
 
 
 class TestMissingGroupBySubqueryFix:
@@ -1089,19 +1259,20 @@ class TestMissingGroupBySubqueryFix:
         # Should be flagged: mixing aggregates with multiple non-aggregated columns
         assert result.has_missing_group_by is True
     
+    def test_group_by_alias_not_matching_column_flagged(self):
+        sql = "SELECT country AS c, AVG(age) FROM singer GROUP BY c"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+
     def test_partial_group_by(self):
-        """Test GROUP BY missing one of the columns.
-        
-        Note: Current implementation doesn't validate that all non-aggregated
-        columns are in GROUP BY - it only checks if GROUP BY exists when
-        there are aggregates. This is a known limitation.
+        """Test GROUP BY missing one of the columns.    
         """
         sql = "SELECT country, city, COUNT(*) FROM singer GROUP BY country"
         result = detect_antipatterns(sql)
         
-        # Current limitation: doesn't detect that city is missing from GROUP BY
-        # The query has GROUP BY, so it's not flagged
-        assert result.has_missing_group_by is False
+        assert result.has_missing_group_by is True
 
     def test_window_function_not_treated_as_missing_group_by(self):
         sql = """
@@ -1140,7 +1311,15 @@ class TestMissingGroupBySubqueryFix:
         result = detect_antipatterns(sql)
 
         assert result.has_missing_group_by is True 
-           
+
+
+    def test_group_by_alias_not_matching_column_not_flagged(self):
+        sql = "SELECT country AS c, AVG(age) FROM singer GROUP BY c"
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+        
+
 class TestAntipatternConfiguration:
     """Test antipattern configuration and dialect-specific detection."""
 
@@ -1203,6 +1382,8 @@ class TestAntipatternConfiguration:
 
 class TestCorrelatedSubqueryAntipattern:
     """Unit tests for correlated subquery antipattern detection."""
+
+    # --- Original core tests ---
 
     def test_exists_correlated_subquery_detected(self):
         """EXISTS with outer table reference in subquery WHERE should be detected as correlated."""
@@ -1301,6 +1482,289 @@ class TestCorrelatedSubqueryAntipattern:
 
         assert result.has_correlated_subquery is True
         assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # --- Extended tests ---
+
+    # 1) Correlated IN subquery
+    def test_in_correlated_subquery_detected(self):
+        """IN subquery referencing outer table should be detected as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.id IN (
+            SELECT o.user_id
+            FROM orders o
+            WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 2) Correlated NOT IN subquery
+    def test_not_in_correlated_subquery_detected(self):
+        """NOT IN subquery referencing outer table should be detected as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.id NOT IN (
+            SELECT o.user_id
+            FROM orders o
+            WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 3) Non-correlated IN subquery (sanity check)
+    def test_non_correlated_in_subquery_not_flagged(self):
+        """IN subquery without outer table reference should not be flagged as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.id IN (
+            SELECT o.user_id
+            FROM orders o
+            WHERE o.created_at > '2024-01-01'
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    # 4) Correlated subquery in HAVING
+    def test_correlated_subquery_in_having_detected(self):
+        """Correlation inside HAVING should be detected."""
+        sql = """
+        SELECT u.id, COUNT(*) AS cnt
+        FROM users u
+        GROUP BY u.id
+        HAVING COUNT(*) > (
+            SELECT COUNT(*)
+            FROM orders o
+            WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 5) Correlated subquery inside CASE
+    def test_correlated_subquery_in_case_detected(self):
+        """Correlation inside CASE expression in SELECT list should be detected."""
+        sql = """
+        SELECT
+            u.id,
+            CASE
+                WHEN (
+                    SELECT COUNT(*)
+                    FROM orders o
+                    WHERE o.user_id = u.id
+                ) > 0 THEN 'has_orders'
+                ELSE 'no_orders'
+            END AS status
+        FROM users u
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 6) Correlated subquery in ORDER BY
+    def test_correlated_subquery_in_order_by_detected(self):
+        """Correlation inside ORDER BY should be detected."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        ORDER BY (
+            SELECT MAX(o.amount)
+            FROM orders o
+            WHERE o.user_id = u.id
+        ) DESC
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 7) Deeply nested correlated subquery
+    def test_deeply_nested_correlated_subquery_detected(self):
+        """Correlation several levels deep inside nested subqueries should still be detected."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE (
+            SELECT MAX(inner_count)
+            FROM (
+                SELECT COUNT(*) AS inner_count
+                FROM orders o
+                WHERE o.user_id = u.id
+            ) x
+        ) > 5
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 8) Deeply nested but NON-correlated (Mississippi-style pattern)
+    def test_deeply_nested_non_correlated_subqueries_not_flagged(self):
+        """Nested subqueries that never reference outer aliases should not be flagged."""
+        sql = """
+        SELECT population
+        FROM city
+        WHERE city_name = (
+            SELECT capital
+            FROM state
+            WHERE area = (
+                SELECT MAX(t1.area)
+                FROM state AS t1
+                JOIN river AS t2
+                  ON t1.state_name = t2.traverse
+                WHERE t2.river_name = 'mississippi'
+            )
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    # 9) Mixed query: one correlated, one non-correlated
+    def test_mixed_correlated_and_non_correlated_subqueries(self):
+        """If there is at least one correlated subquery, the query should be flagged."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.age > (
+            SELECT AVG(age)
+            FROM users
+        )
+          AND EXISTS (
+              SELECT 1
+              FROM orders o
+              WHERE o.user_id = u.id
+          )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 10) Derived table (FROM subquery) – NON-correlated
+    def test_non_correlated_derived_table_not_flagged(self):
+        """Simple derived table without outer references should not be considered correlated."""
+        sql = """
+        SELECT u.id, x.order_count
+        FROM users u
+        JOIN (
+            SELECT o.user_id, COUNT(*) AS order_count
+            FROM orders o
+            GROUP BY o.user_id
+        ) x ON x.user_id = u.id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    # 11) Derived table that wrongly references outer alias (if your parser allows this)
+    def test_correlated_derived_table_detected(self):
+        """If a FROM-subquery references the outer alias, it should be treated as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        JOIN (
+            SELECT o.user_id
+            FROM orders o
+            WHERE o.user_id = u.id
+        ) x ON x.user_id = u.id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 12) Double alias shadowing – inner scope reuses outer alias but no correlation
+    def test_nested_alias_shadowing_not_flagged(self):
+        """
+        Inner subquery reuses outer alias name twice; all references should bind to the innermost alias,
+        so there is still no real correlation.
+        """
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE EXISTS (
+            SELECT 1
+            FROM users u
+            WHERE EXISTS (
+                SELECT 1
+                FROM users u
+                WHERE u.created_at > '2024-01-01'
+            )
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    # 13) SAME column name, DIFFERENT alias – must not be confused
+    def test_same_column_name_different_alias_not_flagged(self):
+        """
+        Same column name across tables without outer alias reference should not be misdetected as correlated.
+        """
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.age > (
+            SELECT AVG(age)
+            FROM employees e
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    # 14) Correlated ANY / SOME subquery (if you support it)
+    def test_correlated_any_subquery_detected(self):
+        """Correlation in an ANY subquery should be detected."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.age > ANY (
+            SELECT o.discount
+            FROM orders o
+            WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    # 15) Non-correlated ANY subquery (sanity)
+    def test_non_correlated_any_subquery_not_flagged(self):
+        """ANY subquery without outer reference should not be correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.age > ANY (
+            SELECT o.discount
+            FROM orders o
+            WHERE o.created_at > '2024-01-01'
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
 
 
 if __name__ == "__main__":

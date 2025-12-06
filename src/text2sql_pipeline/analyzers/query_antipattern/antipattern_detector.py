@@ -308,21 +308,33 @@ def _detect_missing_group_by(
     severity_map: Dict[str, str],
 ) -> None:
     """
-    Detect aggregate functions without GROUP BY when non-aggregated columns are selected.
+    Detect misuse of aggregate functions without a proper GROUP BY clause.
 
-    Rules:
-    - only consider aggregate functions at the current SELECT level (ignore subqueries);
-    - only consider columns at the current SELECT level (ignore subqueries);
-    - do NOT treat window aggregates (AVG(...) OVER (...)) as group aggregates.
+    A SELECT block is flagged when ALL of the following are true:
+
+    1. It contains at least one non-window aggregate function at this SELECT level.
+    2. It contains at least one non-aggregated column (or SELECT *) at this level.
+    3. Either:
+       - there is no GROUP BY clause; or
+       - GROUP BY exists but does not cover all non-aggregated columns.
+
+    Notes:
+    - Only the current SELECT level is analyzed. Subqueries are ignored.
+    - Window aggregates (AVG(...) OVER (...)) are ignored.
+    - GROUP BY matching supports:
+        * simple column references (exp.Column)
+        * simple aliases: SELECT col AS alias ... GROUP BY alias
+    - SELECT * together with aggregates and no GROUP BY is treated as
+      a Missing GROUP BY antipattern, because * expands to non-aggregated columns.
     """
     pattern = AntipatternPattern.MISSING_GROUP_BY.value
     severity = severity_map.get(pattern, "critical")
 
     for select in ast.find_all(exp.Select):
-        # --- 1. Aggregates only at the current SELECT level (exclude window aggregates) ---
+        # 1) Collect non-window aggregates at this SELECT level
         aggregates: List[exp.AggFunc] = []
+
         for agg in select.find_all(exp.AggFunc):
-            # Skip window aggregates like AVG(age) OVER (...)
             if _is_window_aggregate(agg):
                 continue
 
@@ -330,18 +342,38 @@ def _detect_missing_group_by(
             if parent_select is select:
                 aggregates.append(agg)
 
-        # If there are no (non-window) aggregates at this level – skip this SELECT
         if not aggregates:
+            # No aggregates at this level → nothing to check
             continue
 
-        # --- 2. If there's already a GROUP BY – this is not our antipattern ---
-        has_group_by = select.args.get("group") is not None
-        if has_group_by:
-            continue
+        group: Optional[exp.Group] = select.args.get("group")
+        group_expressions = (group.args.get("expressions") or []) if group else []
 
-        # --- 3. Look for non-aggregate columns in the SELECT list ---
         select_expressions = select.args.get("expressions") or []
-        has_non_aggregate_column = False
+
+        # 2) Build alias map for this SELECT (alias -> underlying expression)
+        alias_map: Dict[str, exp.Expression] = {}
+        has_star = False
+
+        for expr in select_expressions:
+            # Track SELECT * at this level
+            if isinstance(expr, exp.Star):
+                star_select = _closest_parent_of_type(expr, exp.Select)
+                if star_select is select:
+                    has_star = True
+
+            # Track aliases: SELECT something AS alias
+            if isinstance(expr, exp.Alias):
+                alias_identifier = expr.args.get("alias")
+                if alias_identifier is not None:
+                    alias_name = getattr(alias_identifier, "name", None) or getattr(
+                        alias_identifier, "this", None
+                    )
+                    if isinstance(alias_name, str):
+                        alias_map[alias_name] = expr.this
+
+        # 3) Collect all non-aggregated columns at this SELECT level
+        non_aggregate_columns: List[exp.Column] = []
 
         for expr in select_expressions:
             # If the whole expression is a non-window aggregate at this level, skip it
@@ -350,51 +382,108 @@ def _detect_missing_group_by(
                 if parent_select is select:
                     continue
 
-            # Find all columns inside this expression
+            # Find columns inside the expression
             for col in expr.find_all(exp.Column):
-                # Only consider columns that belong to the current SELECT (ignore subqueries)
                 col_select = _closest_parent_of_type(col, exp.Select)
                 if col_select is not select:
                     continue
 
-                # Check whether this column is inside a (non-window) aggregate
+                # Check if this column is inside a non-window aggregate at this level
                 parent = col.parent
                 inside_aggregate = False
+
                 while parent is not None:
                     if isinstance(parent, exp.AggFunc):
-                        # Ignore window aggregates completely for this check
                         if _is_window_aggregate(parent):
-                            break
+                            break  # ignore window aggregates for this rule
 
-                        # Make sure this aggregate belongs to the current SELECT
                         agg_select = _closest_parent_of_type(parent, exp.Select)
                         if agg_select is select:
                             inside_aggregate = True
                             break
+
                     parent = parent.parent
 
-                # If the column is not inside a non-window aggregate at this level – this is our case
                 if not inside_aggregate:
-                    has_non_aggregate_column = True
-                    break
+                    non_aggregate_columns.append(col)
 
-            if has_non_aggregate_column:
-                break
+        # If there are no non-aggregated columns and no SELECT *,
+        # we do not consider this a missing GROUP BY.
+        if not non_aggregate_columns and not has_star:
+            continue
 
-        # --- 4. If we found a non-aggregate column together with (non-window) aggregates and no GROUP BY ---
-        if has_non_aggregate_column:
+        # 4) No GROUP BY at all → classic missing GROUP BY (including SELECT *)
+        if group is None and (non_aggregate_columns or has_star):
             features.has_missing_group_by = True
             antipatterns.append(
                 AntipatternInstance(
                     pattern=pattern,
                     severity=severity,
                     message=(
-                        "Aggregate functions with non-aggregated columns require GROUP BY "
-                        "(SQLite allows but returns arbitrary values)"
+                        "Aggregate functions with non-aggregated columns (or SELECT *) "
+                        "require a GROUP BY clause (SQLite allows this but returns "
+                        "arbitrary values)."
                     ),
-                    location="SELECT with aggregates",
+                    location="SELECT with aggregates and no GROUP BY",
                 )
             )
+            # Continue to other SELECTs; if you want only one hit per query, you could break here
+            continue
+
+        # 5) GROUP BY exists – check for partial GROUP BY (missing columns).
+        def _same_column(a: exp.Column, b: exp.Column) -> bool:
+            same_name = a.name == b.name
+            same_table = (not a.table or not b.table or a.table == b.table)
+            return same_name and same_table
+
+        def _column_in_group(c: exp.Column) -> bool:
+            """
+            Return True if column `c` is effectively grouped:
+            - directly listed in GROUP BY as a column; or
+            - GROUP BY uses an alias whose expression is (or contains) this column.
+            """
+            for gb_expr in group_expressions:
+                if isinstance(gb_expr, exp.Column):
+                    # Direct column in GROUP BY
+                    if _same_column(gb_expr, c):
+                        return True
+
+                    # Alias in GROUP BY: look up its expression in alias_map
+                    alias_expr = alias_map.get(gb_expr.name)
+                    if alias_expr is not None:
+                        if isinstance(alias_expr, exp.Column):
+                            if _same_column(alias_expr, c):
+                                return True
+                        else:
+                            # Alias is an expression; consider it grouped if it contains this column
+                            for alias_col in alias_expr.find_all(exp.Column):
+                                if _same_column(alias_col, c):
+                                    return True
+
+            return False
+
+        missing_from_group: List[exp.Column] = [
+            col for col in non_aggregate_columns if not _column_in_group(col)
+        ]
+
+        if missing_from_group:
+            features.has_missing_group_by = True
+
+            missing_cols_str = ", ".join({col.sql() for col in missing_from_group})
+
+            antipatterns.append(
+                AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message=(
+                        "Aggregate functions with non-aggregated columns require a complete "
+                        f"GROUP BY; the following columns are not grouped: {missing_cols_str} "
+                        "(SQLite allows this but returns arbitrary values)."
+                    ),
+                    location="SELECT with aggregates and partial GROUP BY",
+                )
+            )
+            # Stop after the first offending SELECT in this query
             break
 
 
