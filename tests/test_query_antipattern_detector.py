@@ -406,7 +406,31 @@ class TestNullComparisonEqualsAntipattern:
      
 
 class TestCartesianProductAntipattern:
+    def test_cartesian_product_comma_separated(self):
+        """Test that comma-separated tables are detected as Cartesian product."""
+        sql = "SELECT * FROM users, orders"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_cartesian_product is True
+        assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
+
+    def test_cartesian_product_three_tables_comma(self):
+        """Test Cartesian product with three comma-separated tables."""
+        sql = "SELECT * FROM a, b, c"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_cartesian_product is True
+
+    def test_join_using_clause_not_cartesian(self):
+        """JOIN USING(id) is a proper join condition between tables - NOT Cartesian."""
+        sql = "SELECT * FROM a JOIN b USING (id)"
+        result = detect_antipatterns(sql)
+
+        # FIXED: USING is a valid join condition!
+        assert result.has_cartesian_product is False
+
     def test_pure_cartesian_from_comma(self):
+        """Classic comma-separated tables without any conditions → pure Cartesian product."""
         sql = "SELECT * FROM a, b"
         result = detect_antipatterns(sql)
 
@@ -414,13 +438,85 @@ class TestCartesianProductAntipattern:
         assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
 
     def test_cartesian_cross_join(self):
+        """CROSS JOIN without any join condition → Cartesian product by definition."""
         sql = "SELECT * FROM a CROSS JOIN b"
         result = detect_antipatterns(sql)
 
         assert result.has_cartesian_product is True
 
     def test_not_cartesian_when_join_condition_exists(self):
+        """Old-style join via WHERE: FROM users u, orders o WHERE u.id = o.user_id
+        This is a proper join between two tables → NOT a Cartesian product."""
         sql = "SELECT * FROM users u, orders o WHERE u.id = o.user_id"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is False
+
+    def test_three_tables_comma_no_conditions_cartesian(self):
+        """Multiple tables listed with commas, no WHERE/ON conditions at all.
+        a, b, c → full Cartesian product a × b × c."""
+        sql = "SELECT * FROM a, b, c"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
+
+    def test_two_tables_comma_where_only_single_table_condition_cartesian(self):
+        """WHERE clause references only one table:
+        condition filters rows in 'a' but does not relate 'a' to 'b'.
+        Still a Cartesian product a × b with a filter on 'a'."""
+        sql = "SELECT * FROM a, b WHERE a.id > 10"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
+
+    def test_two_tables_comma_where_same_table_columns_cartesian(self):
+        """WHERE a.x = a.y: still only references table 'a'.
+        'b' is completely unrelated → a × b is still a Cartesian product."""
+        sql = "SELECT * FROM a, b WHERE a.x = a.y"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
+
+    def test_mixed_comma_and_join_without_condition_for_all_tables_cartesian(self):
+        """FROM a, b JOIN c ON b.id = c.b_id
+        
+        There is a join between b and c, but 'a' is not connected to (b ⋈ c) at all.
+        Effective result: a × (b ⋈ c) → still a Cartesian product."""
+        sql = "SELECT * FROM a, b JOIN c ON b.id = c.b_id"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is True
+
+    def test_mixed_comma_and_join_with_full_where_join_not_cartesian(self):
+        """Same as previous test, but now WHERE connects 'a' with 'b':
+        a.id = b.a_id → all tables are joined: a ↔ b ↔ c → NOT a Cartesian product."""
+        sql = """
+        SELECT *
+        FROM a, b
+        JOIN c ON b.id = c.b_id
+        WHERE a.id = b.a_id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is False
+
+    def test_inner_join_on_not_cartesian(self):
+        """Standard INNER JOIN with a valid join condition between two tables."""
+        sql = "SELECT * FROM users u JOIN orders o ON u.id = o.user_id"
+        result = detect_antipatterns(sql)
+
+        assert result.has_cartesian_product is False
+
+    def test_chained_joins_not_cartesian(self):
+        """Chained JOINs with proper ON conditions connecting all tables.
+        T1 ↔ T2 ↔ T3 via ON clauses → NOT a Cartesian product."""
+        sql = """
+        SELECT DISTINCT T1.creation 
+        FROM department AS T1 
+        JOIN management AS T2 ON T1.department_id = T2.department_id 
+        JOIN head AS T3 ON T2.head_id = T3.head_id 
+        WHERE T3.born_state = 'Alabama'
+        """
         result = detect_antipatterns(sql)
 
         assert result.has_cartesian_product is False
@@ -710,7 +806,74 @@ class TestSelectInExistsAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_select_in_exists is True
+    def test_select_literal_in_exists_not_flagged(self):
+        """SELECT 1 in EXISTS is idiomatic and should NOT be flagged."""
+        sql = """
+        SELECT *
+        FROM users
+        WHERE EXISTS (
+            SELECT 1
+            FROM orders
+            WHERE orders.user_id = users.id
+        )
+        """
+        result = detect_antipatterns(sql)
 
+        assert result.has_select_in_exists is False
+        assert not any(ap.pattern == "select_in_exists" for ap in result.antipatterns)
+
+    def test_select_multiple_expressions_in_exists_detected(self):
+        """
+        SELECT id, 1 in EXISTS is still unnecessary, because EXISTS
+        only cares about row existence. This should be flagged.
+        """
+        sql = """
+        SELECT *
+        FROM users
+        WHERE EXISTS (
+            SELECT id, 1
+            FROM orders
+            WHERE orders.user_id = users.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_in_exists is True
+        assert any(ap.pattern == "select_in_exists" for ap in result.antipatterns)
+
+    def test_multiple_exists_only_one_with_columns_still_flagged(self):
+        """
+        If there are multiple EXISTS subqueries and at least one of them
+        uses SELECT * or columns, the antipattern should be detected.
+        """
+        sql = """
+        SELECT *
+        FROM users
+        WHERE EXISTS (
+            SELECT 1
+            FROM orders
+            WHERE orders.user_id = users.id
+        )
+        OR EXISTS (
+            SELECT id
+            FROM invoices
+            WHERE invoices.user_id = users.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_in_exists is True
+        assert any(ap.pattern == "select_in_exists" for ap in result.antipatterns)
+
+    def test_exists_without_subquery_select_not_flagged(self):
+        """
+        Defensive test: if EXISTS somehow does not contain a SELECT node
+        (e.g., malformed or different AST shape), it should not be flagged.
+        """
+        sql = "SELECT * FROM users"  # no EXISTS at all
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_in_exists is False
 
 class TestUnionInsteadOfUnionAllAntipattern:
     """Test UNION vs UNION ALL antipattern detection."""
@@ -1448,6 +1611,25 @@ class TestCorrelatedSubqueryAntipattern:
     """Unit tests for correlated subquery antipattern detection."""
 
     # --- Original core tests ---
+
+    def test_correlated_subquery_with_derived_table_alias(self):
+        """Test that subquery aliases in FROM are correctly tracked."""
+        sql = """
+        SELECT u.id 
+        FROM users u
+        JOIN (SELECT user_id FROM orders) o ON o.user_id = u.id
+        WHERE EXISTS (
+            SELECT 1 FROM payments p WHERE p.user_id = o.user_id
+        )
+        """
+        result = detect_antipatterns(sql)
+        
+        # o.user_id should reference the derived table, not be treated as correlation
+        # This is still correlated because the EXISTS references 'o' from outer query
+        assert result.has_correlated_subquery is True
+        
+        # This query should NOT be detected as Cartesian product
+        assert result.has_cartesian_product is False
 
     def test_exists_correlated_subquery_detected(self):
         """EXISTS with outer table reference in subquery WHERE should be detected as correlated."""
