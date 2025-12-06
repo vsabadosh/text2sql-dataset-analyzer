@@ -231,48 +231,75 @@ def _detect_null_comparison_equals(ast: exp.Expression, antipatterns: List[Antip
                 break
 
 
-def _detect_cartesian_product(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect Cartesian products (multiple tables without proper JOIN conditions)."""
+def _detect_cartesian_product(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect Cartesian products: multiple tables without any join conditions."""
+
     pattern = AntipatternPattern.CARTESIAN_PRODUCT.value
     severity = severity_map.get(pattern, "critical")
-    
+
     for select in ast.find_all(exp.Select):
-        # sqlglot converts comma-separated tables to CROSS JOINs
-        # Look for CROSS JOINs without ON conditions and without proper WHERE join conditions
-        joins = select.args.get("joins", [])
-        
+        joins = list(select.args.get("joins") or [])
+        if not joins:
+            # Single-table SELECT cannot be a Cartesian product in this sense
+            continue
+
+        # 1) Check join conditions in JOIN ... ON/USING
+        has_join_condition = False
+
         for join in joins:
             if not isinstance(join, exp.Join):
                 continue
-            
-            # Check if this is a CROSS JOIN (sqlglot normalizes comma-separated tables to CROSS JOIN)
-            join_kind = join.args.get("kind")
-            if join_kind and str(join_kind).upper() == "CROSS":
-                # CROSS JOIN found - check if there's a join condition in WHERE
-                where_clause = select.args.get("where")
-                
-                has_join_condition = False
-                if where_clause:
-                    # Look for equality conditions between different table columns
-                    for eq in where_clause.find_all(exp.EQ):
-                        left_table = _get_column_table(eq.left)
-                        right_table = _get_column_table(eq.right)
-                        if left_table and right_table and left_table != right_table:
-                            has_join_condition = True
-                            break
-                
-                if not has_join_condition:
-                    features.has_cartesian_product = True
-                    antipatterns.append(AntipatternInstance(
-                        pattern=pattern,
-                        severity=severity,
-                        message="Cartesian product detected: comma-separated tables without JOIN conditions (results in massive row explosion)",
-                        location="FROM clause"
-                    ))
+
+            # ON clause
+            on_clause = join.args.get("on")
+            if on_clause is not None:
+                for eq in on_clause.find_all(exp.EQ):
+                    left_table = _get_column_table(eq.left)
+                    right_table = _get_column_table(eq.right)
+                    if left_table and right_table and left_table != right_table:
+                        has_join_condition = True
+                        break
+                if has_join_condition:
                     break
-        
-        if features.has_cartesian_product:
-            break
+
+            # USING (a, b) — also a join condition between tables
+            using_clause = join.args.get("using")
+            if using_clause is not None:
+                has_join_condition = True
+                break
+
+        # 2) If no join conditions in ON/USING, look in WHERE
+        if not has_join_condition:
+            where_clause = select.args.get("where")
+            if where_clause is not None:
+                for eq in where_clause.find_all(exp.EQ):
+                    left_table = _get_column_table(eq.left)
+                    right_table = _get_column_table(eq.right)
+                    if left_table and right_table and left_table != right_table:
+                        has_join_condition = True
+                        break
+
+        # If after all this we still found no inter-table join condition → Cartesian product.
+        if not has_join_condition:
+            features.has_cartesian_product = True
+
+            antipatterns.append(
+                AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message=(
+                        "Cartesian product detected: multiple tables without any join "
+                        "conditions (results in massive row explosion)."
+                    ),
+                    location="FROM clause",
+                )
+            )
+            return
 
 def _detect_missing_group_by(
     ast: exp.Expression,
@@ -371,56 +398,127 @@ def _detect_missing_group_by(
             break
 
 
-def _detect_select_star(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect SELECT * usage (maintainability and performance antipattern)."""
+def _detect_select_star(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detects SELECT * or table.* usage."""
+
     pattern = AntipatternPattern.SELECT_STAR.value
     severity = severity_map.get(pattern, "medium")
-    # Check for Star in SELECT statements
+
     for select in ast.find_all(exp.Select):
-        stars = list(select.find_all(exp.Star))
-        if stars:
-            features.has_select_star = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="SELECT * found: specify explicit columns for better maintainability and performance",
-                location="SELECT clause"
-            ))
-            break  # Report once per query
+        # List of projected expressions in SELECT
+        select_expressions = list(select.expressions or [])
+
+        for expr in select_expressions:
+            # Case 1: bare star – covers `SELECT *`
+            if isinstance(expr, exp.Star):
+                features.has_select_star = True
+
+                antipatterns.append(
+                    AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message=(
+                            "SELECT * found: specify explicit columns for better "
+                            "maintainability and performance"
+                        ),
+                        location="SELECT clause",
+                    )
+                )
+                break
+
+            # Case 2: qualified star – e.g. `SELECT u.*`
+            # Many parsers represent this as a Column whose inner expression is Star.
+            if isinstance(expr, exp.Column) and isinstance(expr.this, exp.Star):
+                features.has_select_star = True
+
+                antipatterns.append(
+                    AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message=(
+                            "SELECT table.* found: specify explicit columns for better "
+                            "maintainability and performance"
+                        ),
+                        location="SELECT clause",
+                    )
+                )
+                break
+
+        if features.has_select_star:
+            break
 
 
-def _detect_implicit_join(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect implicit joins (comma-separated tables without explicit JOIN)."""
+def _detect_implicit_join(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect implicit/comma joins: multiple tables joined via WHERE instead of JOIN ... ON."""
+
     pattern = AntipatternPattern.IMPLICIT_JOIN.value
     severity = severity_map.get(pattern, "high")
+
     for select in ast.find_all(exp.Select):
-        # Check if FROM has multiple tables (via comma)
-        from_clause = select.args.get("from")
-        if not from_clause:
+        joins = list(select.args.get("joins") or [])
+        if not joins:
             continue
-        
-        # Look for tables directly in this FROM clause (not in subqueries)
-        # We need to check only immediate children, not nested ones
-        tables_in_from = []
-        if hasattr(from_clause, 'this') and isinstance(from_clause.this, exp.Table):
-            tables_in_from.append(from_clause.this)
-        
-        # Check for JOINs in this specific SELECT (not nested)
-        joins_in_select = [j for j in select.args.get("joins", []) if isinstance(j, exp.Join)]
-        
-        # sqlglot parses comma-separated tables as multiple Table nodes in FROM
-        # If we have explicit JOINs, comma joins won't be present in modern sqlglot
-        # This is a conservative detection - we look for pattern indicators
-        # Note: sqlglot may normalize comma joins to explicit JOINs during parsing
-        if len(tables_in_from) > 1 and len(joins_in_select) == 0:
+
+        where_clause = select.args.get("where")
+
+        for join in joins:
+            if not isinstance(join, exp.Join):
+                continue
+
+            has_on = join.args.get("on") is not None
+            has_using = join.args.get("using") is not None
+
+            # Explicit JOIN ... ON / USING → not implicit.
+            if has_on or has_using:
+                continue
+
+            # Here we have a join without ON/USING, which might be:
+            # - comma join: FROM a, b WHERE a.id = b.id
+            # - pure cartesian product: FROM a, b (no join condition at all)
+            #
+            # We treat it as implicit join ONLY if there is a join condition
+            # between two different tables somewhere in WHERE.
+            has_join_condition = False
+
+            if where_clause is not None:
+                for eq in where_clause.find_all(exp.EQ):
+                    left_table = _get_column_table(eq.left)
+                    right_table = _get_column_table(eq.right)
+
+                    if left_table and right_table and left_table != right_table:
+                        has_join_condition = True
+                        break
+
+            # No inter-table equality → let _detect_cartesian_product handle it.
+            if not has_join_condition:
+                continue
+
+            # We have multiple tables, no JOIN ... ON, but a join condition in WHERE.
             features.has_implicit_join = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="Implicit JOIN detected (comma-separated tables): use explicit JOIN syntax for clarity",
-                location="FROM clause"
-            ))
-            break
+
+            antipatterns.append(
+                AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message=(
+                        "Implicit join detected (tables joined via WHERE instead of "
+                        "explicit JOIN ... ON). Use explicit JOIN syntax for clarity "
+                        "and to avoid accidental cartesian products."
+                    ),
+                    location="FROM clause",
+                )
+            )
+            return
 
 
 def _detect_function_in_where(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
@@ -509,53 +607,99 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
                 break
 
 
-def _detect_correlated_subquery(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+def _detect_correlated_subquery(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
     """Detect correlated subqueries (performance risk)."""
+
     pattern = AntipatternPattern.CORRELATED_SUBQUERY.value
     severity = severity_map.get(pattern, "medium")
-    
-    # This is a simplified heuristic using conservative pattern matching
-    # True detection would require full scope analysis
-    
-    for select in ast.find_all(exp.Select):
-        subqueries = [sq for sq in select.find_all(exp.Subquery) if isinstance(sq.this, exp.Select)]
-        
-        for subq in subqueries:
-            inner_select = subq.this
-            if not isinstance(inner_select, exp.Select):
-                continue
-            
-            # Look for table aliases in outer query
-            outer_tables = set()
-            for table in select.find_all(exp.Table):
-                if hasattr(table, 'alias') and table.alias:
-                    outer_tables.add(table.alias)
-                elif hasattr(table, 'name'):
-                    outer_tables.add(str(table.name).lower())
-            
-            # Look for columns with table qualifiers in subquery WHERE
-            where_nodes = list(inner_select.find_all(exp.Where))
-            if where_nodes and outer_tables:
-                columns_in_where = list(where_nodes[0].find_all(exp.Column))
-                # Check if any column references an outer table
-                for col in columns_in_where:
-                    if hasattr(col, 'table') and col.table:
-                        table_ref = str(col.table).lower()
-                        if table_ref in outer_tables:
-                            features.has_correlated_subquery = True
-                            antipatterns.append(AntipatternInstance(
-                                pattern=pattern,
-                                severity=severity,
-                                message="Potentially correlated subquery detected: consider JOIN or EXISTS for better performance",
-                                location="Subquery"
-                            ))
-                            break
-            
-            if features.has_correlated_subquery:
-                break
-        if features.has_correlated_subquery:
-            break
 
+    for outer_select in ast.find_all(exp.Select):
+        outer_tables = _collect_outer_tables(outer_select)
+        if not outer_tables:
+            continue
+
+        # All nested SELECTs inside this outer SELECT (scalar, EXISTS, etc.)
+        inner_selects = [
+            s for s in outer_select.find_all(exp.Select) if s is not outer_select
+        ]
+
+        for inner_select in inner_selects:
+            inner_tables = _collect_outer_tables(inner_select)
+
+            where_clause = inner_select.args.get("where")
+            if where_clause is None:
+                continue
+
+            for col in where_clause.find_all(exp.Column):
+                table_ref = getattr(col, "table", None)
+                if not table_ref:
+                    continue
+
+                table_ref_str = str(table_ref).lower()
+
+                # Local table/alias inside subquery → not correlated
+                if table_ref_str in inner_tables:
+                    continue
+
+                # Reference to an outer table/alias → correlated subquery
+                if table_ref_str in outer_tables:
+                    features.has_correlated_subquery = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                "Potentially correlated subquery detected: consider "
+                                "JOIN or EXISTS for better performance."
+                            ),
+                            location="Subquery",
+                        )
+                    )
+                    return
+                    
+def _collect_outer_tables(select: exp.Select) -> Set[str]:
+    """
+    Collect table names/aliases from the outer SELECT only:
+    - FROM clause
+    - JOIN targets
+    Does NOT recurse into subqueries.
+    """
+    outer_tables: Set[str] = set()
+
+    from_clause = select.args.get("from")
+    if isinstance(from_clause, exp.From):
+        # Get the main table from 'this' attribute
+        if isinstance(from_clause.this, exp.Table):
+            name = from_clause.this.alias_or_name
+            if name:
+                outer_tables.add(str(name).lower())
+        
+        # Get additional tables from 'expressions' (for comma-separated tables)
+        for source in from_clause.expressions or []:
+            # We only care about top-level tables, not subqueries
+            if isinstance(source, exp.Table):
+                # alias_or_name is available in sqlglot >= 23.0.0
+                name = source.alias_or_name
+                if name:
+                    outer_tables.add(str(name).lower())
+
+    joins = list(select.args.get("joins") or [])
+    for join in joins:
+        if not isinstance(join, exp.Join):
+            continue
+
+        table = join.this
+        if isinstance(table, exp.Table):
+            name = table.alias_or_name
+            if name:
+                outer_tables.add(str(name).lower())
+
+    return outer_tables
 
 def _is_null_literal(node: exp.Expression) -> bool:
     """Check if a node is a NULL literal."""

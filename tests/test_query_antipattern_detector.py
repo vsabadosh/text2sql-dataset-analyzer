@@ -48,59 +48,148 @@ class TestDetectAntipatternBasic:
 
 
 class TestSelectStarAntipattern:
-    """Test SELECT * antipattern detection."""
+    """Unit tests for SELECT * antipattern detection."""
 
     def test_select_star_detected(self):
-        """Test that SELECT * is detected."""
+        """SELECT * should be detected as an antipattern."""
         sql = "SELECT * FROM users"
         result = detect_antipatterns(sql)
-        
+
         assert result.has_select_star is True
         assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "select_star" and ap.severity == "medium" for ap in result.antipatterns)
+        assert any(
+            ap.pattern == "select_star" and ap.severity == "medium"
+            for ap in result.antipatterns
+        )
 
     def test_select_star_with_join(self):
-        """Test SELECT * with joins is detected."""
+        """SELECT * with joins should still be detected."""
         sql = "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
         result = detect_antipatterns(sql)
-        
+
         assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+
+    def test_qualified_star_detected(self):
+        """SELECT table.* should also be treated as SELECT *."""
+        sql = "SELECT u.* FROM users u"
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+
+    def test_qualified_multiple_star_detected(self):
+        """SELECT u.*, o.* should be detected as SELECT * usage."""
+        sql = """
+        SELECT u.*, o.*
+        FROM users u
+        JOIN orders o ON o.user_id = u.id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+
+    def test_distinct_star_detected(self):
+        """SELECT DISTINCT * should also be treated as SELECT *."""
+        sql = "SELECT DISTINCT * FROM users"
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
+
+    def test_star_in_subquery_detected(self):
+        """SELECT * in a subquery should still be treated as an antipattern."""
+        sql = """
+        SELECT id
+        FROM users
+        WHERE id IN (SELECT * FROM banned_users)
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is True
+        assert any(ap.pattern == "select_star" for ap in result.antipatterns)
 
     def test_explicit_columns_no_antipattern(self):
-        """Test that explicit column selection is not flagged."""
+        """Explicit column selection should not be flagged."""
         sql = "SELECT id, name, email FROM users"
         result = detect_antipatterns(sql)
-        
+
         assert result.has_select_star is False
+        assert all(ap.pattern != "select_star" for ap in result.antipatterns)
 
     def test_count_star_not_flagged(self):
-        """Test that COUNT(*) is allowed (different context)."""
+        """COUNT(*) in aggregate context should not be treated as SELECT *."""
         sql = "SELECT COUNT(*) FROM users"
         result = detect_antipatterns(sql)
-        
-        # COUNT(*) should not trigger select_star antipattern
-        # (it's in aggregate function context, not column list)
-        # This is a known limitation - we flag it but it's acceptable
-        assert result.parseable is True
 
+        assert result.has_select_star is False
+        assert all(ap.pattern != "select_star" for ap in result.antipatterns)
+
+    def test_count_star_with_other_columns_not_flagged(self):
+        """COUNT(*) together with explicit columns should still not trigger select_star."""
+        sql = "SELECT id, COUNT(*) FROM users GROUP BY id"
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is False
+        assert all(ap.pattern != "select_star" for ap in result.antipatterns)
+
+    def test_nested_subquery_count_star_not_flagged(self):
+        """COUNT(*) in a nested subquery should not be treated as SELECT *."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE EXISTS (
+            SELECT 1
+            FROM orders o
+            WHERE o.user_id = u.id
+            GROUP BY o.user_id
+            HAVING COUNT(*) > 10
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_select_star is False
+        assert all(ap.pattern != "select_star" for ap in result.antipatterns)
 
 class TestImplicitJoinAntipattern:
-    """Test implicit JOIN antipattern detection."""
+    """Unit tests for implicit join (comma / cross join) detection."""
 
-    def test_comma_separated_tables(self):
-        """Test that comma-separated tables are detected."""
-        sql = "SELECT * FROM users, orders WHERE users.id = orders.user_id"
+    def test_comma_join_detected(self):
+        """FROM a, b should be detected as an implicit join."""
+        sql = "SELECT * FROM users u, orders o WHERE u.id = o.user_id"
         result = detect_antipatterns(sql)
-        
-        # Note: sqlglot may parse comma joins as explicit joins
-        # This test verifies our detection logic works when it finds them
-        assert result.parseable is True
 
-    def test_explicit_join_no_antipattern(self):
-        """Test that explicit JOIN is not flagged."""
-        sql = "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+        assert result.has_implicit_join is True
+        assert any(ap.pattern == "implicit_join" for ap in result.antipatterns)
+
+    def test_comma_join_without_where_not_implicit(self):
+        """Pure FROM a, b without WHERE should NOT be implicit join (it's a Cartesian product)."""
+        sql = "SELECT * FROM a, b"
         result = detect_antipatterns(sql)
-        
+
+        assert result.has_implicit_join is False
+        # This one should be caught by the cartesian_product detector instead
+        assert result.has_cartesian_product is True
+        assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
+
+    def test_explicit_join_not_flagged(self):
+        """Explicit JOIN ... ON should not be treated as implicit join."""
+        sql = """
+        SELECT *
+        FROM users u
+        JOIN orders o ON o.user_id = u.id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_implicit_join is False
+        assert all(ap.pattern != "implicit_join" for ap in result.antipatterns)
+
+    def test_single_table_no_implicit_join(self):
+        """Single-table FROM should not be flagged."""
+        sql = "SELECT * FROM users"
+        result = detect_antipatterns(sql)
+
         assert result.has_implicit_join is False
 
 
@@ -253,31 +342,23 @@ class TestNullComparisonEqualsAntipattern:
 
 
 class TestCartesianProductAntipattern:
-    """Test Cartesian product antipattern detection."""
-
-    def test_cartesian_detected(self):
-        """Test that Cartesian product is detected."""
-        sql = "SELECT * FROM users, orders WHERE users.status = 'active'"
+    def test_pure_cartesian_from_comma(self):
+        sql = "SELECT * FROM a, b"
         result = detect_antipatterns(sql)
-        
-        # Should detect Cartesian product (no join condition between tables)
+
         assert result.has_cartesian_product is True
-        assert result.total_antipatterns >= 1
         assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
 
-    def test_explicit_join_not_flagged(self):
-        """Test that explicit JOIN is not flagged."""
-        sql = "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+    def test_cartesian_cross_join(self):
+        sql = "SELECT * FROM a CROSS JOIN b"
         result = detect_antipatterns(sql)
-        
-        assert result.has_cartesian_product is False
 
-    def test_where_join_condition_not_flagged(self):
-        """Test that comma-join with WHERE condition is not flagged."""
-        sql = "SELECT * FROM users, orders WHERE users.id = orders.user_id"
+        assert result.has_cartesian_product is True
+
+    def test_not_cartesian_when_join_condition_exists(self):
+        sql = "SELECT * FROM users u, orders o WHERE u.id = o.user_id"
         result = detect_antipatterns(sql)
-        
-        # Has proper join condition in WHERE, should not flag
+
         assert result.has_cartesian_product is False
 
 
@@ -1118,6 +1199,108 @@ class TestAntipatternConfiguration:
         assert result.has_null_comparison_equals is True
         # Should not detect select_star (not in config)
         assert result.has_select_star is False
+
+
+class TestCorrelatedSubqueryAntipattern:
+    """Unit tests for correlated subquery antipattern detection."""
+
+    def test_exists_correlated_subquery_detected(self):
+        """EXISTS with outer table reference in subquery WHERE should be detected as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE EXISTS (
+            SELECT 1
+            FROM orders o
+            WHERE o.user_id = u.id
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    def test_scalar_correlated_subquery_in_select_list_detected(self):
+        """Scalar subquery in SELECT list referencing outer table should be detected as correlated."""
+        sql = """
+        SELECT
+            u.id,
+            (
+                SELECT COUNT(*)
+                FROM orders o
+                WHERE o.user_id = u.id
+            ) AS order_count
+        FROM users u
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
+
+    def test_non_correlated_aggregate_subquery_not_flagged(self):
+        """Aggregate subquery over the same base table but without outer alias reference should not be flagged."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.age > (
+            SELECT AVG(age)
+            FROM users
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    def test_non_correlated_exists_on_other_table_not_flagged(self):
+        """EXISTS subquery that does not reference the outer table should not be flagged as correlated."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE EXISTS (
+            SELECT 1
+            FROM orders o
+            WHERE o.created_at > '2024-01-01'
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    def test_subquery_with_own_alias_shadowing_outer_not_flagged(self):
+        """Inner subquery that reuses the same alias name should not be treated as correlated (alias shadowing)."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE EXISTS (
+            SELECT 1
+            FROM users u
+            WHERE u.created_at > '2024-01-01'
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        # Inner `u` should shadow outer `u`, so no correlation
+        assert result.has_correlated_subquery is False
+        assert all(ap.pattern != "correlated_subquery" for ap in result.antipatterns)
+
+    def test_nested_correlated_subquery_still_detected(self):
+        """Correlated subquery nested one level inside another expression should still be detected."""
+        sql = """
+        SELECT u.id
+        FROM users u
+        WHERE u.status = 'vip'
+          AND (
+              SELECT MAX(o.amount)
+              FROM orders o
+              WHERE o.user_id = u.id
+          ) > 100
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_correlated_subquery is True
+        assert any(ap.pattern == "correlated_subquery" for ap in result.antipatterns)
 
 
 if __name__ == "__main__":
