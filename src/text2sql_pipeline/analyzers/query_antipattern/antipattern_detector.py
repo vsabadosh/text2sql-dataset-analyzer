@@ -1336,17 +1336,19 @@ def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[A
     """
     Detect set operations that remove duplicates when it may not be necessary.
     
-    This includes:
-    - UNION (removes duplicates) vs UNION ALL (keeps all rows)
-    - INTERSECT (always removes duplicates, some DBs support INTERSECT ALL)
-    - EXCEPT (always removes duplicates, some DBs support EXCEPT ALL)
-    
-    These operations require sorting and deduplication which impacts performance.
+    Currently we only treat classic `UNION` (which removes duplicates) as a
+    potential antipattern vs `UNION ALL` (which keeps all rows).
+
+    Rationale:
+    - For INTERSECT / EXCEPT, many engines do not support the ALL variants,
+      so treating them as antipatterns is misleading and dialect‑dependent.
+    - Keeping detection focused on UNION vs UNION ALL makes the rule simpler
+      and more portable across dialects.
     """
     pattern = AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL.value
     severity = severity_map.get(pattern, "medium")
     
-    # Check UNION operations
+    # Check UNION operations only
     for union in ast.find_all(exp.Union):
         # Check if UNION is distinct (default behavior)
         is_distinct = union.args.get("distinct", True)
@@ -1359,36 +1361,6 @@ def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[A
                 location="UNION operation"
             ))
             return  # One instance is enough
-
-    # Check INTERSECT operations (always removes duplicates)
-    if hasattr(exp, 'Intersect'):
-        for intersect in ast.find_all(exp.Intersect):
-            # INTERSECT always deduplicates; flag if INTERSECT ALL might be appropriate
-            is_distinct = intersect.args.get("distinct", True)
-            if is_distinct:
-                features.has_union_instead_of_union_all = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message="INTERSECT removes duplicates: if your DB supports INTERSECT ALL, consider using it for better performance",
-                    location="INTERSECT operation"
-                ))
-                return
-
-    # Check EXCEPT operations (always removes duplicates)
-    if hasattr(exp, 'Except'):
-        for except_op in ast.find_all(exp.Except):
-            # EXCEPT always deduplicates; flag if EXCEPT ALL might be appropriate
-            is_distinct = except_op.args.get("distinct", True)
-            if is_distinct:
-                features.has_union_instead_of_union_all = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message="EXCEPT removes duplicates: if your DB supports EXCEPT ALL, consider using it for better performance",
-                    location="EXCEPT operation"
-                ))
-                return
 
 
 # ============================================================================
@@ -1609,7 +1581,7 @@ def _collect_non_aggregated_columns_for_select(
     has_star = False
     non_aggregate_columns: List[exp.Column] = []
 
-    # First pass: detect aggregates and SELECT *
+    # First pass: detect aggregates and SELECT * in the SELECT list
     for expr in select_expressions:
         # Detect SELECT * at this level
         if isinstance(expr, exp.Star):
@@ -1622,6 +1594,42 @@ def _collect_non_aggregated_columns_for_select(
             # But we still need to ensure they are not window aggregates
             for agg in expr.find_all(exp.AggFunc):
                 if not _is_window_aggregate(agg):
+                    has_non_window_aggregate = True
+                    break
+
+    # If we still haven't seen a non-window aggregate in the SELECT list,
+    # also look for aggregates at this SELECT level in HAVING / ORDER BY.
+    #
+    # This is important for queries like:
+    #   SELECT col FROM t GROUP BY col2 HAVING COUNT(*) > 1
+    # or:
+    #   SELECT col1, col2 FROM t GROUP BY col1 ORDER BY COUNT(*) DESC
+    #
+    # Even though the aggregate only appears in HAVING / ORDER BY, the query
+    # is still an aggregate query and non-grouped columns in SELECT should
+    # be treated as a Missing GROUP BY antipattern.
+    if not has_non_window_aggregate:
+        # HAVING clause aggregates
+        having_clause = select.args.get("having")
+        if isinstance(having_clause, exp.Having):
+            for agg in having_clause.find_all(exp.AggFunc):
+                if _is_window_aggregate(agg):
+                    continue
+                # Ensure this aggregate belongs to the current SELECT level
+                agg_select = _closest_parent_of_type(agg, exp.Select)
+                if agg_select is select:
+                    has_non_window_aggregate = True
+                    break
+
+    if not has_non_window_aggregate:
+        # ORDER BY clause aggregates
+        order_clause = select.args.get("order")
+        if isinstance(order_clause, exp.Order):
+            for agg in order_clause.find_all(exp.AggFunc):
+                if _is_window_aggregate(agg):
+                    continue
+                agg_select = _closest_parent_of_type(agg, exp.Select)
+                if agg_select is select:
                     has_non_window_aggregate = True
                     break
 

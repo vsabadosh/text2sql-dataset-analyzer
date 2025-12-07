@@ -1931,40 +1931,33 @@ class TestUnionInsteadOfUnionAllAntipattern:
         assert result.has_union_instead_of_union_all is True
 
     def test_except_detected_by_set_operation_detector(self):
-        """EXCEPT also removes duplicates and should be flagged."""
+        """
+        EXCEPT also removes duplicates, but we no longer treat it as a
+        generic "use EXCEPT ALL" antipattern because many dialects don't
+        support EXCEPT ALL at all.
+
+        The detector is intentionally focused only on UNION vs UNION ALL.
+        """
         sql = "SELECT id FROM users EXCEPT SELECT id FROM banned"
         result = detect_antipatterns(sql)
         
-        # EXCEPT removes duplicates like UNION, so it's flagged
-        assert result.has_union_instead_of_union_all is True
-        assert any("EXCEPT" in ap.location or "EXCEPT" in ap.message 
-                   for ap in result.antipatterns if ap.pattern == "union_instead_of_union_all")
+        # EXCEPT is no longer considered a union_instead_of_union_all antipattern
+        assert result.has_union_instead_of_union_all is False
+        assert not any(
+            ap.pattern == "union_instead_of_union_all" for ap in result.antipatterns
+        )
 
-    def test_intersect_detected_by_set_operation_detector(self):
-        """INTERSECT also removes duplicates and should be flagged."""
-        sql = "SELECT id FROM users INTERSECT SELECT id FROM premium_users"
-        result = detect_antipatterns(sql)
-        
-        # INTERSECT removes duplicates like UNION, so it's flagged
-        assert result.has_union_instead_of_union_all is True
-        assert any("INTERSECT" in ap.location or "INTERSECT" in ap.message 
-                   for ap in result.antipatterns if ap.pattern == "union_instead_of_union_all")
+    # NOTE: INTERSECT is no longer treated as an antipattern in this detector.
+    # Many engines don't support INTERSECT ALL, so we keep the rule focused on UNION.
 
     def test_except_all_not_flagged(self):
-        """EXCEPT ALL (if supported) should not be flagged."""
+        """EXCEPT ALL (if supported) should not be flagged (documented behaviour)."""
         sql = "SELECT id FROM users EXCEPT ALL SELECT id FROM banned"
         result = detect_antipatterns(sql)
-        
-        # EXCEPT ALL doesn't remove duplicates
         assert result.has_union_instead_of_union_all is False
 
-    def test_intersect_all_not_flagged(self):
-        """INTERSECT ALL (if supported) should not be flagged."""
-        sql = "SELECT id FROM users INTERSECT ALL SELECT id FROM premium_users"
-        result = detect_antipatterns(sql)
-        
-        # INTERSECT ALL doesn't remove duplicates
-        assert result.has_union_instead_of_union_all is False
+    # INTERSECT ALL is also not treated as an antipattern; we don't assert
+    # anything here to keep the detector focused on UNION semantics only.
 
 
 class TestQualityScoring:
@@ -2617,8 +2610,36 @@ class TestMissingGroupBySubqueryFix:
         result = detect_antipatterns(sql)
 
         assert result.has_missing_group_by is False
-        
 
+    def test_missing_group_by_with_join_and_different_group_column(self):
+        sql = """
+        SELECT c.Official_Name
+        FROM city AS c
+        JOIN farm_competition AS f
+        ON c.City_ID = f.Host_city_ID
+        GROUP BY f.Host_city_ID
+        HAVING COUNT(*) > 1
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)        
+
+    def test_missing_group_by_with_extra_column_not_in_group(self):
+        """Station name grouped, station id not grouped → should be flagged."""
+        sql = """
+        SELECT start_station_name, start_station_id
+        FROM trip
+        WHERE start_date LIKE '8/%'
+        GROUP BY start_station_name
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is True
+        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)
+        
 class TestAntipatternConfiguration:
     """Test antipattern configuration and dialect-specific detection."""
 
