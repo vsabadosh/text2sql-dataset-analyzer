@@ -88,7 +88,6 @@ analyze:
           critical:
             # ❌ ALWAYS WRONG RESULTS
             - null_comparison_equals         # `= NULL` instead of `IS NULL` (always evaluates to NULL/false)
-            - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             # 💥 DATA SAFETY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
             # 📊 UNINTENDED RESULTS
@@ -97,6 +96,7 @@ analyze:
             # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
             - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
             - implicit_join                  # Comma-joins risk accidental cartesian products (missing WHERE)
+            - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           medium:

@@ -1759,6 +1759,82 @@ class TestRedundantDistinctAntipattern:
         
         assert result.has_redundant_distinct is False
 
+    def test_distinct_inside_agg_not_flagged(self):
+        """
+        Test that DISTINCT inside an aggregate function (e.g., COUNT(DISTINCT col))
+        is NOT flagged as redundant DISTINCT.
+        """
+        sql = """
+            SELECT card_type_code, COUNT(DISTINCT customer_id)
+            FROM Customers_cards
+            GROUP BY card_type_code
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+        assert not any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
+    def test_distinct_with_group_by_and_having_detected(self):
+        """DISTINCT together with GROUP BY and HAVING is still redundant."""
+        sql = """
+        SELECT DISTINCT user_id, COUNT(*) 
+        FROM orders 
+        WHERE status = 'PAID'
+        GROUP BY user_id
+        HAVING COUNT(*) > 1
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is True
+        assert any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
+    def test_distinct_with_group_by_in_subquery_detected(self):
+        """DISTINCT + GROUP BY in a subquery should also be detected as redundant."""
+        sql = """
+        SELECT u.user_id
+        FROM (
+            SELECT DISTINCT user_id, COUNT(*) AS cnt
+            FROM orders
+            GROUP BY user_id
+        ) u
+        WHERE u.cnt > 10
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is True
+        assert any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
+    def test_distinct_in_subquery_without_group_by_not_flagged(self):
+        """DISTINCT in a subquery without GROUP BY should not be flagged."""
+        sql = """
+        SELECT user_id
+        FROM orders
+        WHERE user_id IN (
+            SELECT DISTINCT user_id
+            FROM archived_orders
+        )
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+        assert not any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
+    def test_distinct_with_window_function_not_flagged(self):
+        """
+        DISTINCT used with a window function but without GROUP BY 
+        should not be treated as redundant DISTINCT.
+        """
+        sql = """
+        SELECT DISTINCT 
+            user_id,
+            COUNT(*) OVER (PARTITION BY user_id) AS orders_per_user
+        FROM orders
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+        assert not any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
 
 class TestSelectInExistsAntipattern:
     """Test SELECT in EXISTS antipattern detection."""

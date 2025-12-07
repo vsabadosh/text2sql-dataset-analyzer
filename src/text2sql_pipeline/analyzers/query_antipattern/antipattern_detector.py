@@ -1285,14 +1285,36 @@ def _find_columns_not_in_subquery(expr: exp.Expression) -> List[exp.Column]:
 
 
 def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect DISTINCT with GROUP BY (redundant)."""
+    """
+    Detect redundant DISTINCT when it applies to the whole SELECT together with GROUP BY.
+
+    We intentionally **do not** flag DISTINCT that appears only inside aggregate
+    functions such as COUNT(DISTINCT col). In those cases DISTINCT changes the
+    semantics of the aggregate and is not redundant.
+
+    sqlglot represents these two cases differently:
+      - Top‑level `SELECT DISTINCT ...`:
+            select.args.get("distinct") is a `Distinct` node attached to Select
+            and there is no Distinct node under any aggregate.
+      - Aggregate‑level `COUNT(DISTINCT col)`:
+            select.args.get("distinct") is None
+            the Distinct node lives under the aggregate expression.
+    """
     pattern = AntipatternPattern.REDUNDANT_DISTINCT.value
     severity = severity_map.get(pattern, "medium")
     for select in ast.find_all(exp.Select):
-        has_distinct = any(select.find_all(exp.Distinct))
+        # We only care about DISTINCT that applies to the whole SELECT.
+        # sqlglot exposes this via the Select's `distinct` argument.
+        top_level_distinct = select.args.get("distinct")
+
+        # Short‑circuit if this SELECT is not DISTINCT at the top level.
+        if not isinstance(top_level_distinct, exp.Distinct):
+            continue
+
+        # There is a top‑level DISTINCT; now check whether it also has GROUP BY.
         has_group_by = any(select.find_all(exp.Group))
-        
-        if has_distinct and has_group_by:
+
+        if has_group_by:
             features.has_redundant_distinct = True
             antipatterns.append(AntipatternInstance(
                 pattern=pattern,
