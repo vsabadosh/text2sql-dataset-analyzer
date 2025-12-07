@@ -1694,7 +1694,51 @@ class TestMissingGroupByAdditional:
         result = detect_antipatterns(sql)
 
         assert result.has_missing_group_by is False
-    
+
+    def test_column_case_insensitive_between_select_and_group_by(self):
+        """
+        Columns that differ only by case between SELECT and GROUP BY
+        (e.g. Claim_id vs claim_id) should be treated as the same identifier
+        and must NOT be reported as missing/incomplete GROUP BY.
+        """
+        sql = """
+        SELECT 
+            T1.Claim_id,
+            COUNT(*)
+        FROM Claims AS T1
+        JOIN Settlements AS T2 
+            ON T1.claim_id = T2.claim_id
+        GROUP BY T1.claim_id
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
+
+    def test_aggregate_in_order_by_only_with_grouped_select_column(self):
+        """
+        Queries that use an aggregate only in ORDER BY, while the SELECT list
+        contains a single non-aggregated column that is also present in GROUP BY,
+        must NOT be reported as having incomplete GROUP BY.
+
+        Example:
+            SELECT river_name
+            FROM river
+            GROUP BY ( river_name )
+            ORDER BY COUNT(DISTINCT traverse) DESC
+            LIMIT 1;
+        """
+        sql = """
+        SELECT river_name
+        FROM river
+        GROUP BY ( river_name )
+        ORDER BY COUNT ( DISTINCT traverse ) DESC
+        LIMIT 1;
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_missing_group_by is False
+
 
 class TestUnsafeUpdateDeleteAntipattern:
     """Test unsafe UPDATE/DELETE antipattern detection."""

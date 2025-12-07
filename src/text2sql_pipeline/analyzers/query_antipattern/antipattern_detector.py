@@ -1435,14 +1435,21 @@ def _same_column(a: exp.Column, b: exp.Column) -> bool:
     """
     Compare two column references for semantic equality.
 
-    We intentionally compare:
-      - column names case-sensitively as returned by sqlglot
-      - tables only if both are present and equal
+    Rules:
+      - Column *names* are compared case-insensitively, because in most SQL
+        dialects unquoted identifiers are case-insensitive. This ensures that
+        `Claim_id` and `claim_id` are treated as the same logical column,
+        which is especially important for Missing GROUP BY detection.
+      - Table qualifiers are considered equal if both are present and their
+        string forms match exactly (case-sensitive comparison is fine here
+        because sqlglot normalizes table aliases consistently).
 
-    This keeps the behavior consistent with how other detectors
-    and tests treat column identity.
+    This behaviour keeps GROUP BY analysis robust across different casing
+    styles while still respecting table scoping.
     """
-    if a.name != b.name:
+    # Normalize column names to lowercase for comparison to make them
+    # effectively case-insensitive (Claim_id vs claim_id).
+    if (a.name or "").lower() != (b.name or "").lower():
         return False
 
     # If at least one side has no table qualifier, we treat them as compatible.
@@ -1513,6 +1520,11 @@ def _normalize_group_by_expressions(
     raw_group_expressions = list(group.expressions or [])
 
     for gb_expr in raw_group_expressions:
+        # Unwrap trivial parentheses such as GROUP BY (col)
+        # so that a grouped column wrapped in Paren matches the plain Column
+        # in the SELECT list (e.g., GROUP BY ( river_name )).
+        if isinstance(gb_expr, exp.Paren) and isinstance(getattr(gb_expr, "this", None), exp.Column):
+            gb_expr = gb_expr.this
         # Positional: GROUP BY 1
         if isinstance(gb_expr, exp.Literal) and gb_expr.is_int:
             try:
