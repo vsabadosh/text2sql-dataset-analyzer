@@ -95,7 +95,6 @@ analyze:
           high:
             # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
             - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
-            - implicit_join                  # Comma-joins risk accidental cartesian products (missing WHERE)
             - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
@@ -104,7 +103,6 @@ analyze:
             - function_in_where              # Functions on indexed columns prevent index usage
             - correlated_subquery            # Row-by-row execution (often has better alternatives)
             - leading_wildcard_like          # `LIKE '%pattern'` forces full table scan
-            - union_instead_of_union_all     # UNION deduplicates when not needed (extra sort cost)
           low:
             # 📝 STYLE / ACCEPTABLE IN TEXT2SQL BENCHMARKS
             - select_star                    # `SELECT *` (common in research datasets, avoided in production)
@@ -115,20 +113,18 @@ analyze:
         postgresql:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL`
-            - missing_group_by               # Non-aggregated columns without GROUP BY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE
             - cartesian_product              # Missing JOIN condition
           
           high:
             - not_in_nullable                # `NOT IN` with nullable subquery
-            - implicit_join                  # Comma-joins (error-prone)
+            - missing_group_by               # Non-aggregated columns without GROUP BY
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution
-            - union_instead_of_union_all     # Unnecessary deduplication cost
             - leading_wildcard_like          # Full table scan pattern
           
           low:
