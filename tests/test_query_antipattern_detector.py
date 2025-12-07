@@ -586,6 +586,95 @@ class TestFunctionInWhereAntipattern:
         # If 'roles' is a column, it should be detected
         assert result.has_function_in_where is True
 
+    def test_column_equals_sum_of_other_table_columns_not_flagged(self):
+        """
+        Equality between a bare column and an arithmetic expression over
+        columns from a different table (typical join-style condition) should
+        not be treated as a function-in-WHERE antipattern.
+        """
+        sql = """
+        SELECT count(*)
+        FROM Reservations AS T1
+        JOIN Rooms AS T2 ON T1.Room = T2.RoomId
+        WHERE T2.maxOccupancy = T1.Adults + T1.Kids;
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_column_greater_than_sum_of_other_table_columns_not_flagged(self):
+        """
+        Join-style comparison with > operator should not be flagged.
+        T2.capacity > T1.required + T1.buffer can use index on T2.capacity.
+        """
+        sql = """
+        SELECT * 
+        FROM Bookings AS T1 
+        JOIN Venues AS T2 ON T1.venue_id = T2.id 
+        WHERE T2.capacity > T1.required_seats + T1.buffer
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_column_less_than_sum_of_other_table_columns_not_flagged(self):
+        """
+        Join-style comparison with < operator should not be flagged.
+        T2.limit < T1.current + T1.pending can use index on T2.limit.
+        """
+        sql = """
+        SELECT * 
+        FROM Transactions AS T1 
+        JOIN Accounts AS T2 ON T1.account_id = T2.id 
+        WHERE T2.limit < T1.current_count + T1.pending
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_column_gte_sum_of_other_table_columns_not_flagged(self):
+        """
+        Join-style comparison with >= operator should not be flagged.
+        """
+        sql = """
+        SELECT * 
+        FROM Orders AS T1 
+        JOIN Inventory AS T2 ON T1.product_id = T2.product_id 
+        WHERE T2.stock >= T1.quantity + T1.reserved
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_column_lte_sum_of_other_table_columns_not_flagged(self):
+        """
+        Join-style comparison with <= operator should not be flagged.
+        """
+        sql = """
+        SELECT * 
+        FROM Requests AS T1 
+        JOIN Limits AS T2 ON T1.user_id = T2.user_id 
+        WHERE T2.daily_limit <= T1.used + T1.pending
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+        assert all(ap.pattern != "function_in_where" for ap in result.antipatterns)
+
+    def test_arithmetic_on_same_table_column_still_flagged(self):
+        """
+        Arithmetic on column from the SAME table should still be flagged.
+        T1.age + 1 > 18 prevents index usage on T1.age.
+        """
+        sql = """
+        SELECT * 
+        FROM Users AS T1
+        WHERE T1.age + 1 > 18
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        assert any(ap.pattern == "function_in_where" for ap in result.antipatterns)
+
 
 class TestLeadingWildcardLikeAntipattern:
     """Test leading wildcard LIKE antipattern detection."""

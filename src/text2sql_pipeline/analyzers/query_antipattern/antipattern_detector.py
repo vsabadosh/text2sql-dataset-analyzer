@@ -740,6 +740,69 @@ def _detect_function_in_where(
                     if not has_column_at_this_level:
                         continue
 
+                    # ------------------------------------------------------------------
+                    # Heuristic: allow join‑style comparison conditions where a *bare*
+                    # column from one table is compared to an arithmetic expression
+                    # over columns from a different table:
+                    #
+                    #   WHERE T2.maxOccupancy = T1.Adults + T1.Kids
+                    #   WHERE T2.capacity > T1.required_seats + T1.buffer
+                    #   WHERE T2.limit >= T1.count1 + T1.count2
+                    #
+                    # In these patterns, the index on the bare column (T2.maxOccupancy,
+                    # T2.capacity, T2.limit) can still be used efficiently – only the
+                    # arithmetic side is computed per row. This applies to ALL comparison
+                    # operators (=, !=, <, >, <=, >=) because the index usage principle
+                    # is the same: the bare column can use its index regardless of what's
+                    # on the other side.
+                    #
+                    # We therefore do NOT treat this as a "function in WHERE" antipattern.
+                    # ------------------------------------------------------------------
+                    COMPARISON_TYPES = (exp.EQ, exp.NEQ, exp.LT, exp.GT, exp.LTE, exp.GTE)
+                    
+                    parent = arith_expr.parent
+                    # Walk up to the nearest comparison node at this clause level
+                    while parent is not None and not isinstance(parent, COMPARISON_TYPES):
+                        # Stop if we reach the clause boundary
+                        if isinstance(parent, (exp.Where, exp.Having)):
+                            parent = None
+                            break
+                        parent = parent.parent
+
+                    if isinstance(parent, COMPARISON_TYPES):
+                        # Identify which side of the comparison this arithmetic expression is on
+                        other_side = None
+                        if parent.left is arith_expr:
+                            other_side = parent.right
+                        elif parent.right is arith_expr:
+                            other_side = parent.left
+
+                        # If the other side is a bare column from a *different* table
+                        # at the same SELECT level, treat this as a join‑style comparison
+                        # and do not flag it.
+                        if isinstance(other_side, exp.Column):
+                            other_col_select = _closest_parent_of_type(other_side, exp.Select)
+                            if other_col_select is clause_select:
+                                # Tables referenced inside the arithmetic expression
+                                expr_tables = {
+                                    str(getattr(c, "table", "")).lower()
+                                    for c in columns
+                                    if getattr(c, "table", None)
+                                }
+                                other_table = (
+                                    str(other_side.table).lower()
+                                    if getattr(other_side, "table", None)
+                                    else None
+                                )
+
+                                if other_table and expr_tables and other_table not in expr_tables:
+                                    # Example match:
+                                    #   WHERE T2.maxOccupancy = T1.Adults + T1.Kids
+                                    #   WHERE T2.capacity > T1.required + T1.buffer
+                                    #   expr_tables = {"t1"}, other_table = "t2"
+                                    # → skip flagging this arithmetic expression
+                                    continue
+
                     features.has_function_in_where = True
                     antipatterns.append(
                         AntipatternInstance(
