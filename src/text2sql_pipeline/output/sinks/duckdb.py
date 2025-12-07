@@ -294,11 +294,9 @@ class DuckDBMetricsSink(MetricsSink):
             has_function_in_where BOOLEAN,
             has_not_in_nullable BOOLEAN,
             has_leading_wildcard_like BOOLEAN,
-            has_implicit_join BOOLEAN,
             
             -- Medium severity
             has_redundant_distinct BOOLEAN,
-            has_union_instead_of_union_all BOOLEAN,
             has_correlated_subquery BOOLEAN,
             
             -- Disabled for Text2SQL
@@ -662,7 +660,7 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, 
-                    ?, ?, ?, ?, ?
+                    ?, ?, ?
                 )
             """, [
                 # Metadata
@@ -690,10 +688,8 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("has_function_in_where"),
                 features.get("has_not_in_nullable"),
                 features.get("has_leading_wildcard_like"),
-                features.get("has_implicit_join"),
                 # Medium
                 features.get("has_redundant_distinct"),
-                features.get("has_union_instead_of_union_all"),
                 features.get("has_correlated_subquery"),
                 # Disabled
                 features.get("has_select_star"),

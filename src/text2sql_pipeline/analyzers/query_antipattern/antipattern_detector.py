@@ -9,9 +9,7 @@ This module detects common SQL antipatterns and code smells:
 - Functions in WHERE clause (index prevention)
 - NOT IN with nullable columns (correctness)
 - Leading wildcard LIKE (index prevention)
-- Implicit JOINs (readability, correctness)
 - Redundant DISTINCT with GROUP BY (performance)
-- UNION instead of UNION ALL (performance)
 - Correlated subqueries (performance)
 - SELECT * (maintainability, performance)
 - SELECT columns in EXISTS (cosmetic)
@@ -43,13 +41,11 @@ DEFAULT_CONFIG = {
         AntipatternPattern.FUNCTION_IN_WHERE,
         AntipatternPattern.NOT_IN_NULLABLE,
         AntipatternPattern.LEADING_WILDCARD_LIKE,
-        AntipatternPattern.IMPLICIT_JOIN,
         AntipatternPattern.LIMIT_WITHOUT_ORDER_BY,
         AntipatternPattern.OFFSET_WITHOUT_ORDER_BY,
     ],
     "medium": [
         AntipatternPattern.REDUNDANT_DISTINCT,
-        AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL,
         AntipatternPattern.CORRELATED_SUBQUERY,
         AntipatternPattern.SELECT_STAR,
         AntipatternPattern.SELECT_IN_EXISTS,
@@ -142,16 +138,12 @@ def _analyze_ast(
         _detect_not_in_nullable(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.LEADING_WILDCARD_LIKE in enabled_patterns:
         _detect_leading_wildcard_like(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.IMPLICIT_JOIN in enabled_patterns:
-        _detect_implicit_join(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.LIMIT_WITHOUT_ORDER_BY in enabled_patterns:
         _detect_limit_without_order_by(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.OFFSET_WITHOUT_ORDER_BY in enabled_patterns:
         _detect_offset_without_order_by(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.REDUNDANT_DISTINCT in enabled_patterns:
         _detect_redundant_distinct(ast, antipatterns, features, pattern_severity_map)
-    if AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL in enabled_patterns:
-        _detect_union_instead_of_union_all(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.CORRELATED_SUBQUERY in enabled_patterns:
         _detect_correlated_subquery(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.SELECT_STAR in enabled_patterns:
@@ -616,73 +608,6 @@ def _detect_select_star(
         if found_star:
             return
 
-def _detect_implicit_join(
-    ast: exp.Expression,
-    antipatterns: List[AntipatternInstance],
-    features: QueryAntipatternFeatures,
-    severity_map: Dict[str, str],
-) -> None:
-    """Detect implicit/comma joins: multiple tables joined via WHERE instead of JOIN ... ON."""
-
-    pattern = AntipatternPattern.IMPLICIT_JOIN.value
-    severity = severity_map.get(pattern, "high")
-
-    for select in ast.find_all(exp.Select):
-        joins = list(select.args.get("joins") or [])
-        if not joins:
-            continue
-
-        where_clause = select.args.get("where")
-
-        for join in joins:
-            if not isinstance(join, exp.Join):
-                continue
-
-            has_on = join.args.get("on") is not None
-            has_using = join.args.get("using") is not None
-
-            # Explicit JOIN ... ON / USING → not implicit.
-            if has_on or has_using:
-                continue
-
-            # Here we have a join without ON/USING, which might be:
-            # - comma join: FROM a, b WHERE a.id = b.id
-            # - pure cartesian product: FROM a, b (no join condition at all)
-            #
-            # We treat it as implicit join ONLY if there is a join condition
-            # between two different tables somewhere in WHERE.
-            has_join_condition = False
-
-            if where_clause is not None:
-                for eq in where_clause.find_all(exp.EQ):
-                    left_table = _get_column_table(eq.left)
-                    right_table = _get_column_table(eq.right)
-
-                    if left_table and right_table and left_table != right_table:
-                        has_join_condition = True
-                        break
-
-            # No inter-table equality → let _detect_cartesian_product handle it.
-            if not has_join_condition:
-                continue
-
-            # We have multiple tables, no JOIN ... ON, but a join condition in WHERE.
-            features.has_implicit_join = True
-
-            antipatterns.append(
-                AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message=(
-                        "Implicit join detected (tables joined via WHERE instead of "
-                        "explicit JOIN ... ON). Use explicit JOIN syntax for clarity "
-                        "and to avoid accidental cartesian products."
-                    ),
-                    location="FROM clause",
-                )
-            )
-            return
-
 def _detect_function_in_where(
     ast: exp.Expression,
     antipatterns: List[AntipatternInstance],
@@ -730,54 +655,62 @@ def _detect_function_in_where(
 
             clause_name = "WHERE" if isinstance(clause, exp.Where) else "HAVING"
 
-            # --- Check 1: Function calls on columns ---
-            for func in clause.find_all(exp.Func):
+            # --- Check 1: Function-like calls on columns (functions, ANY(), etc.) ---
+            # Start with generic function type and extend with dialect-specific
+            # function-like constructs such as ANY(roles).
+            FUNCTION_LIKE_TYPES: tuple = (exp.Func,)
+            # Some dialects expose ANY/ALL as dedicated expression classes.
+            if hasattr(exp, "Any"):
+                FUNCTION_LIKE_TYPES = FUNCTION_LIKE_TYPES + (exp.Any,)
+
+            for func_type in FUNCTION_LIKE_TYPES:
+                for func in clause.find_all(func_type):
                 # Skip logical nodes that sqlglot may represent as Func-like
-                if isinstance(func, (exp.And, exp.Or, exp.Not)):
-                    continue
+                    if isinstance(func, (exp.And, exp.Or, exp.Not)):
+                        continue
 
-                # Skip aggregate functions in HAVING (they are expected there)
-                if isinstance(clause, exp.Having) and isinstance(func, exp.AggFunc):
-                    continue
+                    # Skip aggregate functions in HAVING (they are expected there)
+                    if isinstance(clause, exp.Having) and isinstance(func, exp.AggFunc):
+                        continue
 
-                # Collect all column references used inside this function
-                columns = list(func.find_all(exp.Column))
-                if not columns:
-                    # Pure literal function, e.g. LOWER('x') → harmless
-                    continue
+                    # Collect all column references used inside this function-like expression
+                    columns = list(func.find_all(exp.Column))
+                    if not columns:
+                        # Pure literal function, e.g. LOWER('x') → harmless
+                        continue
 
-                # Check if at least one of these columns belongs to the same
-                # SELECT level as the clause.
-                has_column_at_this_level = False
-                for col in columns:
-                    col_select = _closest_parent_of_type(col, exp.Select)
-                    if col_select is clause_select:
-                        has_column_at_this_level = True
-                        break
+                    # Check if at least one of these columns belongs to the same
+                    # SELECT level as the clause.
+                    has_column_at_this_level = False
+                    for col in columns:
+                        col_select = _closest_parent_of_type(col, exp.Select)
+                        if col_select is clause_select:
+                            has_column_at_this_level = True
+                            break
 
-                if not has_column_at_this_level:
-                    # The function only touches columns from a nested subquery;
-                    # that subquery should be analyzed by its own SELECT.
-                    continue
+                    if not has_column_at_this_level:
+                        # The function only touches columns from a nested subquery;
+                        # that subquery should be analyzed by its own SELECT.
+                        continue
 
-                # At this point we know:
-                # - func is a function expression in WHERE/HAVING
-                # - it references at least one column at the current SELECT level
-                features.has_function_in_where = True
-                antipatterns.append(
-                    AntipatternInstance(
-                        pattern=pattern,
-                        severity=severity,
-                        message=(
-                            f"Function applied to column in {clause_name} clause may prevent "
-                            "index usage. Consider rewriting the predicate or using "
-                            "a functional index if supported."
-                        ),
-                        location=f"{clause_name} clause: {func.sql()}",
+                    # At this point we know:
+                    # - func is a function-like expression in WHERE/HAVING
+                    # - it references at least one column at the current SELECT level
+                    features.has_function_in_where = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                f"Function applied to column in {clause_name} clause may prevent "
+                                "index usage. Consider rewriting the predicate or using "
+                                "a functional index if supported."
+                            ),
+                            location=f"{clause_name} clause: {func.sql()}",
+                        )
                     )
-                )
-                # One instance is enough per query
-                return
+                    # One instance is enough per query
+                    return
 
             # --- Check 2: Arithmetic expressions on columns ---
             for arith_type in ARITHMETIC_TYPES:
@@ -1352,37 +1285,6 @@ def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[Antipattern
                         location="EXISTS subquery"
                     ))
                     break
-
-
-def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """
-    Detect set operations that remove duplicates when it may not be necessary.
-    
-    Currently we only treat classic `UNION` (which removes duplicates) as a
-    potential antipattern vs `UNION ALL` (which keeps all rows).
-
-    Rationale:
-    - For INTERSECT / EXCEPT, many engines do not support the ALL variants,
-      so treating them as antipatterns is misleading and dialect‑dependent.
-    - Keeping detection focused on UNION vs UNION ALL makes the rule simpler
-      and more portable across dialects.
-    """
-    pattern = AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL.value
-    severity = severity_map.get(pattern, "medium")
-    
-    # Check UNION operations only
-    for union in ast.find_all(exp.Union):
-        # Check if UNION is distinct (default behavior)
-        is_distinct = union.args.get("distinct", True)
-        if is_distinct:
-            features.has_union_instead_of_union_all = True
-            antipatterns.append(AntipatternInstance(
-                pattern=pattern,
-                severity=severity,
-                message="UNION removes duplicates: use UNION ALL if duplicates are acceptable for better performance",
-                location="UNION operation"
-            ))
-            return  # One instance is enough
 
 
 # ============================================================================

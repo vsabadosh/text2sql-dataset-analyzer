@@ -151,11 +151,9 @@ for ap in result.antipatterns:
 - `function_in_where` - Functions on columns in WHERE
 - `not_in_nullable` - NOT IN with nullable subquery
 - `leading_wildcard_like` - `LIKE '%pattern'`
-- `implicit_join` - Comma-separated tables
 
-### 🔵 Medium (Configurable)
+### 🔵 Medium / Low (Configurable)
 - `redundant_distinct` - DISTINCT with GROUP BY
-- `union_instead_of_union_all` - UNION when UNION ALL works
 - `correlated_subquery` - Correlated subqueries
 - `select_star` - SELECT *
 - `select_in_exists` - SELECT columns in EXISTS

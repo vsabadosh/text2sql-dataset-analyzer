@@ -180,118 +180,6 @@ class TestSelectStarAntipattern:
         # at least one, not necessarily two separate entries.
 
 
-class TestImplicitJoinAntipattern:
-    """Unit tests for implicit join (comma / cross join) detection."""
-
-    def test_comma_join_detected(self):
-        """FROM a, b should be detected as an implicit join."""
-        sql = "SELECT * FROM users u, orders o WHERE u.id = o.user_id"
-        result = detect_antipatterns(sql)
-
-        assert result.has_implicit_join is True
-        assert any(ap.pattern == "implicit_join" for ap in result.antipatterns)
-
-    def test_comma_join_without_where_not_implicit(self):
-        """Pure FROM a, b without WHERE should NOT be implicit join (it's a Cartesian product)."""
-        sql = "SELECT * FROM a, b"
-        result = detect_antipatterns(sql)
-
-        assert result.has_implicit_join is False
-        # This one should be caught by the cartesian_product detector instead
-        assert result.has_cartesian_product is True
-        assert any(ap.pattern == "cartesian_product" for ap in result.antipatterns)
-
-    def test_explicit_join_not_flagged(self):
-        """Explicit JOIN ... ON should not be treated as implicit join."""
-        sql = """
-        SELECT *
-        FROM users u
-        JOIN orders o ON o.user_id = u.id
-        """
-        result = detect_antipatterns(sql)
-
-        assert result.has_implicit_join is False
-        assert all(ap.pattern != "implicit_join" for ap in result.antipatterns)
-
-    def test_single_table_no_implicit_join(self):
-        """Single-table FROM should not be flagged."""
-        sql = "SELECT * FROM users"
-        result = detect_antipatterns(sql)
-
-        assert result.has_implicit_join is False
-
-    # ========================================
-    # NEW: Additional implicit join tests
-    # ========================================
-
-    def test_three_way_comma_join_detected(self):
-        """Three-way comma join with WHERE conditions is implicit join."""
-        sql = "SELECT * FROM a, b, c WHERE a.id = b.id AND b.id = c.id"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is True
-
-    def test_comma_join_with_multiple_conditions(self):
-        """Comma join with multiple WHERE conditions is implicit join."""
-        sql = """
-        SELECT * FROM users u, orders o, products p
-        WHERE u.id = o.user_id
-        AND o.product_id = p.id
-        AND u.status = 'active'
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is True
-
-    def test_mixed_explicit_and_comma_join(self):
-        """Mix of explicit JOIN and comma join should flag implicit join."""
-        sql = """
-        SELECT * FROM users u
-        JOIN orders o ON u.id = o.user_id,
-        products p
-        WHERE o.product_id = p.id
-        """
-        result = detect_antipatterns(sql)
-        
-        # Should detect implicit join for the comma-separated product table
-        assert result.has_implicit_join is True
-
-    def test_comma_join_with_subquery_in_where(self):
-        """Comma join with subquery in WHERE is still implicit join."""
-        sql = """
-        SELECT * FROM users u, orders o
-        WHERE u.id = o.user_id
-        AND o.total > (SELECT AVG(total) FROM orders)
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is True
-
-    def test_self_comma_join_detected(self):
-        """Self-join via comma syntax is implicit join."""
-        sql = """
-        SELECT * FROM employees e1, employees e2
-        WHERE e1.manager_id = e2.id
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is True
-
-    def test_join_using_not_flagged_as_implicit(self):
-        """JOIN ... USING is explicit join, not implicit."""
-        sql = "SELECT * FROM users JOIN orders USING (user_id)"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is False
-
-    def test_natural_join_not_flagged_as_implicit(self):
-        """NATURAL JOIN is explicit join, not implicit."""
-        sql = "SELECT * FROM users NATURAL JOIN orders"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_implicit_join is False
-
-
 class TestFunctionInWhereAntipattern:
     """Test function in WHERE clause antipattern detection."""
 
@@ -677,6 +565,26 @@ class TestFunctionInWhereAntipattern:
         # Should only report once (early return)
         function_aps = [ap for ap in result.antipatterns if ap.pattern == "function_in_where"]
         assert len(function_aps) == 1
+
+    def test_json_extract_in_where_detected(self):
+        """JSON_EXTRACT on a column should be detected."""
+        sql = """
+        SELECT * FROM users 
+        WHERE JSON_EXTRACT(metadata, '$.age') > 18
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+
+    def test_array_operations_in_where_detected(self):
+        """Array operations on a column should be detected."""
+        sql = """
+        SELECT * FROM users 
+        WHERE 'admin' = ANY(roles)
+        """
+        result = detect_antipatterns(sql)
+        # If 'roles' is a column, it should be detected
+        assert result.has_function_in_where is True
 
 
 class TestLeadingWildcardLikeAntipattern:
@@ -1967,119 +1875,6 @@ class TestSelectInExistsAntipattern:
 
         assert result.has_select_in_exists is False
 
-class TestUnionInsteadOfUnionAllAntipattern:
-    """Test UNION vs UNION ALL antipattern detection."""
-
-    def test_union_detected(self):
-        """Test that UNION is detected."""
-        sql = "SELECT id FROM users UNION SELECT id FROM admins"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-        assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "union_instead_of_union_all" for ap in result.antipatterns)
-
-    def test_union_all_not_flagged(self):
-        """Test that UNION ALL is not flagged."""
-        sql = "SELECT id FROM users UNION ALL SELECT id FROM admins"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is False
-
-    # ========================================
-    # NEW: Additional UNION tests
-    # ========================================
-
-    def test_multiple_unions_detected(self):
-        """Multiple UNION operations should still flag the antipattern."""
-        sql = "SELECT a FROM t1 UNION SELECT a FROM t2 UNION SELECT a FROM t3"
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-
-    def test_union_in_cte_detected(self):
-        """UNION inside CTE should be detected."""
-        sql = """
-        WITH combined AS (
-            SELECT id FROM users
-            UNION
-            SELECT id FROM admins
-        )
-        SELECT * FROM combined
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-
-    def test_union_in_subquery_detected(self):
-        """UNION inside subquery should be detected."""
-        sql = """
-        SELECT * FROM (
-            SELECT id, 'user' as type FROM users
-            UNION
-            SELECT id, 'admin' as type FROM admins
-        ) combined
-        WHERE id > 10
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-
-    def test_mixed_union_and_union_all(self):
-        """Query with both UNION and UNION ALL should flag UNION."""
-        sql = """
-        SELECT a FROM t1
-        UNION ALL
-        SELECT a FROM t2
-        UNION
-        SELECT a FROM t3
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-
-    def test_union_with_order_by_detected(self):
-        """UNION with ORDER BY should still be detected."""
-        sql = """
-        SELECT name FROM users
-        UNION
-        SELECT name FROM admins
-        ORDER BY name
-        """
-        result = detect_antipatterns(sql)
-        
-        assert result.has_union_instead_of_union_all is True
-
-    def test_except_detected_by_set_operation_detector(self):
-        """
-        EXCEPT also removes duplicates, but we no longer treat it as a
-        generic "use EXCEPT ALL" antipattern because many dialects don't
-        support EXCEPT ALL at all.
-
-        The detector is intentionally focused only on UNION vs UNION ALL.
-        """
-        sql = "SELECT id FROM users EXCEPT SELECT id FROM banned"
-        result = detect_antipatterns(sql)
-        
-        # EXCEPT is no longer considered a union_instead_of_union_all antipattern
-        assert result.has_union_instead_of_union_all is False
-        assert not any(
-            ap.pattern == "union_instead_of_union_all" for ap in result.antipatterns
-        )
-
-    # NOTE: INTERSECT is no longer treated as an antipattern in this detector.
-    # Many engines don't support INTERSECT ALL, so we keep the rule focused on UNION.
-
-    def test_except_all_not_flagged(self):
-        """EXCEPT ALL (if supported) should not be flagged (documented behaviour)."""
-        sql = "SELECT id FROM users EXCEPT ALL SELECT id FROM banned"
-        result = detect_antipatterns(sql)
-        assert result.has_union_instead_of_union_all is False
-
-    # INTERSECT ALL is also not treated as an antipattern; we don't assert
-    # anything here to keep the detector focused on UNION semantics only.
-
-
 class TestQualityScoring:
     """Test quality score calculation."""
 
@@ -2316,7 +2111,9 @@ class TestSeverityCounts:
 
     def test_medium_severity_in_json(self):
         """Test that medium severity antipatterns are in JSON."""
-        sql = "SELECT id FROM users UNION SELECT id FROM admins"
+        # Use a query that triggers a known medium-severity antipattern.
+        # Here: DISTINCT together with GROUP BY → redundant_distinct (medium).
+        sql = "SELECT DISTINCT user_id, COUNT(*) FROM orders GROUP BY user_id"
         result = detect_antipatterns(sql)
         
         medium_antipatterns = [ap for ap in result.antipatterns if ap.severity == "medium"]
@@ -2430,24 +2227,6 @@ class TestNoFalsePositives:
 
 class TestImprovedDetections:
     """Test improved detection logic to prevent false positives."""
-
-    def test_subquery_with_joins_not_implicit_join(self):
-        """Test that JOINs in subqueries don't trigger implicit join detection."""
-        sql = """
-        SELECT u.id, u.name
-        FROM users u
-        WHERE u.id IN (
-            SELECT o.user_id 
-            FROM orders o
-            JOIN products p ON o.product_id = p.id
-            WHERE p.category = 'books'
-        )
-        LIMIT 10
-        """
-        result = detect_antipatterns(sql)
-        
-        # Should NOT flag implicit_join
-        assert result.has_implicit_join is False
 
     def test_simple_subquery_not_correlated(self):
         """Test that simple subqueries without table correlation are not flagged."""
