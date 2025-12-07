@@ -97,18 +97,21 @@ analyze:
             # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
             - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
             - implicit_join                  # Comma-joins risk accidental cartesian products (missing WHERE)
+            - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
+            - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           medium:
             # 🐌 PERFORMANCE KILLERS
             - function_in_where              # Functions on indexed columns prevent index usage
             - correlated_subquery            # Row-by-row execution (often has better alternatives)
             - leading_wildcard_like          # `LIKE '%pattern'` forces full table scan
             - union_instead_of_union_all     # UNION deduplicates when not needed (extra sort cost)
-            # ♻️  REDUNDANCY & CODE QUALITY
-            - redundant_distinct             # DISTINCT with GROUP BY (duplicate elimination already guaranteed)
-            - select_in_exists               # `SELECT col` in EXISTS (only checks row presence, wastes I/O)
           low:
             # 📝 STYLE / ACCEPTABLE IN TEXT2SQL BENCHMARKS
             - select_star                    # `SELECT *` (common in research datasets, avoided in production)
+            # ♻️  REDUNDANCY & CODE QUALITY
+            - redundant_distinct             # DISTINCT with GROUP BY (duplicate elimination already guaranteed)
+            - select_in_exists               # `SELECT col` in EXISTS (only checks row presence, wastes I/O)
+
         postgresql:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL`
@@ -119,17 +122,19 @@ analyze:
           high:
             - not_in_nullable                # `NOT IN` with nullable subquery
             - implicit_join                  # Comma-joins (error-prone)
+            - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
+            - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution
             - union_instead_of_union_all     # Unnecessary deduplication cost
             - leading_wildcard_like          # Full table scan pattern
-            - redundant_distinct             # DISTINCT + GROUP BY redundancy
-            - select_in_exists               # Wasteful column selection in EXISTS
           
           low:
             - select_star                    # Style preference (acceptable in Text2SQL)
+            - redundant_distinct             # DISTINCT + GROUP BY redundancy
+            - select_in_exists               # Wasteful column selection in EXISTS
  
   - name: query_execution_analyzer
     params:

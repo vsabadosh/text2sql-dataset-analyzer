@@ -52,6 +52,8 @@ class AntipatternPattern(str, Enum):
     NOT_IN_NULLABLE = "not_in_nullable"
     LEADING_WILDCARD_LIKE = "leading_wildcard_like"
     IMPLICIT_JOIN = "implicit_join"
+    LIMIT_WITHOUT_ORDER_BY = "limit_without_order_by"
+    OFFSET_WITHOUT_ORDER_BY = "offset_without_order_by"
     
     # Medium severity antipatterns (configurable)
     REDUNDANT_DISTINCT = "redundant_distinct"
@@ -73,6 +75,8 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
     AntipatternPattern.IMPLICIT_JOIN: "Implicit JOIN",
+    AntipatternPattern.LIMIT_WITHOUT_ORDER_BY: "LIMIT without ORDER BY",
+    AntipatternPattern.OFFSET_WITHOUT_ORDER_BY: "OFFSET without ORDER BY",
     AntipatternPattern.REDUNDANT_DISTINCT: "Redundant DISTINCT",
     AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL: "UNION instead of UNION ALL",
     AntipatternPattern.CORRELATED_SUBQUERY: "Correlated subquery",
@@ -93,6 +97,8 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",
     AntipatternPattern.IMPLICIT_JOIN: "has_implicit_join",
+    AntipatternPattern.LIMIT_WITHOUT_ORDER_BY: "has_limit_without_order_by",
+    AntipatternPattern.OFFSET_WITHOUT_ORDER_BY: "has_offset_without_order_by",
     AntipatternPattern.REDUNDANT_DISTINCT: "has_redundant_distinct",
     AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL: "has_union_instead_of_union_all",
     AntipatternPattern.CORRELATED_SUBQUERY: "has_correlated_subquery",

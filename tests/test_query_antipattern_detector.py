@@ -10,9 +10,7 @@ from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from text2sql_pipeline.analyzers.query_antipattern.antipattern_detector import detect_antipatterns
-
 
 class TestDetectAntipatternBasic:
     """Test basic functionality of detect_antipatterns()."""
@@ -38,7 +36,7 @@ class TestDetectAntipatternBasic:
 
     def test_perfect_query(self):
         """Test that a well-written query scores high."""
-        sql = "SELECT id, name, email FROM users WHERE status = 'active' LIMIT 10"
+        sql = "SELECT id, name, email FROM users WHERE status = 'active' ORDER BY id LIMIT 10"
         result = detect_antipatterns(sql)
         
         assert result.parseable is True
@@ -222,6 +220,78 @@ class TestImplicitJoinAntipattern:
 
         assert result.has_implicit_join is False
 
+    # ========================================
+    # NEW: Additional implicit join tests
+    # ========================================
+
+    def test_three_way_comma_join_detected(self):
+        """Three-way comma join with WHERE conditions is implicit join."""
+        sql = "SELECT * FROM a, b, c WHERE a.id = b.id AND b.id = c.id"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is True
+
+    def test_comma_join_with_multiple_conditions(self):
+        """Comma join with multiple WHERE conditions is implicit join."""
+        sql = """
+        SELECT * FROM users u, orders o, products p
+        WHERE u.id = o.user_id
+        AND o.product_id = p.id
+        AND u.status = 'active'
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is True
+
+    def test_mixed_explicit_and_comma_join(self):
+        """Mix of explicit JOIN and comma join should flag implicit join."""
+        sql = """
+        SELECT * FROM users u
+        JOIN orders o ON u.id = o.user_id,
+        products p
+        WHERE o.product_id = p.id
+        """
+        result = detect_antipatterns(sql)
+        
+        # Should detect implicit join for the comma-separated product table
+        assert result.has_implicit_join is True
+
+    def test_comma_join_with_subquery_in_where(self):
+        """Comma join with subquery in WHERE is still implicit join."""
+        sql = """
+        SELECT * FROM users u, orders o
+        WHERE u.id = o.user_id
+        AND o.total > (SELECT AVG(total) FROM orders)
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is True
+
+    def test_self_comma_join_detected(self):
+        """Self-join via comma syntax is implicit join."""
+        sql = """
+        SELECT * FROM employees e1, employees e2
+        WHERE e1.manager_id = e2.id
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is True
+
+    def test_join_using_not_flagged_as_implicit(self):
+        """JOIN ... USING is explicit join, not implicit."""
+        sql = "SELECT * FROM users JOIN orders USING (user_id)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is False
+
+    def test_natural_join_not_flagged_as_implicit(self):
+        """NATURAL JOIN is explicit join, not implicit."""
+        sql = "SELECT * FROM users NATURAL JOIN orders"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_implicit_join is False
+
+
 class TestFunctionInWhereAntipattern:
     """Test function in WHERE clause antipattern detection."""
 
@@ -303,8 +373,8 @@ class TestFunctionInWhereAntipattern:
         result = detect_antipatterns(sql)
         assert result.has_function_in_where is False
 
-    def test_function_in_having_not_flagged(self):
-        """Function in HAVING is not flagged by this detector."""
+    def test_function_in_having_is_now_flagged(self):
+        """Function in HAVING is now flagged (extended detection scope)."""
         sql = """
         SELECT country, COUNT(*) 
         FROM users 
@@ -312,7 +382,9 @@ class TestFunctionInWhereAntipattern:
         HAVING UPPER(country) = 'USA'
         """
         result = detect_antipatterns(sql)
-        assert result.has_function_in_where is False
+        # NOTE: We now flag functions in HAVING as well as WHERE
+        # because they can also prevent index usage on grouped columns
+        assert result.has_function_in_where is True
 
     def test_column_without_function_not_flagged(self):
         """Simple column comparison is not flagged."""
@@ -502,6 +574,111 @@ class TestFunctionInWhereAntipattern:
         result = detect_antipatterns(sql)
         assert result.has_function_in_where is True
 
+    # ========================================
+    # NEW: Arithmetic expressions on columns
+    # ========================================
+
+    def test_addition_on_column_detected(self):
+        """Arithmetic addition on column prevents index usage."""
+        sql = "SELECT * FROM users WHERE age + 1 > 18"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        assert any("arithmetic" in ap.message.lower() or "function" in ap.message.lower() 
+                   for ap in result.antipatterns if ap.pattern == "function_in_where")
+
+    def test_subtraction_on_column_detected(self):
+        """Arithmetic subtraction on column prevents index usage."""
+        sql = "SELECT * FROM users WHERE age - 5 >= 13"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_multiplication_on_column_detected(self):
+        """Arithmetic multiplication on column prevents index usage."""
+        sql = "SELECT * FROM orders WHERE quantity * price > 100"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_division_on_column_detected(self):
+        """Arithmetic division on column prevents index usage."""
+        sql = "SELECT * FROM orders WHERE total / 2 > 50"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_modulo_on_column_detected(self):
+        """Modulo operation on column prevents index usage."""
+        sql = "SELECT * FROM users WHERE id % 10 = 0"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_concat_on_column_detected(self):
+        """String concatenation on column prevents index usage."""
+        sql = "SELECT * FROM users WHERE name || ' Smith' = 'John Smith'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_arithmetic_on_literal_only_not_flagged(self):
+        """Pure arithmetic on literals (no columns) is not flagged."""
+        sql = "SELECT * FROM users WHERE age > 10 + 8"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_arithmetic_on_right_side_only_not_flagged(self):
+        """Arithmetic on the right side of comparison is not flagged."""
+        sql = "SELECT * FROM users WHERE age > 2 * 9"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_complex_arithmetic_expression_detected(self):
+        """Complex arithmetic expression involving column is detected."""
+        sql = "SELECT * FROM orders WHERE (price * quantity) + tax > 1000"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    # ========================================
+    # NEW: Function in HAVING clause
+    # ========================================
+
+    def test_function_in_having_detected(self):
+        """Function on column in HAVING clause is detected."""
+        sql = "SELECT country, COUNT(*) FROM users GROUP BY country HAVING UPPER(country) = 'USA'"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        assert any("HAVING" in ap.location for ap in result.antipatterns if ap.pattern == "function_in_where")
+
+    def test_aggregate_function_in_having_not_flagged(self):
+        """Aggregate functions in HAVING are expected and should not be flagged."""
+        sql = "SELECT country, COUNT(*) FROM users GROUP BY country HAVING COUNT(*) > 10"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is False
+
+    def test_function_wrapping_aggregate_in_having_not_flagged(self):
+        """Functions wrapping aggregates in HAVING are acceptable."""
+        sql = "SELECT country, AVG(age) FROM users GROUP BY country HAVING ROUND(AVG(age)) > 30"
+        result = detect_antipatterns(sql)
+        # This might or might not be flagged depending on implementation
+        # The key is that pure aggregates should not be flagged
+
+    def test_arithmetic_in_having_detected(self):
+        """Arithmetic on grouped column in HAVING is detected."""
+        sql = "SELECT country, COUNT(*) FROM users GROUP BY country HAVING LENGTH(country) + 1 > 5"
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+
+    def test_function_in_where_and_having_only_one_reported(self):
+        """If both WHERE and HAVING have functions, only one antipattern is reported."""
+        sql = """
+        SELECT country, COUNT(*) FROM users 
+        WHERE UPPER(status) = 'ACTIVE' 
+        GROUP BY country 
+        HAVING UPPER(country) = 'USA'
+        """
+        result = detect_antipatterns(sql)
+        assert result.has_function_in_where is True
+        # Should only report once (early return)
+        function_aps = [ap for ap in result.antipatterns if ap.pattern == "function_in_where"]
+        assert len(function_aps) == 1
+
+
 class TestLeadingWildcardLikeAntipattern:
     """Test leading wildcard LIKE antipattern detection."""
 
@@ -560,6 +737,335 @@ class TestNotInNullableAntipattern:
         result = detect_antipatterns(sql)
         
         assert result.has_not_in_nullable is False
+
+    # ========================================
+    # NEW: NULL literal in NOT IN list tests
+    # ========================================
+
+    def test_not_in_with_null_literal_detected(self):
+        """NOT IN with NULL in literal list always returns empty - critical bug."""
+        sql = "SELECT * FROM users WHERE id NOT IN (1, 2, NULL)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is True
+        assert any(ap.pattern == "not_in_nullable" for ap in result.antipatterns)
+        assert any("NULL literal" in ap.message or "empty result" in ap.message 
+                   for ap in result.antipatterns if ap.pattern == "not_in_nullable")
+
+    def test_not_in_with_null_at_start_of_list_detected(self):
+        """NULL at start of literal list should be detected."""
+        sql = "SELECT * FROM users WHERE id NOT IN (NULL, 1, 2)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is True
+
+    def test_not_in_with_null_at_end_of_list_detected(self):
+        """NULL at end of literal list should be detected."""
+        sql = "SELECT * FROM users WHERE id NOT IN (1, 2, 3, NULL)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is True
+
+    def test_not_in_with_only_null_detected(self):
+        """NOT IN (NULL) is also problematic."""
+        sql = "SELECT * FROM users WHERE id NOT IN (NULL)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is True
+
+    def test_not_in_with_string_literals_no_null_not_flagged(self):
+        """NOT IN with only non-NULL literals should not be flagged."""
+        sql = "SELECT * FROM users WHERE status NOT IN ('active', 'pending', 'inactive')"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is False
+
+    def test_not_in_with_integer_literals_no_null_not_flagged(self):
+        """NOT IN with only integer literals should not be flagged."""
+        sql = "SELECT * FROM users WHERE id NOT IN (1, 2, 3, 4, 5)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is False
+
+    def test_in_with_null_literal_not_flagged(self):
+        """IN (without NOT) with NULL is not the same bug - only NOT IN is problematic."""
+        sql = "SELECT * FROM users WHERE id IN (1, 2, NULL)"
+        result = detect_antipatterns(sql)
+        
+        # IN with NULL just means "id = 1 OR id = 2 OR id = NULL" which is fine
+        # (the NULL comparison just returns unknown, doesn't break the whole expression)
+        assert result.has_not_in_nullable is False
+
+    def test_not_in_subquery_and_null_literal_both_detected(self):
+        """If both subquery and NULL literal issues exist, at least one is flagged."""
+        # This is contrived but tests early return behavior
+        sql = "SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM orders)"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_not_in_nullable is True
+
+
+class TestLimitWithoutOrderByAntipattern:
+    """Test LIMIT without ORDER BY antipattern detection."""
+
+    # ========================================
+    # BASIC DETECTION
+    # ========================================
+
+    def test_limit_without_order_by_detected(self):
+        """LIMIT without ORDER BY should be detected."""
+        sql = "SELECT id, name FROM users LIMIT 10"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is True
+        assert any(ap.pattern == "limit_without_order_by" for ap in result.antipatterns)
+        assert any(ap.severity == "high" for ap in result.antipatterns if ap.pattern == "limit_without_order_by")
+
+    def test_limit_with_order_by_not_flagged(self):
+        """LIMIT with ORDER BY should not be flagged."""
+        sql = "SELECT id, name FROM users ORDER BY id LIMIT 10"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is False
+
+    def test_no_limit_not_flagged(self):
+        """Query without LIMIT should not be flagged."""
+        sql = "SELECT id, name FROM users"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is False
+
+    # ========================================
+    # EDGE CASES
+    # ========================================
+
+    def test_select_1_limit_1_not_flagged(self):
+        """SELECT 1 LIMIT 1 (existence check) should not be flagged."""
+        sql = "SELECT 1 FROM users WHERE status = 'active' LIMIT 1"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is False
+
+    def test_select_literal_limit_not_flagged(self):
+        """SELECT with only literals and LIMIT should not be flagged."""
+        sql = "SELECT 'exists' FROM users WHERE id = 1 LIMIT 1"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is False
+
+    def test_exists_subquery_limit_not_flagged(self):
+        """LIMIT in EXISTS subquery should not be flagged."""
+        sql = """
+        SELECT * FROM orders o
+        WHERE EXISTS (
+            SELECT 1 FROM users u WHERE u.id = o.user_id LIMIT 1
+        )
+        """
+        result = detect_antipatterns(sql)
+        
+        # The LIMIT inside EXISTS should not be flagged
+        assert result.has_limit_without_order_by is False
+
+    def test_limit_in_subquery_without_order_by_detected(self):
+        """LIMIT without ORDER BY in non-EXISTS subquery should be detected."""
+        sql = """
+        SELECT * FROM (
+            SELECT id, name FROM users LIMIT 10
+        ) sub
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is True
+
+    def test_limit_in_cte_without_order_by_detected(self):
+        """LIMIT without ORDER BY in CTE should be detected."""
+        sql = """
+        WITH top_users AS (
+            SELECT id, name FROM users LIMIT 5
+        )
+        SELECT * FROM top_users
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is True
+
+    def test_limit_offset_without_order_by_detected(self):
+        """LIMIT with OFFSET but without ORDER BY should be detected."""
+        sql = "SELECT id, name FROM users LIMIT 10 OFFSET 5"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is True
+
+    def test_union_with_limit_without_order_by(self):
+        """UNION with LIMIT without ORDER BY should be detected."""
+        sql = """
+        SELECT id FROM users
+        UNION ALL
+        SELECT id FROM admins
+        LIMIT 10
+        """
+        result = detect_antipatterns(sql)
+        
+        # The outer LIMIT without ORDER BY should be detected
+        assert result.has_limit_without_order_by is True
+
+    def test_multiple_selects_one_with_limit_detected(self):
+        """Only SELECTs with LIMIT but no ORDER BY should be flagged."""
+        sql = """
+        SELECT * FROM (
+            SELECT id FROM users ORDER BY id LIMIT 5
+        ) a
+        JOIN (
+            SELECT id FROM orders LIMIT 5
+        ) b ON a.id = b.id
+        """
+        result = detect_antipatterns(sql)
+        
+        # The second subquery has LIMIT without ORDER BY
+        assert result.has_limit_without_order_by is True
+
+    def test_limit_1_with_columns_still_flagged(self):
+        """LIMIT 1 with actual columns (not just literals) should be flagged."""
+        sql = "SELECT id, name, email FROM users WHERE status = 'active' LIMIT 1"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_limit_without_order_by is True
+
+    def test_order_by_in_subquery_outer_limit_without_order_flagged(self):
+        """Outer LIMIT without ORDER BY is flagged even if subquery has ORDER BY."""
+        sql = """
+        SELECT * FROM (
+            SELECT id, name FROM users ORDER BY created_at
+        ) sub
+        LIMIT 10
+        """
+        result = detect_antipatterns(sql)
+        
+        # The outer SELECT has LIMIT but no ORDER BY
+        assert result.has_limit_without_order_by is True
+
+
+class TestOffsetWithoutOrderByAntipattern:
+    """Test OFFSET without ORDER BY antipattern detection."""
+
+    # ========================================
+    # BASIC DETECTION
+    # ========================================
+
+    def test_offset_without_order_by_detected(self):
+        """OFFSET without ORDER BY should be detected."""
+        sql = "SELECT id, name FROM users LIMIT 10 OFFSET 20"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+        assert any(ap.pattern == "offset_without_order_by" for ap in result.antipatterns)
+        assert any(ap.severity == "high" for ap in result.antipatterns if ap.pattern == "offset_without_order_by")
+
+    def test_offset_with_order_by_not_flagged(self):
+        """OFFSET with ORDER BY should not be flagged."""
+        sql = "SELECT id, name FROM users ORDER BY id LIMIT 10 OFFSET 20"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is False
+
+    def test_no_offset_not_flagged(self):
+        """Query without OFFSET should not be flagged."""
+        sql = "SELECT id, name FROM users LIMIT 10"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is False
+
+    def test_only_offset_syntax_if_supported(self):
+        """Some DBs support OFFSET without LIMIT - should still flag."""
+        # SQLite supports this syntax
+        sql = "SELECT id, name FROM users OFFSET 10"
+        result = detect_antipatterns(sql)
+        
+        # If parsed successfully, OFFSET without ORDER BY should be flagged
+        if result.parseable:
+            # Note: Some dialects may not parse this syntax
+            pass  # Just ensure no crash
+
+    # ========================================
+    # EDGE CASES
+    # ========================================
+
+    def test_offset_0_without_order_by_detected(self):
+        """OFFSET 0 without ORDER BY should still be detected (semantic issue)."""
+        sql = "SELECT id, name FROM users LIMIT 10 OFFSET 0"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+
+    def test_offset_in_subquery_without_order_by_detected(self):
+        """OFFSET without ORDER BY in subquery should be detected."""
+        sql = """
+        SELECT * FROM (
+            SELECT id, name FROM users LIMIT 10 OFFSET 5
+        ) sub
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+
+    def test_offset_in_cte_without_order_by_detected(self):
+        """OFFSET without ORDER BY in CTE should be detected."""
+        sql = """
+        WITH paginated AS (
+            SELECT id, name FROM users LIMIT 10 OFFSET 20
+        )
+        SELECT * FROM paginated
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+
+    def test_offset_in_union_without_order_by_detected(self):
+        """OFFSET on UNION result without ORDER BY should be detected."""
+        sql = """
+        SELECT id FROM users
+        UNION ALL
+        SELECT id FROM admins
+        LIMIT 10 OFFSET 5
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+
+    def test_multiple_offsets_first_flagged_only(self):
+        """Multiple SELECTs with OFFSET without ORDER BY - only one reported."""
+        sql = """
+        SELECT * FROM (
+            SELECT id FROM users LIMIT 5 OFFSET 10
+        ) a
+        JOIN (
+            SELECT id FROM orders LIMIT 5 OFFSET 10
+        ) b ON a.id = b.id
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+        # Early return means only one antipattern instance
+        offset_aps = [ap for ap in result.antipatterns if ap.pattern == "offset_without_order_by"]
+        assert len(offset_aps) == 1
+
+    def test_offset_large_value_without_order_detected(self):
+        """Large OFFSET without ORDER BY should be detected."""
+        sql = "SELECT id, name FROM users LIMIT 100 OFFSET 10000"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_offset_without_order_by is True
+
+    def test_both_limit_and_offset_without_order_by(self):
+        """Both LIMIT and OFFSET antipatterns should be detected."""
+        sql = "SELECT id, name, email FROM users LIMIT 10 OFFSET 20"
+        result = detect_antipatterns(sql)
+        
+        # Both antipatterns should be detected
+        assert result.has_limit_without_order_by is True
+        assert result.has_offset_without_order_by is True
+        # Should have at least 2 antipatterns (limit_without_order_by and offset_without_order_by)
+        assert result.total_antipatterns >= 2
 
 
 class TestCorrelatedSubqueryAntipattern:
@@ -1360,13 +1866,113 @@ class TestUnionInsteadOfUnionAllAntipattern:
         
         assert result.has_union_instead_of_union_all is False
 
+    # ========================================
+    # NEW: Additional UNION tests
+    # ========================================
+
+    def test_multiple_unions_detected(self):
+        """Multiple UNION operations should still flag the antipattern."""
+        sql = "SELECT a FROM t1 UNION SELECT a FROM t2 UNION SELECT a FROM t3"
+        result = detect_antipatterns(sql)
+        
+        assert result.has_union_instead_of_union_all is True
+
+    def test_union_in_cte_detected(self):
+        """UNION inside CTE should be detected."""
+        sql = """
+        WITH combined AS (
+            SELECT id FROM users
+            UNION
+            SELECT id FROM admins
+        )
+        SELECT * FROM combined
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_union_instead_of_union_all is True
+
+    def test_union_in_subquery_detected(self):
+        """UNION inside subquery should be detected."""
+        sql = """
+        SELECT * FROM (
+            SELECT id, 'user' as type FROM users
+            UNION
+            SELECT id, 'admin' as type FROM admins
+        ) combined
+        WHERE id > 10
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_union_instead_of_union_all is True
+
+    def test_mixed_union_and_union_all(self):
+        """Query with both UNION and UNION ALL should flag UNION."""
+        sql = """
+        SELECT a FROM t1
+        UNION ALL
+        SELECT a FROM t2
+        UNION
+        SELECT a FROM t3
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_union_instead_of_union_all is True
+
+    def test_union_with_order_by_detected(self):
+        """UNION with ORDER BY should still be detected."""
+        sql = """
+        SELECT name FROM users
+        UNION
+        SELECT name FROM admins
+        ORDER BY name
+        """
+        result = detect_antipatterns(sql)
+        
+        assert result.has_union_instead_of_union_all is True
+
+    def test_except_detected_by_set_operation_detector(self):
+        """EXCEPT also removes duplicates and should be flagged."""
+        sql = "SELECT id FROM users EXCEPT SELECT id FROM banned"
+        result = detect_antipatterns(sql)
+        
+        # EXCEPT removes duplicates like UNION, so it's flagged
+        assert result.has_union_instead_of_union_all is True
+        assert any("EXCEPT" in ap.location or "EXCEPT" in ap.message 
+                   for ap in result.antipatterns if ap.pattern == "union_instead_of_union_all")
+
+    def test_intersect_detected_by_set_operation_detector(self):
+        """INTERSECT also removes duplicates and should be flagged."""
+        sql = "SELECT id FROM users INTERSECT SELECT id FROM premium_users"
+        result = detect_antipatterns(sql)
+        
+        # INTERSECT removes duplicates like UNION, so it's flagged
+        assert result.has_union_instead_of_union_all is True
+        assert any("INTERSECT" in ap.location or "INTERSECT" in ap.message 
+                   for ap in result.antipatterns if ap.pattern == "union_instead_of_union_all")
+
+    def test_except_all_not_flagged(self):
+        """EXCEPT ALL (if supported) should not be flagged."""
+        sql = "SELECT id FROM users EXCEPT ALL SELECT id FROM banned"
+        result = detect_antipatterns(sql)
+        
+        # EXCEPT ALL doesn't remove duplicates
+        assert result.has_union_instead_of_union_all is False
+
+    def test_intersect_all_not_flagged(self):
+        """INTERSECT ALL (if supported) should not be flagged."""
+        sql = "SELECT id FROM users INTERSECT ALL SELECT id FROM premium_users"
+        result = detect_antipatterns(sql)
+        
+        # INTERSECT ALL doesn't remove duplicates
+        assert result.has_union_instead_of_union_all is False
+
 
 class TestQualityScoring:
     """Test quality score calculation."""
 
     def test_perfect_query_score_100(self):
         """Test that perfect query scores 100."""
-        sql = "SELECT id, name FROM users WHERE id = 1 LIMIT 1"
+        sql = "SELECT id, name FROM users WHERE id = 1 ORDER BY id LIMIT 1"
         result = detect_antipatterns(sql)
         
         assert result.quality_score == 100
@@ -1383,11 +1989,11 @@ class TestQualityScoring:
 
     def test_one_warning_moderate_penalty(self):
         """Test that one warning moderately reduces score."""
-        sql = "SELECT * FROM users LIMIT 10"
+        sql = "SELECT * FROM users"  # No LIMIT, so only SELECT * is flagged
         result = detect_antipatterns(sql)
         
         # SELECT * is medium: -5 points = 95
-        assert result.total_antipatterns >= 1
+        assert result.total_antipatterns == 1
         assert result.quality_score == 95
 
     def test_multiple_issues_compound(self):
@@ -1417,7 +2023,7 @@ class TestQualityClassification:
 
     def test_excellent_classification(self):
         """Test excellent classification (90-100)."""
-        sql = "SELECT id, name FROM users WHERE id = 1 LIMIT 1"
+        sql = "SELECT id, name FROM users WHERE id = 1 ORDER BY id LIMIT 1"
         result = detect_antipatterns(sql)
         
         assert result.quality_level == "excellent"

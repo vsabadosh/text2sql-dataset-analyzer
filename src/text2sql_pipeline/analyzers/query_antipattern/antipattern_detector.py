@@ -44,6 +44,8 @@ DEFAULT_CONFIG = {
         AntipatternPattern.NOT_IN_NULLABLE,
         AntipatternPattern.LEADING_WILDCARD_LIKE,
         AntipatternPattern.IMPLICIT_JOIN,
+        AntipatternPattern.LIMIT_WITHOUT_ORDER_BY,
+        AntipatternPattern.OFFSET_WITHOUT_ORDER_BY,
     ],
     "medium": [
         AntipatternPattern.REDUNDANT_DISTINCT,
@@ -142,6 +144,10 @@ def _analyze_ast(
         _detect_leading_wildcard_like(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.IMPLICIT_JOIN in enabled_patterns:
         _detect_implicit_join(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.LIMIT_WITHOUT_ORDER_BY in enabled_patterns:
+        _detect_limit_without_order_by(ast, antipatterns, features, pattern_severity_map)
+    if AntipatternPattern.OFFSET_WITHOUT_ORDER_BY in enabled_patterns:
+        _detect_offset_without_order_by(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.REDUNDANT_DISTINCT in enabled_patterns:
         _detect_redundant_distinct(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL in enabled_patterns:
@@ -684,69 +690,137 @@ def _detect_function_in_where(
     severity_map: Dict[str, str],
 ) -> None:
     """
-    Detect function calls applied to columns inside the WHERE clause.
+    Detect function calls and arithmetic expressions applied to columns in WHERE/HAVING.
 
     Rationale:
-    - Expressions like UPPER(col), DATE(col), COALESCE(col, ...) in WHERE
+    - Expressions like UPPER(col), DATE(col), COALESCE(col, ...) in WHERE/HAVING
       usually prevent index usage on 'col' unless a functional index exists.
-    - Functions that only operate on literals (e.g. name = UPPER('John'))
+    - Arithmetic expressions like col + 1, col * 2, col || 'x' also prevent
+      index usage because the column value is transformed before comparison.
+    - Functions/expressions that only operate on literals (e.g. name = UPPER('John'))
       are not problematic for indexing and should not be flagged.
-    - We only analyze functions at the current SELECT level and ignore
-      functions that live entirely inside nested subqueries.
+    - We only analyze expressions at the current SELECT level and ignore
+      those that live entirely inside nested subqueries.
+    - HAVING clause is included because it can also prevent index usage on
+      grouped columns (though less common than WHERE).
     """
     pattern = AntipatternPattern.FUNCTION_IN_WHERE.value
     severity = severity_map.get(pattern, "high")
 
-    for where in ast.find_all(exp.Where):
-        # Identify the SELECT this WHERE clause belongs to
-        where_select = _closest_parent_of_type(where, exp.Select)
-        if where_select is None:
-            continue
+    # Arithmetic expression types that prevent index usage when applied to columns
+    ARITHMETIC_TYPES: tuple = (
+        exp.Add,      # col + 1
+        exp.Sub,      # col - 1
+        exp.Mul,      # col * 2
+        exp.Div,      # col / 2
+        exp.Mod,      # col % 2
+        exp.Concat,   # CONCAT(col, 'x')
+        exp.DPipe,    # col || 'x' (SQLite/PostgreSQL string concatenation)
+    )
 
-        # Scan all function-style expressions under this WHERE
-        for func in where.find_all(exp.Func):
-            # Skip logical nodes that sqlglot may represent as Func-like
-            if isinstance(func, (exp.And, exp.Or, exp.Not)):
+    # Check both WHERE and HAVING clauses
+    PREDICATE_CLAUSE_TYPES: tuple = (exp.Where, exp.Having)
+
+    for clause_type in PREDICATE_CLAUSE_TYPES:
+        for clause in ast.find_all(clause_type):
+            # Identify the SELECT this clause belongs to
+            clause_select = _closest_parent_of_type(clause, exp.Select)
+            if clause_select is None:
                 continue
 
-            # Collect all column references used inside this function
-            columns = list(func.find_all(exp.Column))
-            if not columns:
-                # Pure literal function, e.g. LOWER('x') → harmless
-                continue
+            clause_name = "WHERE" if isinstance(clause, exp.Where) else "HAVING"
 
-            # Check if at least one of these columns belongs to the same
-            # SELECT level as the WHERE clause.
-            has_column_at_this_level = False
-            for col in columns:
-                col_select = _closest_parent_of_type(col, exp.Select)
-                if col_select is where_select:
-                    has_column_at_this_level = True
-                    break
+            # --- Check 1: Function calls on columns ---
+            for func in clause.find_all(exp.Func):
+                # Skip logical nodes that sqlglot may represent as Func-like
+                if isinstance(func, (exp.And, exp.Or, exp.Not)):
+                    continue
 
-            if not has_column_at_this_level:
-                # The function only touches columns from a nested subquery;
-                # that subquery should be analyzed by its own WHERE/SELECT.
-                continue
+                # Skip aggregate functions in HAVING (they are expected there)
+                if isinstance(clause, exp.Having) and isinstance(func, exp.AggFunc):
+                    continue
 
-            # At this point we know:
-            # - func is a function expression in WHERE
-            # - it references at least one column at the current SELECT level
-            features.has_function_in_where = True
-            antipatterns.append(
-                AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message=(
-                        "Function applied to column in WHERE clause may prevent "
-                        "index usage. Consider rewriting the predicate or using "
-                        "a functional index if supported."
-                    ),
-                    location=f"WHERE clause: {func.sql()}",
+                # Collect all column references used inside this function
+                columns = list(func.find_all(exp.Column))
+                if not columns:
+                    # Pure literal function, e.g. LOWER('x') → harmless
+                    continue
+
+                # Check if at least one of these columns belongs to the same
+                # SELECT level as the clause.
+                has_column_at_this_level = False
+                for col in columns:
+                    col_select = _closest_parent_of_type(col, exp.Select)
+                    if col_select is clause_select:
+                        has_column_at_this_level = True
+                        break
+
+                if not has_column_at_this_level:
+                    # The function only touches columns from a nested subquery;
+                    # that subquery should be analyzed by its own SELECT.
+                    continue
+
+                # At this point we know:
+                # - func is a function expression in WHERE/HAVING
+                # - it references at least one column at the current SELECT level
+                features.has_function_in_where = True
+                antipatterns.append(
+                    AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message=(
+                            f"Function applied to column in {clause_name} clause may prevent "
+                            "index usage. Consider rewriting the predicate or using "
+                            "a functional index if supported."
+                        ),
+                        location=f"{clause_name} clause: {func.sql()}",
+                    )
                 )
-            )
-            # One instance is enough per query
-            return
+                # One instance is enough per query
+                return
+
+            # --- Check 2: Arithmetic expressions on columns ---
+            for arith_type in ARITHMETIC_TYPES:
+                for arith_expr in clause.find_all(arith_type):
+                    # Skip if this arithmetic expression is inside a function
+                    # (already covered by Check 1)
+                    parent_func = _closest_parent_of_type(arith_expr, exp.Func)
+                    if parent_func is not None:
+                        parent_func_select = _closest_parent_of_type(parent_func, exp.Select)
+                        if parent_func_select is clause_select:
+                            continue  # Will be caught by function check
+
+                    # Collect all column references in this arithmetic expression
+                    columns = list(arith_expr.find_all(exp.Column))
+                    if not columns:
+                        # Pure literal arithmetic, e.g. 1 + 2 → harmless
+                        continue
+
+                    # Check if at least one column belongs to the current SELECT level
+                    has_column_at_this_level = False
+                    for col in columns:
+                        col_select = _closest_parent_of_type(col, exp.Select)
+                        if col_select is clause_select:
+                            has_column_at_this_level = True
+                            break
+
+                    if not has_column_at_this_level:
+                        continue
+
+                    features.has_function_in_where = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                f"Arithmetic expression on column in {clause_name} clause prevents "
+                                "index usage. Consider rewriting: instead of 'col + 1 > 10', "
+                                "use 'col > 9'."
+                            ),
+                            location=f"{clause_name} clause: {arith_expr.sql()}",
+                        )
+                    )
+                    return
 
 
 def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
@@ -770,7 +844,18 @@ def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[Antipa
 
 
 def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect NOT IN with subqueries (potential NULL handling issues)."""
+    """
+    Detect NOT IN with potential NULL handling issues.
+    
+    Two problematic cases:
+    1. NOT IN (subquery) - if subquery returns any NULL, the entire NOT IN evaluates to NULL
+    2. NOT IN (literal_list_with_NULL) - always returns empty result set
+    
+    In SQL three-valued logic:
+    - `x NOT IN (1, 2, NULL)` is equivalent to `x != 1 AND x != 2 AND x != NULL`
+    - Since `x != NULL` is always NULL (unknown), the entire expression is NULL
+    - This means NOT IN with NULL always returns 0 rows (a correctness bug)
+    """
     pattern = AntipatternPattern.NOT_IN_NULLABLE.value
     severity = severity_map.get(pattern, "high")
     
@@ -779,34 +864,239 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
         # Check if this NOT wraps an IN expression
         in_exprs = list(not_expr.find_all(exp.In))
         for in_expr in in_exprs:
-            # Check if IN contains a subquery
+            # Check 1: IN contains a subquery (may return NULL)
             subqueries = list(in_expr.find_all(exp.Subquery))
             if subqueries:
                 features.has_not_in_nullable = True
                 antipatterns.append(AntipatternInstance(
                     pattern=pattern,
                     severity=severity,
-                    message="NOT IN with subquery: beware of NULL handling (use NOT EXISTS or IS NOT NULL)",
+                    message="NOT IN with subquery: if subquery returns any NULL, the entire expression evaluates to NULL (use NOT EXISTS instead)",
                     location="WHERE clause"
                 ))
-                break
-        if features.has_not_in_nullable:
-            break
+                return
+            
+            # Check 2: IN contains explicit NULL literal in the list
+            # e.g., WHERE id NOT IN (1, 2, NULL) - always returns empty result
+            for expr in (in_expr.expressions or []):
+                if isinstance(expr, exp.Null):
+                    features.has_not_in_nullable = True
+                    antipatterns.append(AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message="NOT IN with NULL literal in list: this expression ALWAYS returns empty result set due to SQL three-valued logic",
+                        location="WHERE clause"
+                    ))
+                    return
     
     # Method 2: Check if sqlglot has a separate NotIn expression type
     # Some SQL parsers represent "NOT IN" as a distinct node type
     if not features.has_not_in_nullable and hasattr(exp, 'NotIn'):
         for not_in in ast.find_all(exp.NotIn):
+            # Check for subquery
             subqueries = list(not_in.find_all(exp.Subquery))
             if subqueries:
                 features.has_not_in_nullable = True
                 antipatterns.append(AntipatternInstance(
                     pattern=pattern,
                     severity=severity,
-                    message="NOT IN with subquery: beware of NULL handling (use NOT EXISTS or IS NOT NULL)",
+                    message="NOT IN with subquery: if subquery returns any NULL, the entire expression evaluates to NULL (use NOT EXISTS instead)",
                     location="WHERE clause"
                 ))
+                return
+            
+            # Check for NULL literal in list
+            for expr in (not_in.expressions or []):
+                if isinstance(expr, exp.Null):
+                    features.has_not_in_nullable = True
+                    antipatterns.append(AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message="NOT IN with NULL literal in list: this expression ALWAYS returns empty result set due to SQL three-valued logic",
+                        location="WHERE clause"
+                    ))
+                    return
+
+
+def _detect_limit_without_order_by(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """
+    Detect LIMIT clause without ORDER BY (undefined row order).
+    
+    When LIMIT is used without ORDER BY:
+    - The database may return any arbitrary subset of rows
+    - Results are non-deterministic and may vary between executions
+    - Different database engines may return different rows
+    - Pagination will be inconsistent
+    
+    This is a semantic issue because the query author likely intended to get
+    a specific subset of rows (e.g., "first N rows"), but without ORDER BY,
+    there's no defined "first" - just "any N rows".
+    
+    Exceptions (not flagged):
+    - Queries that only want to check existence (SELECT 1 ... LIMIT 1)
+    - Queries with DISTINCT (order doesn't matter for distinct values check)
+    - Subqueries used in EXISTS (order doesn't matter)
+    """
+    pattern = AntipatternPattern.LIMIT_WITHOUT_ORDER_BY.value
+    severity = severity_map.get(pattern, "high")
+
+    # Check for LIMIT on UNION/INTERSECT/EXCEPT (these are not Select nodes)
+    SET_OPERATION_TYPES: tuple = (exp.Union, exp.Intersect, exp.Except)
+    for set_op_type in SET_OPERATION_TYPES:
+        if hasattr(exp, set_op_type.__name__):
+            for set_op in ast.find_all(set_op_type):
+                limit = set_op.args.get("limit")
+                order = set_op.args.get("order")
+                
+                if limit is not None and order is None:
+                    features.has_limit_without_order_by = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                "LIMIT without ORDER BY on set operation returns arbitrary rows. "
+                                "The result set is non-deterministic. "
+                                "Add ORDER BY to ensure consistent, predictable results."
+                            ),
+                            location=f"{set_op_type.__name__.upper()} with LIMIT but no ORDER BY",
+                        )
+                    )
+                    return
+
+    for select in ast.find_all(exp.Select):
+        limit = select.args.get("limit")
+        order = select.args.get("order")
+        
+        # No LIMIT clause → nothing to check
+        if limit is None:
+            continue
+        
+        # Has ORDER BY → no problem
+        if order is not None:
+            continue
+        
+        # Check if this is a subquery inside EXISTS (order doesn't matter)
+        parent = select.parent
+        while parent is not None:
+            if isinstance(parent, exp.Exists):
+                # Inside EXISTS, LIMIT without ORDER BY is fine
                 break
+            if isinstance(parent, exp.Select):
+                # Reached outer query, not inside EXISTS
+                break
+            parent = parent.parent
+        else:
+            parent = None
+        
+        if isinstance(parent, exp.Exists):
+            continue
+        
+        # Check if SELECT only has literal expressions (like SELECT 1 LIMIT 1)
+        # This is typically used for existence checks
+        select_expressions = list(select.expressions or [])
+        if select_expressions:
+            all_literals = all(
+                isinstance(expr, exp.Literal) for expr in select_expressions
+            )
+            if all_literals:
+                continue
+        
+        # LIMIT without ORDER BY detected
+        features.has_limit_without_order_by = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "LIMIT without ORDER BY returns arbitrary rows. "
+                    "The result set is non-deterministic and may vary between executions. "
+                    "Add ORDER BY to ensure consistent, predictable results."
+                ),
+                location="SELECT with LIMIT but no ORDER BY",
+            )
+        )
+        return  # One instance is enough
+
+
+def _detect_offset_without_order_by(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """
+    Detect OFFSET clause without ORDER BY (undefined pagination).
+    
+    When OFFSET is used without ORDER BY:
+    - Pagination is completely undefined and meaningless
+    - Skipping N rows when there's no defined order means skipping random rows
+    - Different pages may contain overlapping or missing rows
+    - This is almost always a bug in pagination logic
+    
+    OFFSET without ORDER BY is arguably more severe than LIMIT without ORDER BY
+    because OFFSET specifically implies sequential access (pagination), which
+    requires a deterministic order to make sense.
+    """
+    pattern = AntipatternPattern.OFFSET_WITHOUT_ORDER_BY.value
+    severity = severity_map.get(pattern, "high")
+
+    # Check for OFFSET on UNION/INTERSECT/EXCEPT (these are not Select nodes)
+    SET_OPERATION_TYPES: tuple = (exp.Union, exp.Intersect, exp.Except)
+    for set_op_type in SET_OPERATION_TYPES:
+        if hasattr(exp, set_op_type.__name__):
+            for set_op in ast.find_all(set_op_type):
+                offset = set_op.args.get("offset")
+                order = set_op.args.get("order")
+                
+                if offset is not None and order is None:
+                    features.has_offset_without_order_by = True
+                    antipatterns.append(
+                        AntipatternInstance(
+                            pattern=pattern,
+                            severity=severity,
+                            message=(
+                                "OFFSET without ORDER BY on set operation produces undefined pagination. "
+                                "Skipping rows without a defined order means skipping arbitrary rows. "
+                                "Add ORDER BY to ensure consistent pagination."
+                            ),
+                            location=f"{set_op_type.__name__.upper()} with OFFSET but no ORDER BY",
+                        )
+                    )
+                    return
+
+    for select in ast.find_all(exp.Select):
+        offset = select.args.get("offset")
+        order = select.args.get("order")
+        
+        # No OFFSET clause → nothing to check
+        if offset is None:
+            continue
+        
+        # Has ORDER BY → no problem
+        if order is not None:
+            continue
+        
+        # OFFSET without ORDER BY detected
+        features.has_offset_without_order_by = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "OFFSET without ORDER BY produces undefined pagination. "
+                    "Skipping rows without a defined order means skipping arbitrary rows. "
+                    "Add ORDER BY to ensure consistent pagination."
+                ),
+                location="SELECT with OFFSET but no ORDER BY",
+            )
+        )
+        return  # One instance is enough
 
 
 def _detect_correlated_subquery(
@@ -1043,9 +1333,20 @@ def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[Antipattern
 
 
 def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
-    """Detect UNION when UNION ALL might be more appropriate (performance)."""
+    """
+    Detect set operations that remove duplicates when it may not be necessary.
+    
+    This includes:
+    - UNION (removes duplicates) vs UNION ALL (keeps all rows)
+    - INTERSECT (always removes duplicates, some DBs support INTERSECT ALL)
+    - EXCEPT (always removes duplicates, some DBs support EXCEPT ALL)
+    
+    These operations require sorting and deduplication which impacts performance.
+    """
     pattern = AntipatternPattern.UNION_INSTEAD_OF_UNION_ALL.value
     severity = severity_map.get(pattern, "medium")
+    
+    # Check UNION operations
     for union in ast.find_all(exp.Union):
         # Check if UNION is distinct (default behavior)
         is_distinct = union.args.get("distinct", True)
@@ -1057,7 +1358,37 @@ def _detect_union_instead_of_union_all(ast: exp.Expression, antipatterns: List[A
                 message="UNION removes duplicates: use UNION ALL if duplicates are acceptable for better performance",
                 location="UNION operation"
             ))
-            break
+            return  # One instance is enough
+
+    # Check INTERSECT operations (always removes duplicates)
+    if hasattr(exp, 'Intersect'):
+        for intersect in ast.find_all(exp.Intersect):
+            # INTERSECT always deduplicates; flag if INTERSECT ALL might be appropriate
+            is_distinct = intersect.args.get("distinct", True)
+            if is_distinct:
+                features.has_union_instead_of_union_all = True
+                antipatterns.append(AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message="INTERSECT removes duplicates: if your DB supports INTERSECT ALL, consider using it for better performance",
+                    location="INTERSECT operation"
+                ))
+                return
+
+    # Check EXCEPT operations (always removes duplicates)
+    if hasattr(exp, 'Except'):
+        for except_op in ast.find_all(exp.Except):
+            # EXCEPT always deduplicates; flag if EXCEPT ALL might be appropriate
+            is_distinct = except_op.args.get("distinct", True)
+            if is_distinct:
+                features.has_union_instead_of_union_all = True
+                antipatterns.append(AntipatternInstance(
+                    pattern=pattern,
+                    severity=severity,
+                    message="EXCEPT removes duplicates: if your DB supports EXCEPT ALL, consider using it for better performance",
+                    location="EXCEPT operation"
+                ))
+                return
 
 
 # ============================================================================

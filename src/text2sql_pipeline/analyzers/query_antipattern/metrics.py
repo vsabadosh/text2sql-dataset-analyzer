@@ -44,6 +44,8 @@ class QueryAntipatternFeatures(BaseModel):
     has_not_in_nullable: bool = False          # NOT IN with potentially nullable subquery
     has_leading_wildcard_like: bool = False    # LIKE '%...' (prevents index use)
     has_implicit_join: bool = False            # comma-separated tables without explicit JOIN
+    has_limit_without_order_by: bool = False   # LIMIT without ORDER BY (undefined row order)
+    has_offset_without_order_by: bool = False  # OFFSET without ORDER BY (undefined result)
     
     # Medium severity (configurable per dialect)
     has_redundant_distinct: bool = False       # DISTINCT with GROUP BY
