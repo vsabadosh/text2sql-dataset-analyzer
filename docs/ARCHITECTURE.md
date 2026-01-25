@@ -2,8 +2,57 @@
 
 Complete system architecture with diagrams and explanations.
 
-**Version**: 1.0  
-**Last Updated**: November 4, 2025
+**Version**: 2.0  
+**Last Updated**: January 25, 2026
+
+---
+
+## What's New in Version 2.0
+
+### Major Features Added
+
+1. **LLM-as-a-Judge Semantic Validation**
+   - Multi-provider support (OpenAI, Anthropic, Gemini, Ollama)
+   - Weighted voting consensus system
+   - Parallel voter execution for 2-3x speedup
+   - API key rotation and fallback (Gemini multi-key support)
+   - 3 prompt template variants + custom template support
+   - Query-derived smart DDL (50-80% token reduction)
+   - Skip logic to avoid expensive calls on failed items
+
+2. **Enhanced Antipattern Detection**
+   - Configurable severity levels (CRITICAL/HIGH/MEDIUM/LOW)
+   - Dialect-specific antipattern sets
+   - Customizable penalty weights for quality scoring
+   - 13 antipattern types exposed via config (dialect-specific)
+   - Support for both SQLite and PostgreSQL dialects
+
+3. **Advanced Reporting System**
+   - 7 specialized report types
+   - Config-based or standalone report generation
+   - Per-database breakdowns in schema reports
+   - Issue-focused reports (LLM judge, execution failures)
+   - Query structure profiling and table coverage analysis
+
+4. **Improved Configuration**
+   - Environment variable resolution (${VAR} syntax)
+   - Separate report configuration section
+   - Configurable JSONL/DuckDB output options
+   - Per-analyzer enable/disable toggles
+   - Granular control over antipattern detection
+
+5. **Enhanced Database Management**
+   - Database materialization from DDL schemas
+   - Idempotent database creation
+   - Health monitoring and caching
+   - Smart DDL generation with example values
+   - Support for query-derived schema filtering
+
+6. **Testing & Quality**
+   - Comprehensive test suite (9 test files)
+   - Integration tests with mock providers
+   - Environment variable configuration testing
+   - DuckDB metrics integration testing
 
 ---
 
@@ -26,10 +75,10 @@ Complete system architecture with diagrams and explanations.
 The Text2SQL Dataset Analyzer is a **streaming pipeline** for comprehensive quality analysis of Text-to-SQL training datasets. It validates datasets across 5 dimensions:
 
 1. **Schema Integrity** - Database structure validation
-2. **Query Syntax** - SQL structural analysis
-3. **Query Execution** - Safe execution testing
-4. **Code Quality** - Antipattern detection
-5. **Semantic Correctness** - LLM-based validation
+2. **Query Syntax** - SQL structural analysis and complexity
+3. **Query Execution** - Safe execution testing with configurable modes
+4. **Code Quality** - Antipattern detection with severity levels
+5. **Semantic Correctness** - LLM-as-a-Judge validation (optional)
 
 ### Design Principles
 
@@ -122,10 +171,10 @@ HuggingFace  Fields    Analyzers   Dataset   DuckDB
 - Support compression (gzip)
 
 **Supported Formats**:
-- **JSONL**: Line-delimited JSON (recommended for large datasets)
+- **JSONL**: Line-delimited JSON (recommended for large datasets, streaming-friendly)
 - **JSON**: Standard JSON arrays
 - **CSV**: Comma-separated with auto-detection
-- **HuggingFace**: 🤗 Datasets Hub integration
+- **HuggingFace**: 🤗 Datasets Hub integration with optional auth token
 
 ---
 
@@ -159,9 +208,9 @@ HuggingFace  Fields    Analyzers   Dataset   DuckDB
 ```
 
 **Normalization Responsibilities**:
-1. **AliasMapper**: Convert varied field names to standard schema
-2. **IdAssign**: Generate stable unique identifiers (incremental or hash)
-3. **DbIdentityAssign**: Ensure database exists and is healthy
+1. **AliasMapper**: Convert varied field names to standard schema (question/sql/dbId/schema)
+2. **IdAssign**: Generate stable unique identifiers (incremental or hash-based)
+3. **DbIdentityAssign**: Ensure database exists and is healthy, materialize from DDL if needed
 
 **Output**: Standardized `DataItem` with:
 - `question` (str) - Natural language query
@@ -283,38 +332,70 @@ Input: sql, dialect
        ↓
 Parse with sqlglot
        ↓
-Detect 14 antipatterns:
-  • SELECT *
-  • Implicit JOINs
-  • Functions in WHERE
-  • Unsafe mutations
-  • etc.
+Detect configurable antipatterns:
+  • Severity levels: CRITICAL/HIGH/MEDIUM/LOW
+  • Dialect-specific patterns (SQLite/PostgreSQL)
+  • 13 antipattern types (as configured):
+    - CRITICAL: null_comparison_equals, unsafe_update_delete,
+                cartesian_product, missing_group_by
+    - HIGH: not_in_nullable, limit_without_order_by,
+            offset_without_order_by
+    - MEDIUM: function_in_where, correlated_subquery,
+              leading_wildcard_like
+    - LOW: select_star, redundant_distinct, select_in_exists
        ↓
-Calculate quality score (0-100)
+Calculate quality score (0-100) with configurable penalties:
+  • CRITICAL: -30 per occurrence
+  • HIGH: -15 per occurrence
+  • MEDIUM: -5 per occurrence
+  • LOW: -2 per occurrence
 Classify quality (excellent/good/fair/poor)
        ↓
-Output: Antipattern metric
+Output: Antipattern metric with detailed breakdown
 ```
 
 **5. Semantic LLM Judge Analyzer**
 ```
 Input: question, sql, dbId
        ↓
-Generate smart DDL (query-derived tables + examples)
+Check if enabled and previous analyzers succeeded
        ↓
-Resolve prompt template
+Generate smart DDL (query-derived or full schema + examples)
        ↓
-Query LLM voters (OpenAI, Anthropic, Gemini, Ollama)
+Resolve prompt template (3 variants + custom support):
+  • variant_1: Simple semantic evaluation
+  • variant_2: Comprehensive with decision rules
+  • variant_3: Text2SQL expert with answerability check (default)
        ↓
-Aggregate votes:
-  • CORRECT
-  • PARTIALLY_CORRECT
-  • INCORRECT
+Query LLM voters (OpenAI, Anthropic, Gemini, Ollama):
+  • Parallel execution with configurable workers
+  • API key fallback/rotation (Gemini multi-key support)
+  • Per-model temperature and weight configuration
        ↓
-Determine status (ok/warns/errors)
+Parse JSON responses with code fence handling
        ↓
-Output: LLM judge metric
+Aggregate votes (weighted voting):
+  • CORRECT: 1.0 weight
+  • PARTIALLY_CORRECT: 0.5 weight
+  • INCORRECT: 0.0 weight
+  • UNANSWERABLE: 0.0 weight
+       ↓
+Detect consensus (unanimous or majority >50%)
+       ↓
+Determine status (ok/warns/errors/failed/skipped)
+       ↓
+Output: LLM judge metric with voter breakdown
 ```
+
+**Key Features:**
+- **Multi-provider support**: OpenAI, Anthropic, Gemini, Ollama
+- **Weighted voting**: Configurable weights per model
+- **Parallel execution**: ThreadPoolExecutor with configurable max_workers
+- **API key rotation**: Automatic fallback for Gemini rate limits
+- **Smart DDL**: Query-derived (only referenced tables) or full schema
+- **Prompt templates**: 3 built-in variants + custom YAML support
+- **Skip logic**: Doesn't run if previous analyzers failed
+- **Verdict categories**: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
 
 ---
 
@@ -408,25 +489,28 @@ Output: LLM judge metric
    - Original data + analysis results
    - One JSON object per line
    - Streamable, human-readable
+   - Contains `analysisSteps` metadata array
 
 2. **DuckDB Metrics** (`metrics.duckdb`)
-   - Structured SQL database
-   - One table per analyzer
+   - Structured SQL database (always enabled)
+   - One table per analyzer (metrics_<analyzer_name>)
    - Optimized for queries and aggregations
+   - Schema auto-created based on metric events
 
 3. **JSONL Metrics** (optional, `*_metrics.jsonl`)
    - One file per analyzer
    - Text-based, portable
    - Easy to parse
+   - Can be disabled via config
 
-4. **Markdown Reports** (7 types)
+4. **Markdown Reports** (7 types, optional)
    - Summary report (comprehensive overview)
-   - Schema validation details
+   - Schema validation details (per-DB breakdown)
    - LLM judge issues (warnings/errors only)
-   - Query execution failures
-   - Query structure profile
-   - Table coverage analysis
-   - Query quality assessment
+   - Query execution failures (failed queries only)
+   - Query structure profile (complexity, features)
+   - Table coverage analysis (usage statistics)
+   - Query quality assessment (antipatterns, scoring)
 
 ---
 
@@ -578,6 +662,128 @@ Total Time: ~50-100ms (without LLM)
 
 ---
 
+## CLI Architecture
+
+### Command Structure
+
+The pipeline provides two main commands via the `text2sql` CLI:
+
+```
+text2sql
+├── run       - Execute analysis pipeline
+└── report    - Generate/regenerate reports
+```
+
+### Run Command
+
+**Purpose**: Execute the full analysis pipeline on a dataset
+
+**Flow:**
+```
+1. Load config → Parse YAML
+2. Initialize DI container → Wire dependencies
+3. Build loader → Create data iterator
+4. Initialize output manager → Setup output directory
+5. Build normalizers chain → Configure normalizers
+6. Build analyzers chain → Configure analyzers
+7. Stream processing:
+   a) Load items (streaming)
+   b) Normalize (streaming)
+   c) Analyze (streaming)
+   d) Write outputs (streaming)
+8. Generate reports (if enabled)
+9. Return output directory path
+```
+
+**Configuration:**
+- Single YAML config file
+- Environment variable resolution
+- Validation on load
+
+### Report Command
+
+**Purpose**: Generate or regenerate markdown reports from DuckDB metrics
+
+**Two Modes:**
+
+1. **Config-based mode** (`--config`):
+   ```bash
+   text2sql report --config pipeline.yaml
+   ```
+   - Reads report configuration from pipeline config
+   - Generates all enabled reports
+   - Uses config's output paths
+
+2. **Individual report mode** (`--database` + `--output`):
+   ```bash
+   text2sql report --database metrics.duckdb --output report.md --type summary
+   ```
+   - Direct database access
+   - Generate specific report types
+   - Custom output paths
+
+**Report Types:**
+- `summary` - Comprehensive overview (default)
+- `schema-validation` - Schema validation details
+- `llm-judge-issues` - LLM judge warnings/errors
+- `query-execution-issues` - Failed executions
+- `query-structure` - Query structure analysis
+- `table-coverage` - Table usage coverage
+- `query-quality` - Quality assessment
+- `all` - Generate all 7 reports
+
+### Configuration Architecture
+
+**YAML Structure:**
+```yaml
+sourceDb:          # Database connection
+  dialect: sqlite/postgresql
+  kind: file/server
+  endpoint: path or connection string
+
+load:              # Data source
+  name: loader type (jsonl/json/csv/hf)
+  params: loader-specific parameters
+
+progress:          # Progress tracking
+  expected_items: count
+  show_progress: boolean
+
+normalize:         # Normalizer chain
+  - name: normalizer_name
+    params: {...}
+
+analyze:           # Analyzer chain
+  - name: analyzer_name
+    params: {...}
+
+output:            # Output configuration
+  dataset_name: name
+  base_dir: path
+  jsonl_enabled: boolean
+  duckdb_path: path (optional)
+  reports:
+    enabled: boolean
+    output_dir: path
+    <report_toggles>: boolean
+```
+
+**Environment Variable Resolution:**
+```
+Syntax: ${VAR_NAME} or ${VAR_NAME:default}
+
+Examples:
+  api_key: "${OPENAI_API_KEY}"
+  endpoint: "${DB_HOST:localhost}"
+
+Resolved at runtime:
+  - config_utils.resolve_placeholders()
+  - Recursive resolution in nested structures
+  - Supports lists and dicts
+```
+
+---
+
 ## Module Details
 
 ### Dependency Injection Container
@@ -648,6 +854,228 @@ AnalyzerClass = get_class("analyzer", "query_syntax_analyzer")
 # Instantiate with params
 analyzer = AnalyzerClass(**params)
 ```
+
+---
+
+## LLM-as-a-Judge Architecture
+
+### Overview
+
+The Semantic LLM Judge Analyzer is an optional but powerful component that uses multiple Large Language Models to validate the semantic correctness of SQL queries. It implements a weighted voting system with support for multiple providers and sophisticated error handling.
+
+### Provider Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              LLM Provider Factory                           │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                ┌──────────┴──────────┐
+                │                     │
+                ▼                     ▼
+    ┌──────────────────┐      ┌─────────────────┐
+    │  Base Provider   │      │  Provider Pool  │
+    │    Protocol      │      │  (Configured)   │
+    └──────┬───────────┘      └─────────┬───────┘
+           │                            │
+    ┌──────┴────────┬──────────┬───────┴────────┐
+    │               │          │                 │
+    ▼               ▼          ▼                 ▼
+┌─────────┐  ┌──────────┐  ┌────────┐  ┌──────────┐
+│ OpenAI  │  │Anthropic │  │ Gemini │  │  Ollama  │
+│Provider │  │ Provider │  │Provider│  │ Provider │
+└─────────┘  └──────────┘  └────────┘  └──────────┘
+     │              │           │              │
+     │              │           ├─ Multi-key   │
+     │              │           │  fallback    │
+     │              │           └─ Auto-rotate │
+     │              │                          │
+     └──────────────┴──────────────────────────┘
+                     │
+                     ▼
+              Provider Interface:
+              • generate(prompt) -> str
+              • model_name, weight, temperature
+              • Error handling & retry logic
+```
+
+### Voting System
+
+**Weighted Voting Mechanism:**
+```
+Each provider/model has a weight (default: 1.0)
+
+Verdict scores:
+- CORRECT: 1.0
+- PARTIALLY_CORRECT: 0.5
+- INCORRECT: 0.0
+- UNANSWERABLE: 0.0
+- FAILED: excluded from calculation
+
+Weighted Score = Σ(verdict_score × weight) / Σ(weights)
+
+Example with 3 voters:
+- GPT-4o (weight 1.0): CORRECT → 1.0
+- Gemini (weight 1.0): PARTIALLY_CORRECT → 0.5
+- Claude (weight 1.0): CORRECT → 1.0
+
+Weighted Score = (1.0 + 0.5 + 1.0) / 3.0 = 0.833
+```
+
+### Prompt Template System
+
+**Template Resolution Flow:**
+```
+1. Configuration Priority:
+   a) Custom prompt (inline in config)
+   b) Prompt file + variant (YAML file)
+   c) Default (variant_3 from prompts.yaml)
+
+2. Template Variables:
+   {{dialect}}          - Database dialect (sqlite, postgresql)
+   {{ddl_schema}}       - DDL with example values
+   {{natural_question}} - Natural language question
+   {{sql_to_revise}}    - SQL query to evaluate
+
+3. Schema Mode:
+   - "full": All tables in database
+   - "query_derived": Only tables referenced in SQL (default)
+```
+
+**Available Template Variants:**
+
+| Variant | Description | Use Case |
+|---------|-------------|----------|
+| variant_1 | Simple semantic evaluation | Quick validation, basic checks |
+| variant_2 | Comprehensive with decision rules | Detailed validation, considers edge cases |
+| variant_3 | Text2SQL expert with answerability | Production use, handles unanswerable questions |
+| custom | User-defined template | Domain-specific requirements |
+
+### Parallel Execution Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│              Parallel Voter Execution                       │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+                  ThreadPoolExecutor
+                  (max_workers configurable)
+                           │
+    ┌──────────────────────┼──────────────────────┐
+    │                      │                      │
+    ▼                      ▼                      ▼
+Provider 1             Provider 2            Provider 3
+(OpenAI)              (Gemini)              (Anthropic)
+    │                      │                      │
+    ├─ Query LLM          ├─ Query LLM          ├─ Query LLM
+    ├─ Parse JSON         ├─ Parse JSON         ├─ Parse JSON
+    ├─ Handle errors      ├─ Fallback keys      ├─ Handle errors
+    └─ Return result      └─ Return result      └─ Return result
+                           │
+    ┌──────────────────────┴──────────────────────┐
+    │                                              │
+    ▼                                              ▼
+VoterResult                                   VoterResult
+(model, verdict, weight)                      (model, verdict, weight)
+                           │
+                           ▼
+                  Aggregate & Determine Status
+                           │
+                           ▼
+                  LLMJudgeMetricEvent
+```
+
+### API Key Management (Gemini)
+
+**Multi-Key Fallback System:**
+```python
+Configuration:
+  api_key: "${GEMINI_API_KEY}"          # Primary key
+  fallback_keys:
+    - "${GEMINI_API_KEY_2}"             # Fallback 1
+    - "${GEMINI_API_KEY_3}"             # Fallback 2
+    - "hardcoded_key_4"                 # Fallback 3
+
+Automatic Rotation on:
+  - Rate limit errors (429, "quota exceeded")
+  - Authentication failures (401, 403)
+  - Invalid/expired API keys
+  - Account/billing issues
+
+Retry Logic:
+  1. Try primary key
+  2. On retriable error → switch to next key
+  3. Repeat until success or all keys exhausted
+  4. Log key usage and failures
+  5. Return error if all keys fail
+```
+
+### Status Determination Logic
+
+```
+Status Mapping:
+═══════════════
+
+1. ok (success=true)
+   - Majority CORRECT
+   - All voters CORRECT (unanimous)
+
+2. warns (success=false)
+   - Majority PARTIALLY_CORRECT
+   - Mixed verdicts (no majority)
+
+3. errors (success=false)
+   - Majority INCORRECT
+   - Majority UNANSWERABLE
+
+4. failed (success=false)
+   - All voters failed (API errors, parsing errors)
+   - Missing required data (empty SQL, no question)
+   - Database/schema errors
+
+5. skipped (success=false)
+   - Previous analyzer failed
+   - Skip logic triggered
+   - LLM analyzer disabled
+```
+
+### Integration with Pipeline
+
+**Skip Logic:**
+```
+if has_previous_failure(item.metadata):
+    emit skipped metric
+    annotate item as skipped
+    yield item without LLM call
+```
+
+This prevents expensive LLM API calls when:
+- Schema validation failed
+- Query syntax parsing failed
+- Query execution failed
+- Database is unavailable
+
+### Error Handling
+
+**Provider-Level Errors:**
+- API timeouts
+- Rate limits
+- Authentication failures
+- Invalid responses
+- Network errors
+
+**Parser-Level Errors:**
+- JSON decode errors
+- Code fence extraction
+- Invalid verdict values
+- Missing fields
+
+**Graceful Degradation:**
+- Failed voters don't block pipeline
+- Partial results still aggregated
+- Error details captured in metrics
+- Status reflects reliability
 
 ---
 
@@ -856,15 +1284,16 @@ Performance Profile (per item):
 Schema Validation:    ~1-10ms  (cached after first DB)
 Query Syntax:         ~1-5ms   (sqlglot parsing)
 Query Execution:      ~10-100ms (DB query)
-Antipattern:          ~1-5ms   (sqlglot parsing)
-LLM Judge:            ~2-10s   (LLM API calls)
+Antipattern:          ~1-5ms   (sqlglot parsing + pattern matching)
+LLM Judge:            ~2-10s   (LLM API calls, depends on provider)
 
 Total without LLM:    ~50-100ms per item
-Total with LLM:       ~2-10s per item
+Total with LLM:       ~2-10s per item (limited by API latency)
 
 Throughput:
   Without LLM: ~10-20 items/second
-  With LLM:    ~0.1-0.5 items/second (limited by API)
+  With LLM (sequential): ~0.1-0.5 items/second
+  With LLM (parallel, 2 voters): ~0.2-0.8 items/second
 ```
 
 ### Optimization Strategies
@@ -884,9 +1313,20 @@ Throughput:
    - 10-50x faster than individual writes
 
 4. **Smart DDL Generation**
-   - Query-derived table selection
-   - 50-80% token reduction
-   - Faster LLM responses
+   - Query-derived table selection (50-80% token reduction)
+   - Configurable example values per column
+   - Full schema or query-derived modes
+   - Faster LLM responses, lower costs
+
+5. **LLM Voter Parallelization**
+   - ThreadPoolExecutor for concurrent LLM calls
+   - Configurable max_workers
+   - 2-3x speedup with multiple providers
+
+6. **API Key Rotation**
+   - Gemini multi-key support with automatic fallback
+   - Handles rate limits, quota exhaustion, auth failures
+   - Seamless key switching on error
 
 ---
 
@@ -1043,25 +1483,71 @@ Metric Categories:
 ### Architecture Strengths
 
 ✅ **Streaming**: Handles datasets of any size (constant memory)  
-✅ **Modular**: Clean separation of concerns  
-✅ **Extensible**: Plugin system for easy additions  
+✅ **Modular**: Clean separation of concerns with protocol-based interfaces  
+✅ **Extensible**: Plugin system for easy additions (loaders, normalizers, analyzers, adapters)  
 ✅ **Type-Safe**: Pydantic models and Protocol-based interfaces  
-✅ **Multi-Format**: Flexible input and output formats  
-✅ **Production-Ready**: Error handling, logging, monitoring  
-✅ **Well-Documented**: Comprehensive README for each module  
+✅ **Multi-Format**: Flexible input (JSONL/JSON/CSV/HF) and output (JSONL/DuckDB/Reports)  
+✅ **Production-Ready**: Comprehensive error handling, logging, monitoring  
+✅ **Well-Documented**: Module-level READMEs and architectural documentation  
+✅ **LLM-Powered**: Optional semantic validation with multi-provider voting  
+✅ **Configurable**: Fine-grained control over all analyzers and outputs  
+✅ **Scalable**: Parallel execution support and streaming architecture
 
 ### Key Design Decisions
 
-1. **Streaming over batch processing** - Scalability
-2. **Protocol-based contracts** - Flexibility
-3. **Dependency injection** - Testability
-4. **DuckDB for metrics** - SQL queryability
-5. **Plugin registry** - Extensibility
-6. **Multi-sink output** - Versatility
+1. **Streaming over batch processing** - Constant memory, unlimited dataset size
+2. **Protocol-based contracts** - Flexibility and ease of extension
+3. **Dependency injection** - Testability and component isolation
+4. **DuckDB for metrics** - SQL queryability and efficient storage
+5. **Plugin registry** - Zero-touch extensibility via decorators
+6. **Multi-sink output** - JSONL for portability, DuckDB for analysis
+7. **Weighted LLM voting** - Robust semantic validation with consensus
+8. **Parallel voter execution** - 2-3x speedup for LLM validation
+9. **API key rotation** - Resilience against rate limits
+10. **Query-derived DDL** - 50-80% cost reduction for LLM calls
+
+### Technology Stack
+
+**Core Dependencies:**
+- Python 3.11+ (modern type hints, performance)
+- Pydantic v2 (data validation and serialization)
+- SQLAlchemy 2.0+ (database abstraction)
+- sqlglot 23.0+ (SQL parsing and analysis)
+- DuckDB 0.9+ (analytics database for metrics)
+- dependency-injector 4.41+ (DI container)
+
+**Optional Dependencies:**
+- OpenAI SDK 1.0+ (GPT models)
+- Anthropic SDK (Claude models)
+- Google Generative AI 0.8+ (Gemini models)
+- Rich/tqdm (progress bars)
+- HuggingFace datasets/hub (HF loader)
+
+**Development:**
+- pytest 8.0+ (testing framework)
+- pytest-cov 5.0+ (coverage reporting)
+- black 24.0+ (code formatting)
+- isort 5.12+ (import sorting)
+
+### Performance Characteristics
+
+| Metric | Without LLM | With LLM (sequential) | With LLM (parallel, 2 voters) |
+|--------|-------------|----------------------|-------------------------------|
+| Items/second | 10-20 | 0.1-0.5 | 0.2-0.8 |
+| Time/item | 50-100ms | 2-10s | 1-5s |
+| Memory | O(1) constant | O(1) constant | O(1) constant |
+| Bottleneck | DB queries | LLM API latency | LLM API latency |
+
+### Supported Platforms
+
+- **OS**: Linux, macOS, Windows
+- **Databases**: SQLite (file), PostgreSQL (server)
+- **Deployment**: Local, Docker, Cloud (AWS/GCP/Azure)
+- **Python**: 3.11+
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: November 4, 2025  
+**Document Version**: 2.0  
+**Last Updated**: January 25, 2026  
 **Maintained By**: Text2SQL Dataset Analyzer Team
 

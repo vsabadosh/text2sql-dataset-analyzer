@@ -4,8 +4,9 @@ Streaming Text-to-SQL dataset processing pipeline with SQLite-first execution an
 
 ## 📋 Requirements
 - Python 3.11+
-- Dependencies: pydantic v2, sqlglot, PyYAML, sqlite3 (stdlib)
-- Optional: rich/tqdm (for progress bars), duckdb (for metrics storage)
+- Dependencies: pydantic v2, sqlglot, PyYAML, SQLAlchemy 2.0+, sqlite3 (stdlib)
+- Core: dependency-injector, duckdb (for metrics storage and reports)
+- Optional: rich/tqdm (for progress bars), openai/anthropic/google-generativeai (for LLM-as-a-Judge)
 
 ## 🚀 Quick Start
 
@@ -50,15 +51,16 @@ text2sql run --config configs/pipeline.example.yaml
 ```
 
 **What it does:**
-1. ✅ Loads your dataset (JSONL, CSV, or HuggingFace)
-2. ✅ Normalizes and validates data
+1. ✅ Loads your dataset (JSONL, JSON, CSV, or HuggingFace)
+2. ✅ Normalizes and validates data (alias mapping, ID assignment, DB materialization)
 3. ✅ Runs all configured analyzers:
    - Schema validation
    - Query syntax analysis
    - Query execution testing
    - SQL antipattern detection
+   - Semantic LLM validation (optional)
 4. ✅ Generates annotated output and metrics
-5. ✅ Auto-generates report (if DuckDB enabled)
+5. ✅ Auto-generates reports (if DuckDB enabled)
 
 **Output:**
 Creates a timestamped directory like `analyses_spider_dataset_20251021_143022/` containing:
@@ -137,7 +139,7 @@ sourceDb:
 
 # Load your dataset
 load:
-  name: jsonl                  # jsonl, csv, or huggingface
+  name: jsonl                  # jsonl, json, csv, or huggingface
   params:
     path: data/train.jsonl
 
@@ -146,20 +148,87 @@ progress:
   expected_items: 1000         # Expected number of items (for %)
   show_progress: true          # Show progress bar
 
+# Normalize data
+normalize:
+  - name: alias_mapper         # Map field names to standard schema
+    params:
+      mapping:
+        question: question
+        sql: query
+        dbId: db_id
+  - name: id_assign            # Generate unique IDs (incremental or hash)
+    params:
+      mode: incremental
+  - name: db_identity_assign   # Verify/materialize databases
+
 # Configure analyzers
 analyze:
   - name: schema_validation_analyzer
   - name: query_syntax_analyzer
   - name: query_execution_analyzer
     params:
-      mode: select_only        # Only run SELECT queries
+      mode: select_only        # Options: all, select_only, none
   - name: query_antipattern_analyzer
+    params:
+      penalties:               # Severity penalties for quality score
+        critical: 30
+        high: 15
+        medium: 5
+        low: 2
+      antipatterns:            # Dialect-specific antipattern configuration
+        sqlite:
+          critical: [null_comparison_equals, unsafe_update_delete, cartesian_product]
+          high: [not_in_nullable, limit_without_order_by, missing_group_by]
+          medium: [function_in_where, correlated_subquery, leading_wildcard_like]
+          low: [select_star, redundant_distinct, select_in_exists]
+  # - name: semantic_llm_analyzer  # Optional LLM-as-a-Judge
+  #   params:
+  #     enabled: true
+  #     prompt_file: "configs/semantic_llm_prompts.yaml"
+  #     prompt_variant: default     # Options: variant_1, variant_2, variant_3, default
+  #     schema_mode: query_derived  # Options: full, query_derived
+  #     num_examples: 2             # Number of example values per column
+  #     parallel_voters: true       # Enable parallel LLM voting
+  #     max_workers: 2              # Concurrent worker limit
+  #     providers:
+  #       - name: openai
+  #         api_key: "${OPENAI_API_KEY}"
+  #         models:
+  #           - name: gpt-4o
+  #             weight: 1.0
+  #             temperature: 0.0
+  #       - name: gemini
+  #         api_key: "${GEMINI_API_KEY}"
+  #         fallback_keys:          # Optional: API key rotation
+  #           - "${GEMINI_API_KEY_2}"
+  #           - "${GEMINI_API_KEY_3}"
+  #         models:
+  #           - name: gemini-2.0-flash-exp
+  #             weight: 1.0
+  #             temperature: 0.0
 
 # Output configuration
 output:
   dataset_name: my_analysis
   base_dir: "./results"          # Optional: base directory for output
-  # DuckDB is always enabled for metrics storage and reports
+  
+  # JSONL metrics (optional)
+  jsonl_enabled: true            # Enable JSONL metrics files
+  
+  # DuckDB metrics (always enabled for SQL queries and reports)
+  # duckdb_path: "./custom/metrics.duckdb"  # Optional: custom path
+  
+  # Report generation (optional)
+  reports:
+    enabled: true                # Master switch for all reports
+    output_dir: "all_reports"    # Subfolder for reports
+    summary_report: true         # Main comprehensive report
+    schema_validation: true      # Schema validation details
+    llm_judge_issues: true       # LLM judge warnings/errors
+    query_execution_issues: true # Failed executions
+    query_structure_profile: true # Query structure analysis
+    table_coverage: true         # Table usage coverage
+    query_quality: true          # Quality assessment
 ```
 
 ---
@@ -208,58 +277,67 @@ analyses_spider_dataset_20251021_143022/
 ├── query_syntax_metrics.jsonl        # 📝 Query syntax analysis
 ├── query_execution_metrics.jsonl     # ⚡ Execution test results  
 ├── query_antipattern_metrics.jsonl   # 🚨 Antipattern detections
-├── metrics.duckdb                    # 📊 DuckDB metrics database
-├── all_reports/
-│   ├── summary_report.md                # 📄 Comprehensive report
+├── semantic_llm_judge_metrics.jsonl  # 🤖 LLM semantic validation (if enabled)
+├── metrics.duckdb                    # 📊 DuckDB metrics database (always enabled)
+├── all_reports/                      # 📄 Markdown reports directory
+│   ├── summary_report.md                # Comprehensive summary
 │   ├── schema_validation_report.md      # Schema validation details
 │   ├── llm_judge_issues_report.md       # LLM judge issues (warnings/errors)
 │   ├── query_execution_issues_report.md # Query execution failures
 │   ├── query_structure_profile_report.md # Query structure analysis
 │   ├── table_coverage_report.md         # Table coverage metrics
 │   └── query_quality_report.md          # Query quality assessment
-└── _run_info.json                    # ⚙️  Run configuration
+└── _run_info.json                    # ⚙️  Run configuration and metadata
 ```
 
 ---
 
 ## 🎯 Analysis Features
 
-### Schema Validation
+### 1. Schema Validation Analyzer
 - ✅ Database connectivity checks
 - ✅ Foreign key integrity (4 types of validation)
 - ✅ Duplicate column detection
 - ✅ Primary key validation
+- ✅ Database health monitoring
 
-### Query Syntax Analysis  
+### 2. Query Syntax Analyzer  
 - ✅ Complexity scoring (0-100)
 - ✅ Difficulty classification (simple/medium/hard/expert)
 - ✅ Feature extraction (joins, subqueries, CTEs, window functions)
 - ✅ Statement type detection
+- ✅ Table and column usage tracking
 
-### Query Execution
-- ✅ Safe execution testing (SELECT-only mode available)
+### 3. Query Execution Analyzer
+- ✅ Safe execution testing (all/select_only/none modes)
 - ✅ Row count validation
 - ✅ Execution time measurement
 - ✅ Error capture and classification
+- ✅ Transaction rollback for mutations
 
-### SQL Antipattern Detection
-- ✅ 14 antipattern types with severity levels
-- ✅ Quality scoring (0-100) and classification
+### 4. SQL Antipattern Analyzer
+- ✅ Configurable antipattern detection with severity levels
+- ✅ Dialect-specific patterns (SQLite, PostgreSQL)
+- ✅ 4 severity levels: CRITICAL, HIGH, MEDIUM, LOW
+- ✅ Quality scoring (0-100) with configurable penalties
+- ✅ Quality classification (excellent/good/fair/poor)
 - ✅ Specific recommendations for each issue
-- ✅ Performance and correctness checks
 
-**Detected antipatterns:**
-- SELECT * usage
-- Implicit JOINs
-- Functions in WHERE (index prevention)
-- Leading wildcard LIKE
-- NOT IN with nullable subqueries
-- Correlated subqueries
-- Unbounded SELECT
-- UPDATE/DELETE without WHERE
-- Too many JOINs (complexity)
-- DISTINCT overuse
-- And more...
+**Detected antipatterns (13 patterns; as exposed via config):**
+- **CRITICAL**: NULL comparisons with =, unsafe UPDATE/DELETE, cartesian products, missing GROUP BY
+- **HIGH**: NOT IN with nullable subqueries, LIMIT/OFFSET without ORDER BY
+- **MEDIUM**: Functions in WHERE, correlated subqueries, leading wildcard LIKE
+- **LOW**: SELECT *, redundant DISTINCT, SELECT in EXISTS
+
+### 5. Semantic LLM Judge Analyzer (Optional)
+- ✅ Multi-provider LLM validation (OpenAI, Anthropic, Gemini, Ollama)
+- ✅ Weighted voting consensus system
+- ✅ Configurable prompt templates (3 variants + custom)
+- ✅ Smart DDL generation (full or query-derived schema)
+- ✅ Parallel voter execution with configurable workers
+- ✅ API key fallback/rotation (Gemini multi-key support)
+- ✅ Verdict categories: CORRECT, PARTIALLY_CORRECT, INCORRECT, UNANSWERABLE
+- ✅ Skip-on-failure logic (doesn't run if previous analyzers failed)
 
 ---
 
@@ -325,10 +403,26 @@ pytest
 # Run specific test suite
 pytest tests/test_streaming_pipeline.py
 pytest tests/test_query_antipattern_detector.py
+pytest tests/test_semantic_llm_judge.py
+pytest tests/test_config_env_vars.py
 
 # Run with coverage
 pytest --cov=text2sql_pipeline tests/
+
+# Run only marked tests
+pytest -m run
 ```
+
+**Test Coverage:**
+- ✅ Full pipeline integration tests
+- ✅ Database manager and DDL generation
+- ✅ Query antipattern detection
+- ✅ Query execution safety
+- ✅ Query syntax feature collection
+- ✅ LLM semantic judge with mock providers
+- ✅ Prompt template resolution
+- ✅ Environment variable resolution in configs
+- ✅ DuckDB metrics integration
 
 ---
 
@@ -342,9 +436,10 @@ pytest --cov=text2sql_pipeline tests/
 - 🗄️ **Multi-dialect**: SQLite and PostgreSQL support
 
 **Supported Data Sources:**
-- JSONL files (local or compressed)
-- CSV files
-- HuggingFace datasets
+- JSONL files (local or compressed) - recommended for large datasets
+- JSON files (standard JSON arrays)
+- CSV files (with auto-detection)
+- HuggingFace datasets (with optional auth token)
 - Custom loaders (via plugin system)
 
 **Supported Databases:**
@@ -361,8 +456,38 @@ pytest --cov=text2sql_pipeline tests/
 load:
   name: huggingface
   params:
-    dataset: spider
+    name: spider                # Dataset name on HuggingFace
     split: train
+    token: "${HF_TOKEN}"        # Optional: for private datasets
+```
+
+### Enable LLM-as-a-Judge Validation
+```yaml
+analyze:
+  - name: semantic_llm_analyzer
+    params:
+      enabled: true
+      prompt_file: "configs/semantic_llm_prompts.yaml"
+      prompt_variant: default   # or variant_1, variant_2, variant_3
+      schema_mode: query_derived # Only include tables used in query
+      num_examples: 2            # Example values per column
+      parallel_voters: true      # Run LLM queries in parallel
+      providers:
+        - name: openai
+          api_key: "${OPENAI_API_KEY}"
+          models:
+            - name: gpt-4o
+              weight: 1.0
+              temperature: 0.0
+        - name: gemini
+          api_key: "${GEMINI_API_KEY}"
+          fallback_keys:           # Automatic API key rotation
+            - "${GEMINI_KEY_2}"
+            - "${GEMINI_KEY_3}"
+          models:
+            - name: gemini-2.0-flash-exp
+              weight: 1.0
+              temperature: 0.0
 ```
 
 ### PostgreSQL Database
@@ -377,7 +502,45 @@ sourceDb:
 ```yaml
 output:
   dataset_name: my_custom_analysis
-  duckdb_path: "./metrics/run1.duckdb"
+  base_dir: "./custom_results"
+  duckdb_path: "./metrics/run1.duckdb"    # Optional custom DuckDB path
+  jsonl_enabled: true                      # Enable JSONL metrics
+```
+
+### Configure Antipattern Severity
+```yaml
+analyze:
+  - name: query_antipattern_analyzer
+    params:
+      penalties:
+        critical: 30  # Severe: always wrong results
+        high: 15      # Dangerous: wrong in edge cases
+        medium: 5     # Performance/quality issues
+        low: 2        # Style preferences
+      antipatterns:
+        sqlite:
+          critical: [null_comparison_equals, unsafe_update_delete]
+          high: [not_in_nullable, limit_without_order_by]
+          medium: [function_in_where, correlated_subquery]
+          low: [select_star, redundant_distinct]
+```
+
+### Generate Reports
+```bash
+# Generate all reports configured in pipeline.yaml
+text2sql report --config configs/pipeline.example.yaml
+
+# Generate specific report type
+text2sql report \
+  --database analyses_spider/metrics.duckdb \
+  --output summary.md \
+  --type summary
+
+# Generate all 7 reports at once
+text2sql report \
+  --database analyses_spider/metrics.duckdb \
+  --output all_reports.md \
+  --type all
 ```
 
 ---
