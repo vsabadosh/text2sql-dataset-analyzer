@@ -10,6 +10,7 @@
 \usepackage{tabularx}
 \usepackage{floatrow}
 \usepackage{float}
+\usepackage{placeins} % provides \FloatBarrier to stop floats crossing sections
 \floatsetup[table]{style=plain,capposition=top}
 \renewcommand\topfraction{.95}
 \renewcommand{\textfraction}{0.05}
@@ -171,7 +172,7 @@ In this section, we describe the design, architecture, and implementation of our
 
 In this section we present \texttt{text2sql-dataset-analyzer}, a novel framework and, to the best of our knowledge, the first dedicated tool for systematic, multi-layer quality assessment of Text-to-SQL benchmarks. The framework is released as open-source software, which allows other researchers and practitioners to inspect, extend, and apply it to their own Text-to-SQL corpora. 
 
-\textbf{Design principles.} The system represents a configuration-driven streaming data-processing architecture designed to address the challenges of large-scale Text-to-SQL dataset validation and quality assessment. The architecture implements three foundational design principles: modularity through protocol-based component interfaces, scalability via constant-memory streaming processing, and extensibility through automatic dependency injection. This design enables the system to process datasets of arbitrary size while maintaining deterministic memory footprint characteristics, a critical requirement when analyzing multi-gigabyte benchmark datasets such as Spider, BIRD, or OmniSQL 2.5 M.
+\textbf{Design principles.} The system represents a configuration-driven streaming data-processing architecture designed to address the challenges of large-scale Text-to-SQL dataset validation and quality assessment. The architecture implements three foundational design principles: modularity through well-defined component interfaces, scalability via constant-memory streaming processing, and extensibility through configuration-driven composition. This design enables the system to process datasets of arbitrary size while maintaining deterministic memory footprint characteristics, a critical requirement when analyzing multi-gigabyte benchmark datasets such as Spider, BIRD, or OmniSQL 2.5 M.
 
 \textbf{Technology Stack.} The implementation relies on a carefully selected technology stack centered on Python 3.11~\cite{pythonDocs311}, chosen for its mature ecosystem of SQL tooling and support for large language model integration. DuckDB~\cite{duckdbDocs} serves as the primary analytics backend, offering columnar storage optimized for analytical queries while exposing a standard SQL interface. For interaction with relational databases, we use SQLAlchemy 2.0~\cite{sqlalchemyDocs20}--based adapters, which provide a uniform abstraction layer over concrete engines; in the current implementation, SQLite and PostgreSQL are supported as execution backends, but additional engines can be integrated with minimal effort. SQL parsing and structural analysis are handled by sqlglot~\cite{sqlglotRepo}, a dialect-aware parser capable of dealing with syntactic variations across SQLite, PostgreSQL, MySQL, and other SQL dialects commonly encountered in Text-to-SQL datasets. Component orchestration relies on the \texttt{dependency\_injector} library~\cite{dependencyInjectorDocs}, which facilitates type-safe dependency resolution and enables runtime composition of analysis pipelines through declarative YAML configuration loaded via PyYAML~\cite{pyyaml}. 
 
@@ -216,14 +217,14 @@ The system architecture follows a layered design pattern comprising five runtime
 
 Figure~\ref{fig:dataflow} shows the lifecycle of a single dataset record as it moves through the streaming pipeline. The system follows the iterator pattern: each record is processed end-to-end before the next one is loaded, without ever holding the full dataset in memory. Processing starts when a loader reads a raw record and yields it as a Python dictionary. The record then passes through the three normalizers described earlier. Each normalizer applies its transformation or validation and forwards the result, producing a standardized DataItem with all required fields present and a verified database identity. The normalized DataItem then enters the analysis pipeline, implemented as a chain of generator-based analyzers. Each analyzer consumes a DataItem, runs its logic (schema validation, syntax analysis, execution testing, antipattern detection, or semantic judging), writes metrics to DuckDB, enriches the DataItem's metadata, and yields it to the next analyzer. All configured analyses for one record complete before the next record is read, preserving strict streaming semantics. After the final analyzer, the fully annotated DataItem reaches the output layer. One branch serializes it to a JSONL file that contains the original fields plus all metadata, enabling downstream use without access to the metrics database. The other branch accumulates structured metrics in DuckDB with batched writes, supporting efficient aggregate analysis.
 
-\begin{figure}[H]
+The last report layer, which can be disabled via configuration (\texttt{reports.enabled = false}), reads metrics from DuckDB and produces seven types of human-readable analytical reports in Markdown format.
+
+\begin{figure}[p]
   \centering
   \includegraphics[width=0.85\textwidth]{figures/fig3_dataflow.png}
   \caption{Data flow through the pipeline from input to output}
   \label{fig:dataflow}
 \end{figure}
-
-The last report layer, which can be disabled via configuration (\texttt{reports.enabled = false}), reads metrics from DuckDB and produces seven types of human-readable analytical reports in Markdown format.
 
 \subsection{Database Identity Normalization Algorithm}\label{sec:dbidentity}
 
@@ -399,31 +400,6 @@ This multi-model approach provides natural defense against systematic biases of 
 where $v_i$ denotes the mapped verdict value and $w_i$ the corresponding model weight. This score captures the aggregate tendency of weighted models to regard a query as semantically adequate, while the majority and unanimity indicators characterize the degree of inter-model agreement. Records lacking any strict majority or exhibiting strongly divergent verdicts across models are of particular interest for dataset curation, as they frequently correspond to questions whose intent is underspecified, to SQL queries with subtle semantic flaws, or to cases where multiple, mutually incompatible interpretations of the question are plausible.
 
 The multi-model semantic validation architecture addresses several research challenges in Text-to-SQL evaluation. By employing multiple models with different architectures and training data, the system reduces the risk of systematic biases that might arise from relying on a single model family. The consensus voting mechanism provides natural uncertainty quantification, with disagreement among models serving as a signal that examples may be problematic or ambiguous rather than clearly correct or incorrect. The structured output format with confidence scores enables downstream analysis to weight semantic validation results appropriately, for example by flagging low-confidence verdicts for human review or by analyzing whether certain query patterns systematically produce low-confidence judgments.
-
-\subsection{Protocol-Based Architecture and Dependency Injection}
-
-The system architecture employs Python's Protocol typing construct to establish clear contracts between components while maintaining loose coupling between interface definitions and their concrete implementations.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.8\textwidth]{figures/fig10_protocols.png}
-  \caption{Protocol-based architecture with automatic dependency injection}
-  \label{fig:protocols}
-\end{figure}
-
-This architectural pattern, analogous to interface-based programming in statically typed languages, provides the benefits of explicit type checking and interface documentation while preserving the flexibility and rapid iteration characteristics of dynamic Python development (Figure~\ref{fig:protocols}).
-
-The \textbf{AnnotatingAnalyzer Protocol} defines the essential contract that all analyzer implementations must satisfy, specifying required attributes including a string-valued name identifier and a boolean enabled flag for runtime toggling.
-
-The \textbf{MetricsSink Protocol} abstracts the mechanisms through which analyzers persist their computed metrics, defining three essential operations: write for accepting individual metric events, flush for ensuring durable persistence, and close for cleanup.
-
-The \textbf{Normalizer Protocol} specifies the interface for components responsible for data standardization, requiring a normalize method that accepts an iterable of raw dictionary objects and returns an iterable of validated, enriched records.
-
-The \textbf{DbAdapter Protocol} encapsulates dialect-specific database operations, defining methods for query execution with configurable safety modes, schema introspection for retrieving table and column metadata, and connection lifecycle management.
-
-Component orchestration within the protocol-based architecture relies on the \texttt{dependency\_injector} library to automate the complex wiring of object graphs that arise from interdependent components. Each layer's components are registered in a declarative container specification, with dependencies expressed through type annotations.
-
-The protocol-based architecture with dependency injection offers several significant advantages for research software development. The explicit protocol interfaces serve as machine-checkable documentation, automated dependency resolution eliminates manual wiring complexity, and the loose coupling between protocols and implementations facilitates testing through mock implementations.
 
 \section{Experimental Setup and Results}\label{sec:Results}
 
@@ -891,6 +867,7 @@ Table~\ref{tab:critical_dbs} consolidates the most critical database quality iss
     \end{tabular}
 \end{table}
 
+\FloatBarrier
 \section{Discussion}\label{sec:Discussion}
 
 This section interprets the empirical findings reported in Section~\ref{sec:Results}, examines their implications for Text-to-SQL research and practice, and discusses the validity threats and limitations of our study.
