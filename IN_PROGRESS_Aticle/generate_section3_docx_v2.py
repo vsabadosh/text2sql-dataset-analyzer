@@ -4,11 +4,18 @@ Generation of Section 3 "SPIDER DATASET ANALYSIS" in DOCX format with academic s
 This version minimizes bullet lists and uses prose paragraphs for better academic readability.
 """
 from pathlib import Path
-from docx import Document
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+try:
+    from docx import Document
+    from docx.shared import Pt, Inches, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+except ModuleNotFoundError as e:
+    raise SystemExit(
+        "Missing dependency 'python-docx'. Install it with:\n"
+        "  python3 -m pip install python-docx\n"
+        "Then re-run this script."
+    ) from e
 
 # Base paths
 BASE_DIR = Path(__file__).parent
@@ -98,53 +105,20 @@ def generate_section3_docx():
     title.runs[0].font.size = Pt(16)
     title.runs[0].font.bold = True
 
-    # Introduction about Spider
+    # Intro (results-focused, minimal overlap with theoretical sections)
     add_paragraph(
         doc,
-        "The Spider dataset represents one of the most authoritative and widely adopted benchmarks for Text-to-SQL "
-        "research, developed by the Yale-LILY (Yale Language, Information, and Learning Lab) research group under the "
-        "leadership of Tao Yu, Rui Zhang, and colleagues [4]. First presented at the EMNLP 2018 conference, Spider has "
-        "since established itself as the de facto standard for benchmarking Text-to-SQL systems, with over 1,000 "
-        "citations and widespread adoption across both academic research and industrial applications as of 2024. The "
-        "dataset comprises 10,181 natural language questions paired with 5,693 unique SQL queries spanning 200 databases "
-        "from 138 diverse domains including education, transportation, finance, healthcare, and e-commerce.",
+        "This section reports an empirical, end-to-end quality assessment of Spider 1.0 using the multi-layer validation "
+        "framework described in Section 2. Rather than restating benchmark background and system design, we focus on "
+        "partition-level results (Test/Dev/Train), cross-partition consistency, and practical implications for dataset use.",
     )
 
     add_paragraph(
         doc,
-        "Spider's defining characteristic lies in its cross-domain design philosophy, where databases and SQL queries "
-        "appearing in the training partition differ from those in the test partition, requiring models to demonstrate "
-        "genuine generalization capabilities rather than merely memorizing domain-specific patterns. The dataset was "
-        "created through a rigorous manual annotation process involving 11 Yale University students who carefully crafted "
-        "question-query pairs with multiple rounds of validation to ensure annotation quality. The official release is "
-        "maintained at https://yale-lily.github.io/spider, with the most recent bug-fix revision published in 2020. In "
-        "2024, the research group introduced Spider 2.0, an enhanced version designed to address the capabilities of "
-        "modern large language models while incorporating more realistic database schemas and query complexity.",
-    )
-
-    add_paragraph(
-        doc,
-        "Several factors contribute to Spider's prominence within the research community. The dataset benefits from "
-        "meticulous manual validation of all examples, ensuring high annotation quality that has withstood years of "
-        "scrutiny from researchers worldwide. The distribution of examples across domains and SQL complexity levels "
-        "exhibits careful balance, preventing models from achieving high performance through exploitation of dataset "
-        "biases. The database schemas incorporate realistic multi-table structures with foreign key relationships, "
-        "reflecting the complexity of actual database systems rather than simplified toy examples. The SQL queries span "
-        "a wide spectrum from simple SELECT statements to complex nested subqueries with multiple joins, aggregations, "
-        "and ordering constraints, enabling fine-grained analysis of model capabilities across difficulty levels.",
-    )
-
-    add_paragraph(
-        doc,
-        "Despite Spider's careful construction and extensive validation during creation, systematic technical quality "
-        "assessment using automated multi-layer validation tools has not been previously conducted. The research community "
-        "has largely treated Spider as a given benchmark, focusing on improving model performance rather than scrutinizing "
-        "the dataset's technical integrity. This gap between widespread usage and comprehensive technical validation "
-        "motivated the present study, which applies the automated validation pipeline described in Section 2 to conduct "
-        "the first systematic quality assessment of Spider's structural integrity, syntactic properties, semantic "
-        "correctness, and consistency across its three partitions. As the subsequent analysis demonstrates, even this "
-        "high-quality, carefully curated dataset contains previously undetected structural issues, including foreign key "
-        "integrity violations and schema inconsistencies, that may influence model training outcomes.",
+        "We structure the analysis along five complementary quality dimensions: (i) database schema integrity, "
+        "(ii) SQL parsability and structural complexity, (iii) dynamic executability, (iv) SQL antipattern prevalence, "
+        "and (v) semantic correspondence via LLM consensus. The goal is to identify failures that remain invisible to "
+        "standard exact-match or execution-only evaluation and to derive a remediation roadmap prioritized by impact.",
     )
 
     # 3.1. Methodology
@@ -153,50 +127,33 @@ def generate_section3_docx():
     
     add_paragraph(
         doc,
-        "The experimental methodology employs comprehensive multi-layer validation across all three Spider partitions "
-        "(test, dev, train) to assess both overall dataset quality and consistency characteristics between partitions. "
-        "This comparative approach enables detection of systematic differences that might affect the reliability of "
-        "training and evaluation procedures, a consideration particularly important given that many published Text-to-SQL "
-        "systems report performance metrics only on the test partition while using dev for hyperparameter tuning.",
+        "We apply the full validation pipeline (Section 2) to all three Spider partitions (Test, Dev, Train) to measure "
+        "overall quality and cross-partition consistency. This comparative design is essential because Dev is widely used "
+        "for hyperparameter tuning while Test is used for reporting final results; partition-specific defects can therefore "
+        "bias both model selection and published evaluation outcomes.",
     )
 
     add_paragraph(
         doc,
         "The three analyzed partitions exhibit substantially different scales: Spider Test contains 2,147 examples "
         "spanning 40 unique databases, Spider Dev includes 1,034 examples across 20 databases, and Spider Train comprises "
-        "8,659 examples distributed over 146 databases. This size disparity introduces methodological considerations for "
-        "certain analyses, particularly semantic validation via large language models, where the computational cost "
-        "scales linearly with dataset size and where processing all 8,659 training examples would incur API costs "
-        "exceeding $200-320 at current pricing.",
+        "8,659 examples distributed over 146 databases. This scale disparity matters primarily for interpreting aggregate "
+        "statistics and partition heterogeneity: Train covers substantially more database schemas, while Dev and Test "
+        "concentrate evaluation on a smaller set of domains and databases.",
     )
 
     add_paragraph(
         doc,
-        "All analyses employed SQLite as the target SQL dialect, matching Spider's native database format. The pipeline "
-        "activated all five analyzers for all three partitions: Schema Validation (checking foreign key integrity, "
-        "duplicate columns, and data type consistency), Query Syntax Analysis (computing complexity metrics and "
-        "extracting structural features), Query Execution (dynamically testing query executability), Antipattern Detection "
-        "(identifying code quality issues across 14 pattern categories), and Semantic LLM Judge (evaluating semantic "
-        "correctness via language model consensus). The LLM configuration utilized Gemini 2.5 Pro and GPT-4o as "
-        "voting models, both configured with temperature=0.0 to maximize determinism and weight=1.0 to ensure equal "
-        "voting power, employing majority consensus for verdict determination. The prompt variant selected for semantic "
-        "evaluation was variant_2, emphasizing comprehensive evaluation with explicit reasoning steps. The DDL generation "
-        "mode operated in query_derived mode, extracting only tables referenced in each SQL query rather than transmitting "
-        "complete database schemas (full mode alternative available for queries requiring comprehensive context), reducing "
-        "token consumption by factors of 5-10 while providing language models with sample data values (2 examples per column) "
-        "to illustrate actual table content.",
+        "All analyses use SQLite (Spider’s native format). We enable schema validation, SQL syntax/structure analysis, "
+        "execution testing, antipattern detection, and semantic validation via a two-model LLM committee (Gemini 2.5 Pro "
+        "and GPT-5, temperature=0, equal voting weights). For semantic evaluation, we use full-schema mode (complete database "
+        "schema context) augmented with a small sample of cell values per column, as defined in Section 2.8.",
     )
 
     add_paragraph(
         doc,
-        "Processing time varied substantially between partitions due to both dataset size and LLM API latency. Spider Test "
-        "required approximately 12.7 hours when including LLM-based semantic validation, Spider Dev consumed roughly 6.1 hours "
-        "under identical configuration, while Spider Train required approximately 49 hours to complete full semantic validation "
-        "across all 8,659 examples. The LLM API latency and inference time typically requires 2-10 seconds per record compared "
-        "to 50-100 milliseconds for the combined execution of all formal analyzers, explaining the domination of overall runtime "
-        "by semantic validation. The decision to proceed with complete LLM validation across all partitions, despite the "
-        "substantial computational investment, enables unprecedented comprehensive semantic quality assessment covering all 11,840 "
-        "Spider examples rather than relying on sampling or limiting analysis to the smaller test partitions.",
+        "We report performance and runtime characteristics separately in Section 3.7 to avoid conflating methodological "
+        "setup with cost/throughput considerations.",
     )
 
     # 3.2. Schema validation results
@@ -587,75 +544,109 @@ def generate_section3_docx():
     add_paragraph(
         doc,
         "Antipattern detection identifies common SQL coding practices that, while syntactically valid and functionally "
-        "correct, deviate from established best practices regarding performance, maintainability, or code clarity. It is "
-        "important to emphasize that antipattern presence in training data does not constitute a critical flaw for Text-to-SQL "
-        "model development. Training objectives focus on semantic correspondence between questions and queries rather than "
-        "production-ready code optimization. Most detected antipatterns are stylistic (SELECT *, missing LIMIT) rather than "
-        "logical errors, do not affect query execution correctness or result accuracy, and represent acceptable trade-offs in "
-        "dataset creation where readability and annotation simplicity may outweigh optimization concerns. Nonetheless, "
-        "antipattern analysis provides valuable insights into SQL coding style distributions.",
+        "correct, deviate from established best practices regarding performance, maintainability, SQL portability, or code "
+        "clarity. It is important to emphasize that antipattern presence in training data does not constitute a critical "
+        "flaw for Text-to-SQL model development—training objectives focus on semantic correspondence between questions and "
+        "queries rather than production-ready code optimization. However, certain antipattern categories warrant attention "
+        "because they impact SQL portability or can introduce subtle correctness risks. CRITICAL severity patterns (Cartesian "
+        "products) often indicate unintended join conditions that can explode result cardinality. HIGH severity patterns "
+        "(Missing GROUP BY; NOT IN with nullable columns) either rely on dialect-specific aggregate behavior or can produce "
+        "incorrect filtering under SQL three-valued logic. MEDIUM severity patterns primarily affect performance (e.g., leading "
+        "wildcard LIKE; function calls in WHERE that inhibit index usage). LOW severity patterns (SELECT *; redundant DISTINCT) "
+        "tend to be stylistic or micro-optimization concerns in a benchmark setting.",
     )
 
     # Table 7 (antipattern overall quality)
     headers_t7 = ["Metric", "Spider Test", "Spider Dev", "Spider Train", "Best"]
     rows_t7 = [
-        ["Mean quality score", "92.7", "92.7", "92.7", "Identical ✅"],
-        ["Antipatterns per query", "1.35", "1.32", "1.39", "Dev ✅"],
-        ["Success rate (0 antip.)", "6.1%", "8.4%", "6.0%", "Dev ✅"],
+        ["Mean quality score", "97.7/100", "97.7/100", "98.4/100", "Train ✅"],
+        ["Avg antipatterns per query", "0.2", "0.2", "0.1", "Train ✅"],
+        ["Queries without antipatterns", "1,772 (82.5%)", "865 (83.7%)", "7,494 (86.5%)", "Train ✅"],
+        ["Total antipattern occurrences", "383", "169", "1,182", "—"],
     ]
     add_table_with_data(
         doc,
         headers_t7,
         rows_t7,
-        "Table 7. Overall code quality metrics showing consistent high quality",
+        "Table 7. Overall code quality metrics derived from SQL antipattern detection across Spider partitions",
     )
 
     add_paragraph(
         doc,
-        "Table 7 demonstrates remarkably consistent quality scores across all partitions, with all three achieving exactly "
-        "92.7/100 mean scores. This precise agreement likely results from the weighted scoring formula where the same "
-        "antipattern types appear with similar frequencies across partitions, producing identical aggregate scores despite "
-        "individual query variations. The typical query contains 1.32-1.39 antipatterns, indicating that while queries achieve "
-        "high overall quality, completely antipattern-free queries remain rare (6.0-8.4% success rate). This pattern suggests "
-        "systematic presence of one or two dominant antipattern types affecting most queries rather than diverse antipattern "
-        "distributions.",
+        "Table 7 indicates consistently high SQL code quality across all three partitions. Mean quality scores reach 97.7/100 "
+        "for Test and Dev and 98.4/100 for Train, while average antipattern density remains low (0.1–0.2 per query). Most "
+        "importantly, the majority of queries contain no antipatterns at all: 82.5% (Test), 83.7% (Dev), and 86.5% (Train). "
+        "These results suggest that antipatterns are concentrated in a relatively small subset of queries rather than being a "
+        "systemic issue across the dataset.",
     )
 
-    # Table 8 (top antipatterns)
+    # Table 8 (top antipatterns by severity and frequency)
     add_paragraph(
         doc,
-        "Table 8 confirms this hypothesis, revealing that Unbounded SELECT (queries lacking LIMIT clauses) dominates the "
-        "antipattern distribution. In Test, 84.6% of queries lack LIMIT clauses, explaining why most queries exhibit at least "
-        "one antipattern despite generally good coding practices. The SELECT * antipattern (selecting all columns rather than "
-        "specifying explicit projections) affects 24.5-36.4% of queries depending on partition, with Dev showing the highest "
-        "incidence. More concerning antipatterns like Functions in WHERE (preventing index usage) and Correlated Subqueries "
-        "(exhibiting quadratic complexity) appear rarely (2.0-5.5%), and the most problematic pattern—Implicit JOIN syntax—is "
-        "nearly absent with only 2 occurrences across the entire dataset.",
+        "Table 8 reports the observed antipattern distribution across partitions. The dominant HIGH-severity antipattern is "
+        "Missing GROUP BY (945 occurrences total), affecting 6.9% of Train queries and roughly one in ten queries in Test "
+        "(11.1%) and Dev (10.3%). NOT IN with nullable columns forms the second major HIGH-severity category (348 occurrences "
+        "total). Critical Cartesian products are rare across all partitions; these flags typically indicate missing or ineffective "
+        "join conditions (i.e., at least one table is not connected to the join graph) and therefore should be treated as "
+        "high-priority items for manual review because they can explode result cardinality and invalidate query intent.",
     )
 
     headers_t8 = ["Antipattern", "Spider Test", "Spider Dev", "Spider Train", "Severity"]
     rows_t8 = [
-        ["Unbounded SELECT", "1,816 (84.6%)", "[n/a]", "[n/a]", "High"],
-        ["SELECT *", "673 (31.3%)", "376 (36.4%)", "2,120 (24.5%)", "Medium"],
-        ["Functions in WHERE", "81 (3.8%)", "27 (2.6%)", "472 (5.5%)", "Medium"],
-        ["Correlated subquery", "46 (2.1%)", "21 (2.0%)", "331 (3.8%)", "Medium"],
-        ["Implicit JOIN", "0 (0.0%)", "0 (0.0%)", "2 (0.02%)", "Medium"],
+        ["Cartesian product", "2 (0.1%)", "2 (0.2%)", "13 (0.2%)", "🔴 Critical"],
+        ["Missing GROUP BY", "239 (11.1%)", "106 (10.3%)", "600 (6.9%)", "⚠️ High"],
+        ["NOT IN with nullable", "74 (3.4%)", "46 (4.4%)", "228 (2.6%)", "⚠️ High"],
+        ["Leading wildcard LIKE", "50 (2.3%)", "12 (1.2%)", "140 (1.6%)", "🔵 Medium"],
+        ["Function in WHERE", "0 (0.0%)", "0 (0.0%)", "6 (0.1%)", "🔵 Medium"],
+        ["Redundant DISTINCT", "6 (0.3%)", "0 (0.0%)", "133 (1.5%)", "🟢 Low"],
+        ["SELECT *", "12 (0.6%)", "3 (0.3%)", "62 (0.7%)", "🟢 Low"],
     ]
     add_table_with_data(
-        doc, headers_t8, rows_t8, "Table 8. Top-5 most frequent antipatterns"
+        doc, headers_t8, rows_t8, "Table 8. Complete antipattern distribution by severity and partition"
     )
 
     add_paragraph(
         doc,
-        "The antipattern distribution reflects sensible trade-offs in dataset design. The prevalence of Unbounded SELECT is "
-        "appropriate for benchmark queries where result set sizes are typically small and deterministic, making LIMIT clauses "
-        "unnecessary for correctness. The moderate frequency of SELECT * balances convenience in annotation (avoiding explicit "
-        "column enumeration) against best-practice recommendations, with the variation across partitions (24.5% in Train vs. "
-        "36.4% in Dev) likely reflecting different annotation teams or evolving style guidelines. The low frequencies of "
-        "performance-critical antipatterns (Functions in WHERE, Correlated Subqueries) indicate that dataset creators "
-        "possessed solid SQL expertise and generally avoided the most problematic patterns. The near-complete absence of "
-        "Implicit JOIN confirms that explicit JOIN syntax was consistently enforced, improving query readability and "
-        "maintainability.",
+        "Missing GROUP BY is the most frequent high-severity issue in all partitions. A large concentration of Missing GROUP BY cases reduces SQL portability and can " 
+        "introduce ambiguous semantics when multiple rows contribute to an aggregate. For cross-dialect Text-to-SQL applications, these cases should be prioritized for "
+        "normalization into standard-compliant GROUP BY queries or rewritten using deterministic subqueries when the intent is to associate a value with an extremum.",
+    )
+
+    add_paragraph(
+        doc,
+        "The NOT IN with nullable columns antipattern affects 348 queries total (74 in Test, 46 in Dev, 228 "
+        "in Train), representing 2.6-4.4% of each partition. This pattern introduces subtle semantic bugs when the subquery "
+        "returns NULL values due to SQL's three-valued logic: when the subquery result contains NULL, the predicate may "
+        "evaluate to UNKNOWN and filter out rows unexpectedly. A standard mitigation is to either add explicit IS NOT NULL "
+        "filters inside the subquery or to rewrite NOT IN as NOT EXISTS with a correlated predicate. Importantly, some flagged "
+        "cases may be safe if the selected subquery column is guaranteed non-null (e.g., a primary key); therefore, these "
+        "cases require schema-aware review to separate true defects from structurally safe patterns.",
+    )
+
+    add_paragraph(
+        doc,
+        "MEDIUM severity antipatterns are relatively infrequent. Leading wildcard LIKE (1.2–2.3%) can prevent index usage in "
+        "many engines, potentially increasing runtime on large tables. Function calls in WHERE are rare overall (0.1% in Train "
+        "and absent from Test/Dev) but represent a similar optimization barrier: applying a function to a filtered column can "
+        "inhibit index utilization unless functional indexes or specialized collations are used.",
+    )
+
+    add_paragraph(
+        doc,
+        "LOW severity antipatterns are also limited in scope. Redundant DISTINCT affects 0.3% of Test queries and 1.5% of Train "
+        "queries (absent in Dev), suggesting occasional unnecessary deduplication. SELECT * is rare (0.3–0.7%), indicating that "
+        "most Spider queries explicitly enumerate selected columns. While these patterns can matter in production SQL, their low "
+        "frequency here suggests they are not a primary driver of quality variation across partitions.",
+    )
+
+    add_paragraph(
+        doc,
+        "In summary, antipattern detection confirms high SQL code quality in Spider: mean quality scores of 97.7–98.4/100 and "
+        "82.5–86.5% of queries free of detected antipatterns. The primary remediation opportunity concerns HIGH-severity patterns, "
+        "especially Missing GROUP BY (945 occurrences) and NOT IN with nullable columns (348 occurrences). Although CRITICAL "
+        "Cartesian products are rare (17 total), they should be treated as high-priority fixes, as they often indicate broken join "
+        "logic. Overall, the results indicate that targeted correction of a small number of pattern categories could further "
+        "improve portability and robustness without requiring broad changes to the dataset.",
     )
 
     # 3.6. Semantic validation
@@ -666,7 +657,7 @@ def generate_section3_docx():
         doc,
         "Semantic validation represents the most critical quality dimension, as syntactically valid, successfully executing "
         "queries may nonetheless fail to correctly answer their associated natural language questions. This validation employs "
-        "two large language models (Gemini 2.5 Pro and GPT-4o) in a consensus voting configuration, with unanimous agreement "
+        "two large language models (Gemini 2.5 Pro and GPT-5) in a consensus voting configuration, with unanimous agreement "
         "required for definitive verdicts and disagreement cases classified as Mixed requiring human review. The analysis was "
         "successfully conducted across all three Spider partitions: Test (2,147 queries), Dev (1,034 queries), and Train "
         "(8,659 queries), providing comprehensive semantic quality assessment covering the entire dataset of 11,840 examples.",
@@ -675,11 +666,11 @@ def generate_section3_docx():
     # Table 9 (semantic validation)
     headers_t9 = ["Consensus Verdict", "Spider Test", "Spider Dev", "Spider Train"]
     rows_t9 = [
-        ["CORRECT", "1,512 (70.4%)", "667 (64.5%)", "5,196 (60.0%)"],
-        ["PARTIALLY_CORRECT", "52 (2.4%)", "15 (1.5%)", "301 (3.5%)"],
-        ["INCORRECT", "174 (8.1%)", "95 (9.2%)", "865 (10.0%)"],
-        ["Mixed (disagreement)", "396 (18.5%)", "257 (24.9%)", "2,249 (26.0%)"],
-        ["UNANSWERABLE", "13 (0.6%)", "0 (0.0%)", "48 (0.6%)"],
+        ["CORRECT", "1,409 (65.6%)", "684 (66.2%)", "5,188 (59.9%)"],
+        ["PARTIALLY_CORRECT", "43 (2.0%)", "14 (1.4%)", "259 (3.0%)"],
+        ["INCORRECT", "171 (8.0%)", "94 (9.1%)", "867 (10.0%)"],
+        ["Mixed (disagreement)", "522 (24.3%)", "242 (23.4%)", "2,316 (26.7%)"],
+        ["UNANSWERABLE", "2 (0.1%)", "0 (0.0%)", "29 (0.3%)"],
         ["TOTAL", "2,147 (100%)", "1,034 (100%)", "8,659 (100%)"],
     ]
     add_table_with_data(
@@ -691,31 +682,61 @@ def generate_section3_docx():
 
     add_paragraph(
         doc,
-        "Table 9 reveals a clear quality gradient across all three partitions, with semantic correctness declining systematically "
-        "from Test (70.4% correct) through Dev (64.5%) to Train (60.0%), representing a 10.4 percentage point span that exceeds "
-        "expected statistical variation (p<0.001 by proportion test across all pairwise comparisons). This quality ordering mirrors "
-        "the schema validation results presented earlier, where Test similarly exhibited superior quality compared to Dev and Train. "
-        "The consistency of this pattern across multiple validation dimensions suggests that Test received more rigorous curation "
-        "attention or quality assurance compared to the other partitions. Notably, Train exhibits the highest rates of both "
-        "explicitly incorrect queries (10.0% vs. 8.1% in Test and 9.2% in Dev) and mixed/disputed cases (26.0% vs. 18.5% in Test "
-        "and 24.9% in Dev), indicating that the largest partition paradoxically contains the greatest proportion of semantically "
-        "problematic examples. The unanimous agreement characteristic (all non-Mixed verdicts represent complete model consensus) "
-        "reflects the two-model configuration, where only two outcome patterns are possible: both models agree (producing a "
-        "definitive verdict) or models disagree (producing Mixed classification).",
+        "Table 9 indicates that Test and Dev exhibit comparable semantic correctness (65.6% vs. 66.2% CORRECT), while Train shows a "
+        "lower correctness rate (59.9%). Train also exhibits the highest rates of both explicitly incorrect queries (10.0% vs. 8.0% "
+        "in Test and 9.1% in Dev) and mixed/disputed cases (26.7% vs. 24.3% in Test and 23.4% in Dev), indicating that the largest "
+        "partition contains the greatest proportion of semantically problematic or ambiguous examples. The unanimous agreement "
+        "characteristic (all non-Mixed verdicts represent complete model consensus) reflects the two-model configuration, where only "
+        "two outcome patterns are possible: both models agree (producing a definitive verdict) or models disagree (producing Mixed "
+        "classification).",
+    )
+
+    # Table 9a (Mixed / disagreement breakdown)
+    headers_t9a = [
+        "Disagreement pattern (Gemini → GPT-5)",
+        "Spider Test",
+        "Spider Dev",
+        "Spider Train",
+        "Share of Mixed (Test/Dev/Train)",
+    ]
+    rows_t9a = [
+        ["CORRECT → PARTIALLY_CORRECT", "315", "144", "1,375", "60.3% / 59.5% / 59.4%"],
+        ["CORRECT → INCORRECT", "124", "57", "449", "23.8% / 23.6% / 19.4%"],
+        ["INCORRECT → PARTIALLY_CORRECT", "35", "17", "169", "6.7% / 7.0% / 7.3%"],
+        ["INCORRECT → CORRECT", "20", "14", "121", "3.8% / 5.8% / 5.2%"],
+        ["CORRECT → UNANSWERABLE", "14", "4", "94", "2.7% / 1.7% / 4.1%"],
+        ["INCORRECT → UNANSWERABLE", "1", "3", "40", "0.2% / 1.2% / 1.7%"],
+        ["PARTIALLY_CORRECT → INCORRECT", "6", "2", "30", "1.1% / 0.8% / 1.3%"],
+        ["PARTIALLY_CORRECT → CORRECT", "6", "1", "11", "1.1% / 0.4% / 0.5%"],
+        ["UNANSWERABLE → INCORRECT", "1", "0", "2", "0.2% / 0.0% / 0.1%"],
+        ["UNANSWERABLE → CORRECT", "0", "0", "14", "0.0% / 0.0% / 0.6%"],
+        ["UNANSWERABLE → PARTIALLY_CORRECT", "0", "0", "6", "0.0% / 0.0% / 0.3%"],
+        ["PARTIALLY_CORRECT → UNANSWERABLE", "0", "0", "5", "0.0% / 0.0% / 0.2%"],
+    ]
+    add_table_with_data(
+        doc,
+        headers_t9a,
+        rows_t9a,
+        "Table 9a. Mixed consensus breakdown (Gemini 2.5 Pro vs GPT-5 disagreement patterns)",
     )
 
     add_paragraph(
         doc,
         "The Mixed verdict category, indicating model disagreement, warrants particular attention given its substantial prevalence "
-        "across all partitions. Train exhibits the highest Mixed rate (26.0%), followed by Dev (24.9%) and Test (18.5%), suggesting "
+        "across all partitions. Train exhibits the highest Mixed rate (26.7%), followed by Test (24.3%) and Dev (23.4%), suggesting "
         "that larger partitions contain more ambiguous or underspecified examples where reasonable SQL implementations might differ "
         "in interpretation. These cases may represent questions admitting multiple valid SQL formulations, queries with subtle semantic "
         "bugs difficult for both humans and models to detect, or scenarios where database schema ambiguities enable different but "
-        "defensible interpretations. The explicitly incorrect verdicts (174 in Test, 95 in Dev, 865 in Train) identify examples "
+        "defensible interpretations. Table 9a shows that Mixed is dominated by CORRECT↔PARTIALLY_CORRECT boundary disagreements "
+        "(≈59–60% of Mixed across partitions), indicating that many disputed cases likely hinge on missing or extra constraints rather "
+        "than being clearly wrong. The second-largest pattern is CORRECT↔INCORRECT, representing harder semantic disputes that are "
+        "especially valuable for targeted human adjudication. Train also contains the largest share of UNANSWERABLE-related "
+        "disagreements, consistent with a higher prevalence of underspecified questions at scale. The explicitly incorrect verdicts "
+        "(171 in Test, 94 in Dev, 867 in Train) identify examples "
         "where both models independently judged the SQL query as failing to answer the natural language question, likely representing "
-        "genuine annotation errors or cases where the intended query logic was incorrectly implemented. Train's 865 incorrect queries "
+        "genuine annotation errors or cases where the intended query logic was incorrectly implemented. Train's 867 incorrect queries "
         "represent approximately 10% of its examples, a concerning proportion that exceeds the incorrect rates in both Test and Dev. "
-        "The partially correct category, while relatively small in Test (2.4%) and Dev (1.5%), reaches 3.5% in Train with 301 examples, "
+        "The partially correct category, while relatively small in Test (2.0%) and Dev (1.4%), reaches 3.0% in Train with 259 examples, "
         "capturing queries that answer part of the question but omit necessary constraints or return supersets of the correct results.",
     )
 
@@ -723,22 +744,22 @@ def generate_section3_docx():
     add_paragraph(
         doc,
         "Table 10 synthesizes these findings into actionable quality categories across all three partitions. High-confidence correct "
-        "examples decline from 70.4% in Test through 64.5% in Dev to 60.0% in Train, indicating that approximately 40% of the largest "
-        "partition requires some form of manual review or exhibits semantic issues. Cases requiring review include both the Mixed "
-        "disagreement cases (18.5% in Test, 24.9% in Dev, 26.0% in Train) and the partially correct examples, totaling approximately "
-        "21% of Test, 26% of Dev, and 29.5% of Train. Clearly incorrect examples (8.1% in Test, 9.2% in Dev, 10.0% in Train) should "
-        "be flagged for correction or removal, representing 1,134 total examples across all three partitions—a substantial corpus of "
+        "examples are 65.6% (Test), 66.2% (Dev), and 59.9% (Train), indicating that a substantial fraction of each partition requires "
+        "manual review or exhibits semantic issues. Cases requiring review include both the Mixed disagreement cases (24.3% in Test, "
+        "23.4% in Dev, 26.7% in Train) and the partially correct examples, totaling 26.3% of Test, 24.8% of Dev, and 29.7% of Train. "
+        "Clearly incorrect examples (8.0% in Test, 9.1% in Dev, 10.0% in Train) should be flagged for correction or removal, "
+        "representing 1,132 total examples across all three partitions—a substantial corpus of "
         "annotation errors that may influence model training and evaluation if left unaddressed.",
     )
 
     headers_t10_cat = ["Category", "Spider Test", "Spider Dev", "Spider Train"]
     rows_t10_cat = [
-        ["Correct", "1,512 (70.4%)", "667 (64.5%)", "5,196 (60.0%)"],
-        ["Problematic (all)", "239 (11.1%)", "110 (10.6%)", "1,214 (14.0%)"],
-        ["Disputed (Mixed)", "396 (18.5%)", "257 (24.9%)", "2,249 (26.0%)"],
-        ["High confidence", "1,512 (70.4%)", "667 (64.5%)", "5,196 (60.0%)"],
-        ["Requires review", "448 (20.9%)", "272 (26.4%)", "2,550 (29.5%)"],
-        ["Clearly incorrect", "174 (8.1%)", "95 (9.2%)", "865 (10.0%)"],
+        ["Correct", "1,409 (65.6%)", "684 (66.2%)", "5,188 (59.9%)"],
+        ["Problematic (all)", "216 (10.1%)", "108 (10.4%)", "1,155 (13.3%)"],
+        ["Disputed (Mixed)", "522 (24.3%)", "242 (23.4%)", "2,316 (26.7%)"],
+        ["High confidence", "1,409 (65.6%)", "684 (66.2%)", "5,188 (59.9%)"],
+        ["Requires review", "565 (26.3%)", "256 (24.8%)", "2,575 (29.7%)"],
+        ["Clearly incorrect", "171 (8.0%)", "94 (9.1%)", "867 (10.0%)"],
     ]
     add_table_with_data(
         doc, headers_t10_cat, rows_t10_cat, "Table 10. Semantic quality categorization summary"
@@ -750,9 +771,9 @@ def generate_section3_docx():
         "approach, while providing useful signal, cannot definitively establish ground truth semantic correctness. Both models may "
         "share systematic biases or blind spots, potentially producing unanimous incorrect verdicts for examples that actually are "
         "correct, or conversely judging correct examples as incorrect due to misunderstanding subtle question semantics or database "
-        "content. The 60.0-70.4% correctness rates likely represent lower bounds on true semantic quality, as conservative "
+        "content. The 59.9-66.2% correctness rates likely represent lower bounds on true semantic quality, as conservative "
         "classification strategies may flag some actually-correct examples as Mixed or incorrect. Nonetheless, the comprehensive "
-        "coverage across all 11,840 examples enables identification of 1,134 clearly incorrect queries and 2,902 disputed cases "
+        "coverage across all 11,840 examples enables identification of 1,132 clearly incorrect queries and 3,080 disputed cases "
         "requiring targeted human review to adjudicate the genuine error rate and understand the nature of semantic issues present "
         "throughout the dataset. The successful completion of LLM validation across all partitions, including the computationally "
         "expensive Train partition, provides unprecedented visibility into Spider's semantic quality at full scale.",
@@ -846,19 +867,16 @@ def generate_section3_docx():
         "under sampling-based approaches.",
     )
 
-    # 3.8. Integrated assessment
+    # 3.8. Discussion and recommendations
     doc.add_page_break()
-    add_heading(
-        doc,
-        "3.8. Integrated Quality Assessment and Recommendations",
-        level=2,
-    )
+    add_heading(doc, "3.8. Discussion, Implications, and Recommendations", level=2)
     
     add_paragraph(
         doc,
-        "The comprehensive multi-layer analysis of Spider's three partitions enables an integrated quality assessment synthesizing "
-        "findings across all validation dimensions. Table 13 summarizes key quality indicators, revealing patterns of consistency "
-        "alongside several critical issues requiring remediation.",
+        "This section interprets the empirical findings from Tables 1–13, connects them to practical dataset usage, and "
+        "highlights remediation priorities. The key takeaway is that formal correctness signals (parsability and executability) "
+        "can be near-perfect while substantial structural and semantic issues remain—issues that directly affect the validity of "
+        "training, model selection, and reported benchmark results.",
     )
 
     # Table 13 (integrated assessment)
@@ -876,11 +894,14 @@ def generate_section3_docx():
         ["Execute success", "100%", "100%", "99.97%", "Test/Dev ✅"],
         ["Mean time (ms)", "3.10", "2.49", "1.19", "Train ✅"],
         ["SQL CODE QUALITY", "", "", "", ""],
-        ["Quality score", "92.7", "92.7", "92.7", "Equal ✅"],
+        ["Quality score", "97.7/100", "97.7/100", "98.4/100", "Train ✅"],
+        ["Critical antipatterns (Cartesian product)", "2 (0.1%)", "2 (0.2%)", "13 (0.2%)", "Test ✅"],
+        ["High antipatterns (Missing GROUP BY)", "239 (11.1%)", "106 (10.3%)", "600 (6.9%)", "Train ✅"],
+        ["High antipatterns (NOT IN with nullable)", "74 (3.4%)", "46 (4.4%)", "228 (2.6%)", "Train ✅"],
         ["SEMANTIC CORRECTNESS", "", "", "", ""],
-        ["Correct", "70.4%", "64.5%", "60.0%", "Test ✅"],
-        ["Clearly incorrect", "8.1%", "9.2%", "10.0%", "Test ✅"],
-        ["Disputed (Mixed)", "18.5%", "24.9%", "26.0%", "Test ✅"],
+        ["Correct", "65.6%", "66.2%", "59.9%", "Dev ✅"],
+        ["Clearly incorrect", "8.0%", "9.1%", "10.0%", "Test ✅"],
+        ["Disputed (Mixed)", "24.3%", "23.4%", "26.7%", "Dev ✅"],
     ]
     add_table_with_data(
         doc,
@@ -891,28 +912,68 @@ def generate_section3_docx():
 
     add_paragraph(
         doc,
-        "The analysis identifies both strengths and critical weaknesses in Spider's construction. On the positive side, the dataset "
-        "achieves exceptional syntactic quality with 100% parsing success across all 11,840 queries, near-perfect executability (100% "
-        "for Test/Dev, 99.97% for Train), and consistent complexity distributions facilitating fair cross-partition comparison. The "
-        "intentional balancing of difficulty levels and consistent code quality scores (92.7/100 uniformly) demonstrate careful curation "
-        "attention to producing a usable benchmark. However, several critical issues emerged that require addressing to ensure dataset "
-        "integrity and reliability for future research.",
+        "Two results are simultaneously true. First, Spider is exceptionally strong on traditional validation criteria: all queries "
+        "parse successfully, execution succeeds for essentially all examples, and syntactic complexity distributions remain broadly "
+        "consistent across partitions. Second, deeper validation reveals that the benchmark contains concentrated schema/data defects "
+        "and a large fraction of semantically disputed or incorrect examples. Together, these findings explain why execution-based "
+        "evaluation can appear stable while still masking hidden dataset quality risks.",
     )
 
     add_paragraph(
         doc,
-        "The most severe problem identified concerns referential integrity violations concentrated in two databases: sakila_1 (Train) "
-        "with 38,273 violations and flight_2 (Dev) with 2,403 violations, together accounting for 97% of all 41,927 violations. "
-        "Critically, flight_2's presence in the Dev partition poses severe evaluation integrity risks: the 2,403 violations corrupt "
-        "Execution Match (EX) metrics by producing incorrect JOIN results, introducing systematic bias in model selection and "
-        "hyperparameter tuning. Models validated against flight_2's corrupted results may exhibit inflated or deflated performance "
-        "metrics bearing no relation to true semantic correctness. The flight_2 database affects approximately 35.6% of Dev queries, "
-        "meaning over one-third of validation examples potentially yield biased evaluation signals. Immediate remediation of flight_2 "
-        "through re-export from authoritative sources or systematic data cleaning should be prioritized as the highest-impact "
-        "improvement to evaluation reliability. While sakila_1's violations are numerically larger, their location in Train affects "
-        "training dynamics rather than evaluation integrity, making flight_2 remediation more urgent for benchmark credibility.",
+        "The most urgent structural issue is referential integrity corruption concentrated in a small number of databases, most notably "
+        "flight_2 (Dev) and sakila_1 (Train). Dev defects are especially harmful because they can bias model selection: when joins are "
+        "evaluated on corrupted relational links, execution-match signals no longer reflect the intended semantics of the benchmark. "
+        "By contrast, Train defects primarily influence learning dynamics, increasing noise and encouraging models to fit spurious patterns.",
     )
     
+    add_paragraph(
+        doc,
+        "Schema quality heterogeneity also matters operationally. Test exhibits the highest fraction of valid schemas, while Dev shows the "
+        "lowest. This is counterintuitive because Dev is often treated as a reliable proxy for Test during development. In practice, Dev-level "
+        "schema defects can cause unstable validation curves and reward models that overfit quirks of a few problematic databases rather than "
+        "learning robust text-to-SQL mappings.",
+    )
+
+    add_paragraph(
+        doc,
+        "Semantic validation provides the strongest evidence that execution alone is insufficient. Across partitions, only about 60–66% of "
+        "examples are unanimously judged CORRECT, around 8–10% are unanimously judged INCORRECT, and roughly one quarter fall into the Mixed "
+        "category where judges disagree. Mixed cases are not merely noise: they concentrate near the CORRECT↔PARTIALLY_CORRECT boundary and "
+        "often reflect underspecified questions, edge-case constraints (duplicates, NULL handling, date boundaries), or multiple defensible "
+        "interpretations. These cases define a practical “uncertainty band” of the benchmark that should be handled explicitly in evaluation "
+        "and dataset curation.",
+    )
+
+    add_paragraph(
+        doc,
+        "A key methodological implication is that benchmark “quality” is multi-dimensional. Parsability/executability reflect technical validity; "
+        "schema integrity reflects correctness of the environment; antipatterns reflect portability and maintainability; semantic judgments reflect "
+        "alignment of NL intent and SQL logic. For modern LLM systems, semantic alignment is often the limiting factor, and disagreement between "
+        "strong judges is a useful proxy for annotation ambiguity.",
+    )
+
+    add_paragraph(
+        doc,
+        "The antipattern results (Tables 7–8) add an important nuance: Spider’s SQL is generally clean from a database-engineering perspective "
+        "(mean quality scores ≈97.7–98.4/100; 82.5–86.5% of queries contain no detected antipatterns), but a small number of high-severity "
+        "categories dominate the risk surface. In particular, Missing GROUP BY and NOT IN with nullable subqueries account for the majority of "
+        "high-severity flags. These patterns matter less for “can the SQL run?” and more for portability and semantic stability across engines: "
+        "Missing GROUP BY can yield non-deterministic row selection in permissive engines (e.g., SQLite) and hard errors in stricter settings, "
+        "while NOT IN becomes semantically fragile under three-valued logic when NULLs are present.",
+    )
+
+    add_paragraph(
+        doc,
+        "Practically, this means that antipatterns should be treated as a curation and evaluation control knob. For training, keeping them may be "
+        "acceptable (models learn benchmark-style SQL), but for deployment-oriented evaluation or cross-dialect generalization studies, it is useful "
+        "to (i) filter or rewrite the small subset of high-severity antipattern queries into standard-compliant equivalents, and (ii) report results "
+        "both on the full set and on an “antipattern-clean” subset. The rare Critical Cartesian product cases, although few, should be prioritized for "
+        "manual review because they often indicate broken join graphs that can radically change result cardinality and therefore question–SQL alignment. "
+        "In our results, Cartesian products are flagged in 2 Test queries, 2 Dev queries, and 13 Train queries (Table 8), making them a small but "
+        "high-impact class of potential semantic defects.",
+    )
+
     # Table 13a (Critical Databases Requiring Immediate Attention)
     add_paragraph(
         doc,
@@ -946,85 +1007,57 @@ def generate_section3_docx():
     
     add_paragraph(
         doc,
-        "The priority classification in Table 13a reflects both issue severity and impact on dataset usability, with evaluation "
-        "partition databases prioritized over training databases. CRITICAL priority assigns to flight_2 (Dev) and sakila_1 (Train), "
-        "but flight_2 receives highest urgency due to evaluation bias: its 2,403 FK violations corrupt Execution Match metrics used "
-        "for model selection and hyperparameter tuning, potentially invalidating published benchmark results. While sakila_1 contains "
-        "numerically more violations (38,273), its Train location affects training dynamics rather than evaluation integrity, making "
-        "it less urgent despite catastrophic magnitude. HIGH priority encompasses databases with numerous structural errors (baseball_1: "
-        "20 errors; cre_Drama_Workshop_Groups: 9 errors) or complete data absence (academic, imdb, yelp, restaurants with 0% coverage). "
-        "MEDIUM priority identifies databases with moderate issues (book_1, car_1, concert_singer, voter_1) affecting correctness "
-        "without catastrophic impact. This prioritization focuses remediation on databases critically impacting evaluation reliability, "
-        "ensuring benchmark credibility before addressing training partition issues.",
+        "The prioritization in Table 13a is impact-driven. Evaluation-split corruption (Dev/Test) should be fixed first to protect the credibility "
+        "of reported metrics and model selection. Next, catastrophic Train databases should be repaired to reduce training noise. Finally, isolated "
+        "structural defects and empty-table databases should be either repaired (if data can be recovered) or explicitly marked as schema-only so "
+        "they can be excluded from execution-based analyses and semantic validation relying on sampled values.",
     )
 
     add_paragraph(
         doc,
-        "Beyond these catastrophic cases, schema quality exhibits concerning heterogeneity across partitions. Test achieves 90% validity "
-        "while Dev drops to 65% and Train to 75.3%, with Dev's particularly low validity raising questions about its suitability for "
-        "model selection given that 35% of its databases contain known structural defects. The 78 invalid foreign keys in Train (compared "
-        "to 4 in Test and 7 in Dev) indicate systematic differences in curation procedures or quality assurance practices between "
-        "partitions. Train's 71 empty tables across multiple databases represent another quality issue absent from Test and Dev, "
-        "potentially confusing models during training when queries successfully execute against empty tables without producing semantic "
-        "errors visible during training.",
+        "For practitioners, we recommend reporting quality-aware results in addition to the standard aggregate score: (i) report performance on "
+        "a “high-confidence” subset (CORRECT-only, excluding Mixed/PARTIALLY_CORRECT/INCORRECT/UNANSWERABLE), (ii) report performance on the "
+        "subset of examples whose databases pass schema/data integrity checks, and (iii) provide ablations showing sensitivity to Dev database "
+        "issues. These steps make model comparisons more robust and reduce the risk of tuning against corrupted validation signals.",
     )
 
     add_paragraph(
         doc,
-        "Semantic validation results across all three partitions reveal a systematic quality gradient, with correct percentages declining "
-        "from 70.4% in Test through 64.5% in Dev to 60.0% in Train. This pattern indicates that approximately 30-40% of examples across "
-        "Spider exhibit some degree of semantic problems, with the largest partition (Train) containing the highest proportion of issues. "
-        "The clearly incorrect category (174 in Test, 95 in Dev, 865 in Train) totaling 1,134 examples represents cases where both language "
-        "models independently judged queries as failing to answer their questions, likely indicating genuine annotation errors or "
-        "implementation bugs requiring manual review and correction. The disputed category (396 in Test, 257 in Dev, 2,249 in Train) "
-        "totaling 2,902 examples represents ambiguous cases where model disagreement signals potential underspecification in questions, "
-        "multiple valid interpretations, or subtle semantic issues difficult even for sophisticated models to adjudicate. These cases "
-        "warrant expert human review to determine true correctness and potentially augment with clarifying information or alternative "
-        "phrasings. The comprehensive LLM validation across all 11,840 examples provides unprecedented visibility into Spider's semantic "
-        "quality at full scale, identifying 4,036 problematic examples (34.1% of the total dataset) requiring attention.",
+        "From a dataset-maintenance perspective, LLM-derived labels are most useful as triage rather than ground truth. We recommend a two-stage "
+        "curation workflow: (1) prioritize unanimous INCORRECT cases for manual correction, because they are high-signal candidates for annotation "
+        "bugs; (2) prioritize Mixed cases for expert adjudication and question disambiguation, because they often represent ambiguity rather than "
+        "simple errors. A practical output of such adjudication is an “accepted alternatives” set (multiple SQL queries) for genuinely ambiguous questions.",
     )
 
     add_paragraph(
         doc,
-        "Based on these findings, we propose a prioritized remediation roadmap. URGENT priority: immediate repair of flight_2 (Dev) to "
-        "eliminate 2,403 FK violations corrupting evaluation metrics and introducing systematic bias in model selection—this single fix "
-        "addresses the most critical threat to benchmark credibility. CRITICAL priority: repair of sakila_1 (Train) eliminating 38,273 "
-        "violations affecting training dynamics. HIGH priority: correction of 32 invalid schemas in Train (21.9%), 7 in Dev (35%), and "
-        "4 in Test (10%), manual verification of 1,134 clearly incorrect queries identified by LLM consensus, and expert review of 2,902 "
-        "disputed cases to adjudicate correctness and identify needed clarifications.",
+        "Recommended remediation roadmap (impact order): repair Dev’s flight_2 first; then address Train’s catastrophic sakila_1 and other high-violation "
+        "databases; then fix structural foreign-key definition issues; finally, resolve schema-only / empty-table databases by either restoring data or "
+        "documenting them as non-executable. In parallel, use semantic labels to curate a clean subset for training and a “disputed” subset for robustness testing.",
     )
 
     add_paragraph(
         doc,
-        "Recommended (non-critical) improvements include systematic correction of the 34 Foreign Key Type Mismatch errors in Train through "
-        "database schema modifications, addressing the 41 Foreign Key Target Not Key violations in Train that represent the dominant "
-        "structural error type, populating the 41 empty tables across 4 Train databases with appropriate data or removing these tables from "
-        "schemas if intentionally empty, correction of the 368 partially correct queries (52 in Test, 15 in Dev, 301 in Train) identified "
-        "by LLM analysis, and potential addition of Expert-level queries to Test and Dev partitions given that Train uniquely contains 66 "
-        "such queries while test/dev evaluation cannot assess model performance at this complexity level.",
+        "Threats to validity: (i) LLM judges are not an oracle—both false positives and false negatives are possible, especially on domain-specific "
+        "schemas and under underspecified questions; (ii) even with full-schema context, some questions require external knowledge or assumptions not "
+        "encoded in the database (e.g., domain conventions, synonymy, temporal interpretation), which can lead judges to inconsistent rulings; "
+        "(iii) sampling a small number of cell values can introduce bias if samples are unrepresentative, potentially masking edge cases (NULLs, duplicates) "
+        "or suggesting misleading distributions. For higher-confidence audits, Mixed cases should be complemented with expert human adjudication on a "
+        "statistically representative subset and, where feasible, ablations that compare semantic verdicts with/without sampled values.",
     )
 
     add_paragraph(
         doc,
-        "Optional enhancements for production usage (not critical for research purposes) include adding LIMIT clauses to unbounded SELECT "
-        "queries where semantically appropriate, replacing SELECT * with explicit column lists (particularly in Dev where 36.4% of queries "
-        "exhibit this pattern), optimizing or rewriting the correlated subqueries appearing in 3.8% of Train queries, and creating an "
-        "extended Spider variant incorporating modern SQL features (CTEs, recursive CTEs, window functions) absent from the current version.",
+        "Finally, we recommend that future benchmark revisions publish (a) an integrity-fixed Dev split, (b) an officially curated high-confidence subset, "
+        "and (c) a documented list of disputed examples. These additions would make Spider more reliable for both model development and scientific comparison, "
+        "while preserving its value as a challenging cross-domain Text-to-SQL benchmark.",
     )
 
     add_paragraph(
         doc,
-        "In conclusion, Spider maintains its position as one of the highest-quality publicly available Text-to-SQL benchmarks, with "
-        "exceptional syntactic and execution quality (100% parseable, 99.97%+ executable) and carefully balanced difficulty distributions. "
-        "However, comprehensive multi-layer validation across all 11,840 examples reveals critical issues threatening evaluation integrity: "
-        "flight_2 (Dev) with 2,403 FK violations introduces systematic evaluation bias by corrupting Execution Match metrics used for model "
-        "selection, potentially invalidating published benchmark results and hyperparameter optimization decisions. This evaluation bias "
-        "represents the most urgent remediation priority, as it affects 35.6% of Dev queries and undermines the fundamental reliability of "
-        "validation signals. Additional critical findings include sakila_1's 38,273 violations affecting training dynamics, substantial "
-        "schema quality heterogeneity (Test 90% valid vs. Dev 65% vs. Train 75.3%), and significant semantic problems (30-40% of examples). "
-        "The systematic quality gradient where Test consistently outperforms Dev and Train suggests differential curation attention. The "
-        "remediation roadmap prioritizes evaluation partition repairs (particularly flight_2) before addressing training partition issues, "
-        "ensuring benchmark credibility while preserving Spider's strengths as a challenging, realistic Text-to-SQL benchmark.",
+        "Overall, the results support a nuanced conclusion: Spider is technically clean in the sense of SQL syntax and execution, but it contains "
+        "structural database defects and substantial semantic ambiguity that warrant quality-aware evaluation and targeted remediation. Treating these "
+        "issues explicitly—rather than implicitly assuming benchmark correctness—improves reproducibility and strengthens the validity of Text-to-SQL research.",
     )
 
     # Save document
