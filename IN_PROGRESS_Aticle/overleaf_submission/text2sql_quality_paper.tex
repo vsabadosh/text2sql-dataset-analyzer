@@ -344,7 +344,7 @@ The Query Antipattern Detector implements a rule-based static analysis framework
 
 where $n_{\text{severity}}$ denotes the frequency of antipatterns in each severity category, and $p_{\text{severity}}$ represents the configurable penalty weight for that severity level. The penalty coefficients encode relative technical impact: correctness violations receive maximum penalty, edge-case failures moderate penalty, performance issues minor penalty, and style concerns minimal penalty.  
 
-It is worth noting that, although the Query Antipattern Detector is only one module of the overall system, it received the most extensive test coverage. Specifically, we implemented 267 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
+It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 267 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
 
 \subsection{Multi-Model Semantic Validation Architecture}\label{sec:semantic}
 
@@ -407,7 +407,7 @@ This section reports empirical results from applying the validation framework (S
 
 The analysis pipeline operated in the streaming architecture described in Section~\ref{sec:Methods}, with analyzer components configured per the methodology detailed in Sections~\ref{sec:schema_analyzer}--\ref{sec:semantic}. Schema validation executed once per unique database identifier (206 total) with cached metadata reused for queries sharing databases. Query-level analyzers operated independently on each SQL statement. Antipattern detection followed the SQLite-specific severity configuration (Section~\ref{sec:antipattern_detector}) with 13 antipatterns and penalty weighting (Critical: -30, High: -15, Medium: -5, Low: -2). Execution testing used the query execution analyzer configured with \texttt{mode=all} (see Section~\ref{sec:Methods}), which executes SELECT statements with automatic LIMIT 1 injection. When a LIMIT clause is absent, it tests UPDATE/DELETE/INSERT statements inside a rollback transaction while blocking destructive operations (e.g., DROP/\allowbreak TRUNCATE/\allowbreak ALTER). Semantic judging used two-model consensus with verdict categories (CORRECT/\allowbreak PARTIALLY\_CORRECT/\allowbreak INCORRECT/\allowbreak UNANSWERABLE) as defined in Section~\ref{sec:semantic}; configuration parameters included \texttt{schema\_mode=full}, \texttt{num\_examples=2}, and parallel voting enabled (\texttt{parallel\_voters=true}, \texttt{max\_workers=2}).
 
-Results are organized across five quality dimensions reported in Sections~\ref{sec:schema_results}--\ref{sec:semantic_results}: (i) database schema integrity (Section~\ref{sec:schema_results}); (ii) SQL syntactic structure (Section~\ref{sec:syntax_results}); (iii) dynamic executability (Section~\ref{sec:execution_results}); (iv) antipattern prevalence (Section~\ref{sec:antipattern_results}); and (v) semantic correctness (Section~\ref{sec:semantic_results}). Sections~\ref{sec:performance}--\ref{sec:integrated} report computational performance and integrated quality assessment. Findings are presented descriptively without interpretation; Section~\ref{sec:Discussion} provides analysis of implications and validity threats.
+Results are organized across five quality dimensions reported in Sections~\ref{sec:schema_results}--\ref{sec:semantic_results}: (i) database schema integrity (Section~\ref{sec:schema_results}); (ii) SQL syntactic structure (Section~\ref{sec:syntax_results}); (iii) dynamic executability (Section~\ref{sec:execution_results}); (iv) antipattern prevalence (Section~\ref{sec:antipattern_results}); and (v) semantic correctness (Section~\ref{sec:semantic_results}). Sections~\ref{sec:performance}--\ref{sec:integrated} report computational performance and integrated quality assessment.
 
 \subsection{Database Schema Integrity Assessment}\label{sec:schema_results}
 
@@ -634,7 +634,6 @@ Table~\ref{tab:execution} presents query execution results.
         Successfully executed & 2,147 (100\%) & 1,034 (100\%) & 8,656 (99.97\%) \\
         Execution failures & 0 (0\%) & 0 (0\%) & 3 (0.03\%) \\
         Failed items & --- & --- & 3154, 4514, 4515 \\
-        Skipped queries & 0 (0\%) & 0 (0\%) & 0 (0\%) \\
         Mean execution time (ms) & 3.10 & 2.49 & 1.19 \\
         \bottomrule
     \end{tabular}
