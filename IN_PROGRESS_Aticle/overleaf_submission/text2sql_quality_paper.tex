@@ -339,12 +339,12 @@ The Query Antipattern Detector implements a rule-based static analysis framework
 \textbf{Quality Score Computation.} Detected antipatterns are synthesized into a scalar quality metric through weighted penalty aggregation. The general scoring formula is:
 
 \begin{equation}
-\text{quality\_score} = 100 - \sum_{\text{severity}} n_{\text{severity}} \times p_{\text{severity}}
+\text{quality\_score} = 100 - \sum_{\text{severity} \in \mathcal{S}} n_{\text{severity}} \times p_{\text{severity}}
 \end{equation}
 
-where $n_{\text{severity}}$ denotes the frequency of antipatterns in each severity category, and $p_{\text{severity}}$ represents the configurable penalty weight for that severity level. The penalty coefficients encode relative technical impact: correctness violations receive maximum penalty, edge-case failures moderate penalty, performance issues minor penalty, and style concerns minimal penalty.  
+where \(\mathcal{S}\) denotes the set of severity levels defined by the configuration, $n_{\text{severity}}$ denotes the frequency of antipatterns in each severity category, and $p_{\text{severity}}$ represents the configurable penalty weight for that severity level. The penalty coefficients encode relative technical impact: correctness violations receive maximum penalty, edge-case failures moderate penalty, performance issues minor penalty, and style concerns minimal penalty.  
 
-It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 267 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
+It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 279 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
 
 \subsection{Multi-Model Semantic Validation Architecture}\label{sec:semantic}
 
