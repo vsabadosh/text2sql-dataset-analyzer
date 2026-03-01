@@ -14,6 +14,7 @@ class VoterResult(BaseModel):
     explanation: str = ""
     weight: float = 1.0
     error: str | None = None
+    reasoning_effort: str | None = None
 
 
 class LLMJudgeFeatures(BaseModel):

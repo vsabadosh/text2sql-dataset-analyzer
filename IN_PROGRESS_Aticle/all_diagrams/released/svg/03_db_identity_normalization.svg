@@ -18,13 +18,13 @@
      inkscape:pageopacity="0.0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
-     inkscape:zoom="0.72969165"
-     inkscape:cx="529.67579"
-     inkscape:cy="374.81586"
+     inkscape:zoom="0.66263928"
+     inkscape:cx="445.94398"
+     inkscape:cy="373.50638"
      inkscape:window-width="1512"
      inkscape:window-height="858"
      inkscape:window-x="0"
-     inkscape:window-y="38"
+     inkscape:window-y="33"
      inkscape:window-maximized="0"
      inkscape:current-layer="svg44" />
   <defs
@@ -100,7 +100,7 @@
      font-size="15px"
      id="text1"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan1">📥 Input Record</tspan></text>
   <text
      x="470"
@@ -109,7 +109,7 @@
      class="small-text"
      id="text2"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan10">• Natural language question</tspan></text>
   <text
      x="470"
@@ -118,7 +118,7 @@
      class="small-text"
      id="text3"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan11">• SQL query</tspan></text>
   <text
      x="470"
@@ -128,7 +128,7 @@
      fill="#e74c3c"
      id="text4"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan12">• Database identifier (optional)</tspan></text>
   <!-- Arrow down -->
   <path
@@ -151,7 +151,10 @@
      class="label"
      font-weight="bold"
      font-size="15px"
-     id="text5">🔍 Database Identity Validation</text>
+     id="text5"
+     style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       id="tspan30">🔍 Database Identity Validation</tspan></text>
   <text
      x="445"
      y="257"
@@ -159,7 +162,7 @@
      class="small-text"
      id="text6"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan13">Check if database identifier is provided</tspan></text>
   <text
      x="445"
@@ -168,7 +171,7 @@
      class="small-text"
      id="text7"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan14">Validate database accessibility and integrity</tspan></text>
   <!-- Arrow down to decision -->
   <path
@@ -187,7 +190,9 @@
      class="label"
      font-weight="bold"
      id="text8"
-     style="-inkscape-font-specification:'Sans, Normal';font-family:Sans;font-weight:normal;font-style:normal;font-stretch:normal;font-variant:normal;font-size:13px;font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-anchor:middle;fill:#2c3e50">Database identifier</text>
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-anchor:middle;fill:#2c3e50"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       id="tspan29">Database identifier</tspan></text>
   <text
      x="600"
      y="393"
@@ -196,7 +201,7 @@
      font-weight="bold"
      id="text9"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan6">exists and valid?</tspan></text>
   <!-- YES path (DB exists) -->
   <path
@@ -228,7 +233,7 @@
      font-weight="bold"
      id="text11"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan3">✅ Database Ready</tspan></text>
   <text
      x="920"
@@ -236,8 +241,8 @@
      text-anchor="start"
      class="small-text"
      id="text12"
-     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:12.3333px;font-family:Arial, sans-serif;-inkscape-font-specification:'Arial, sans-serif, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-anchor:start;fill:#34495e"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan15">Database accessible</tspan></text>
   <text
      x="920"
@@ -246,7 +251,7 @@
      class="small-text"
      id="text13"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan16">Identifier preserved</tspan></text>
   <!-- Arrow to output -->
   <path
@@ -283,7 +288,7 @@
      font-weight="bold"
      id="text15"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan4">DDL Schema</tspan></text>
   <text
      x="175"
@@ -293,20 +298,26 @@
      font-weight="bold"
      id="text16"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-   style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
-   id="tspan5">Available</tspan>?</text>
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       id="tspan5">Available?</tspan></text>
   <text
      x="70"
      y="405"
      text-anchor="start"
      class="small-text"
-     id="text17">Check for embedded</text>
+     id="text17"
+     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       id="tspan26">Check for embedded</tspan></text>
   <text
      x="70"
      y="421"
      text-anchor="start"
      class="small-text"
-     id="text18">CREATE TABLE definitions</text>
+     id="text18"
+     style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       id="tspan27">CREATE TABLE definitions</tspan></text>
   <!-- YES path (Has DDL) - create DB -->
   <path
      d="M 175 430 L 175 480"
@@ -336,7 +347,7 @@
      font-weight="bold"
      id="text20"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan18">🔨 Database Generation</tspan></text>
   <text
      x="70"
@@ -345,7 +356,7 @@
      class="small-text"
      id="text21"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan19">1. Compute schema hash</tspan></text>
   <text
      x="70"
@@ -354,7 +365,7 @@
      class="small-text"
      id="text22"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan20">2. Generate deterministic ID</tspan></text>
   <text
      x="70"
@@ -363,7 +374,7 @@
      class="small-text"
      id="text23"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan21">3. Create database from DDL</tspan></text>
   <text
      x="70"
@@ -372,7 +383,7 @@
      class="small-text"
      id="text24"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan22">4. Assign computed identifier</tspan></text>
   <!-- Arrow to output -->
   <path
@@ -408,7 +419,7 @@
      font-weight="bold"
      id="text26"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan2">❌ Validation Error</tspan></text>
   <text
      x="70"
@@ -417,7 +428,7 @@
      class="small-text"
      id="text27"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan7">Cannot process record:</tspan></text>
   <text
      x="70"
@@ -426,7 +437,7 @@
      class="small-text"
      id="text28"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan8">Missing both database identifier</tspan></text>
   <text
      x="70"
@@ -435,7 +446,7 @@
      class="small-text"
      id="text29"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan9">and DDL schema specification</tspan></text>
   <!-- Final Output -->
   <rect
@@ -455,7 +466,7 @@
      font-size="15px"
      id="text30"
      style="font-weight:500;font-size:13px;font-family:Arial, sans-serif;text-anchor:middle;fill:#2c3e50"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:14.6667px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan17">📤 Normalized Output</tspan></text>
   <text
      x="470"
@@ -464,7 +475,7 @@
      class="small-text"
      id="text31"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan23">• Original question preserved</tspan></text>
   <text
      x="470"
@@ -473,7 +484,7 @@
      class="small-text"
      id="text32"
      style="font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan24">• Original SQL query preserved</tspan></text>
   <text
      x="470"
@@ -484,7 +495,7 @@
      font-weight="bold"
      id="text33"
      style="font-weight:bold;font-size:11px;font-family:Arial, sans-serif;text-anchor:start;fill:#34495e"><tspan
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:11.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:13.3333px;font-family:Sans;-inkscape-font-specification:'Sans, Normal';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal"
        id="tspan25">• Valid database identifier guaranteed ✓</tspan></text>
   <!-- Legend -->
 </svg>

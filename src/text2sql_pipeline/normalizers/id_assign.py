@@ -40,6 +40,12 @@ class IdAssign(Normalizer):
     def normalize_stream(self, items: Iterable[Union[DataItem, Dict[str, Any]]]) -> Iterator[DataItem]:
         for obj in items:
             item = obj if isinstance(obj, DataItem) else DataItem.model_validate(obj)
+
+            existing = getattr(item, self.field, None)
+            if existing is not None and str(existing).strip():
+                yield item
+                continue
+
             if self.mode == "incremental":
                 setattr(item, self.field, str(self._counter))
                 self._counter += 1

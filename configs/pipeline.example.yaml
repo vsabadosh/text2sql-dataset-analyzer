@@ -1,14 +1,25 @@
 sourceDb:
   dialect: sqlite           # or: postgresql
   kind: file                # or: server
-  endpoint: "./data_examples/databases"    # sqlite root folder
+  # endpoint: "./data_examples/test_database"    # sqlite root folder
+  # endpoint: "./data_examples/database"    # sqlite root folder
+#  endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/test_database
+  endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/database
+  # endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_train_20240627/train_databases
   # postgresql example:
   # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
 
 load:
   name: jsonl # jsonl | json | csv | hf
   params:
-    path: data_examples/spider-tiny-9.jsonl
+    # path: data_examples/spider/calibration_subsets/calibration_dev.jsonl
+    path: data_examples/spider/calibration_subsets/calibration_train2.jsonl
+
+    # path: data_examples/spider-tiny-10.jsonl
+    # path: data_examples/merged_filtered_test_dev.jsonl
+    # path: data_examples/spider/spider_train.jsonl
+    # path: data_examples/spider/spider_dev_new.jsonl
+    # path: data_examples/spider/spider_test_new.jsonl
 
 # # Example using HuggingFace datasets (with optional token for private repos)
 # load:
@@ -20,7 +31,9 @@ load:
 
 # Progress tracking configuration
 progress:
-  expected_items: 44         # Optional: Expected number of items for percentage tracking
+  # expected_items: 8659      # Optional: Expected number of items for percentage tracking
+  # expected_items: 8659        # Optional: Expected number of items for percentage tracking
+  expected_items: 60        # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 
 normalize:
@@ -31,6 +44,7 @@ normalize:
         sql: query
         schema: schema
         dbId: db_id
+        id: id
 
   - name: id_assign        
     params:
@@ -52,17 +66,6 @@ analyze:
     params:
       enabled: true
       # ═══════════════════════════════════════════════════════════════════════════════
-      # SEVERITY PENALTIES (for quality score calculation)
-      # ═══════════════════════════════════════════════════════════════════════════════
-      # Quality Score = 100 - sum(penalty * count_of_antipatterns_at_severity)
-      # Customize penalties based on your dataset's quality requirements
-      penalties:
-        critical: 30    # Severe: always wrong results
-        high: 15        # Dangerous: wrong in edge cases
-        medium: 5       # Performance/quality issues
-        low: 2          # Style preferences
-        # Custom severity levels (if you define your own):
-      # ═══════════════════════════════════════════════════════════════════════════════
       # ANTIPATTERN SEVERITY LEVELS
       # ═══════════════════════════════════════════════════════════════════════════════
       # 
@@ -82,7 +85,20 @@ analyze:
       # 🟢 LOW: STYLE preferences or CONTEXT-DEPENDENT patterns
       #    → Acceptable in Text2SQL benchmarks
       #    → May be problematic in production but not for research datasets
-      # ═══════════════════════════════════════════════════════════════════════════════      
+      # ═══════════════════════════════════════════════════════════════════════════════
+      
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # SEVERITY PENALTIES (for quality score calculation)
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # Quality Score = 100 - sum(penalty * count_of_antipatterns_at_severity)
+      # Customize penalties based on your dataset's quality requirements
+      penalties:
+        critical: 30    # Severe: always wrong results
+        high: 15        # Dangerous: wrong in edge cases
+        medium: 5       # Performance/quality issues
+        low: 2          # Style preferences
+        # Custom severity levels (if you define your own):
+      
       antipatterns:
         sqlite:
           critical:
@@ -95,43 +111,42 @@ analyze:
           high:
             # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
             - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
-            - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
+            - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
           medium:
             # 🐌 PERFORMANCE KILLERS
             - function_in_where              # Functions on indexed columns prevent index usage
             - correlated_subquery            # Row-by-row execution (often has better alternatives)
             - leading_wildcard_like          # `LIKE '%pattern'` forces full table scan
           low:
-            # 📝 STYLE / ACCEPTABLE IN TEXT2SQL BENCHMARKS
+            # 📝 STYLE / REDUNDANCY & CODE QUALITY/ ACCEPTABLE IN TEXT2SQL BENCHMARKS
             - select_star                    # `SELECT *` (common in research datasets, avoided in production)
-            # ♻️  REDUNDANCY & CODE QUALITY
             - redundant_distinct             # DISTINCT with GROUP BY (duplicate elimination already guaranteed)
-            - select_in_exists               # `SELECT col` in EXISTS (only checks row presence, wastes I/O)
+            - select_in_exists  # `SELECT col` in EXISTS; columns are ignored, use SELECT 1 for clarity
 
         postgresql:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL`
+            - missing_group_by               # Non-aggregated columns without GROUP BY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE
             - cartesian_product              # Missing JOIN condition
           
           high:
             - not_in_nullable                # `NOT IN` with nullable subquery
-            - missing_group_by               # Non-aggregated columns without GROUP BY
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
-            - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
-          
+            - offset_without_order_by         # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution
             - leading_wildcard_like          # Full table scan pattern
           
           low:
-            - select_star                    # Style preference (acceptable in Text2SQL)
+            - select_star                    # Style preference (acceptable in Text2SQL). Common in research datasets, avoided in production)
             - redundant_distinct             # DISTINCT + GROUP BY redundancy
             - select_in_exists               # Wasteful column selection in EXISTS
- 
+
+
   - name: query_execution_analyzer
     params:
       enabled: true
@@ -141,7 +156,7 @@ analyze:
   # Uncomment and configure providers to enable semantic validation
   - name: semantic_llm_analyzer
     params:
-      enabled: false
+      enabled: true
       # Prompt configuration
       prompt_file: "configs/semantic_llm_prompts.yaml"  # Path to prompt templates
       prompt_variant: default  # Options: variant_1, variant_2, default
@@ -150,57 +165,115 @@ analyze:
       schema_mode: full  # Options: 'full' (all tables) or 'query_derived' (only tables referenced in query)
       num_examples: 2  # Number of example values per column in DDL Schema.
       parallel_voters: true
-      max_workers: 2   # 0 or omit -> auto = num providers; set 2..N to cap
+      max_workers: 4   # 0 or omit -> auto = num providers; set 2..N to cap
 
-      # LLM Provider Configuration (environment variables resolved automatically)
-      # Syntax: ${VAR_NAME} or ${VAR_NAME:default_value}
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # LLM PROVIDER CONFIGURATION  (config-driven, no hardcoded model names)
+      # ═══════════════════════════════════════════════════════════════════════════════
+      # Environment variables resolved automatically: ${VAR_NAME} or ${VAR_NAME:default_value}
+      #
+      # ── PER-MODEL PARAMETERS ──────────────────────────────────────────────────────
+      #
+      # temperature:  Sampling temperature (0.0 = deterministic).
+      #               Ignored/overridden when reasoning is enabled.
+      #
+      # reasoning:    Reasoning control. Takes PRIORITY over temperature.
+      #               Fields: enabled (bool), effort (string), mode (string, optional).
+      #               The effort value is passed through to each provider's
+      #               API as-is, so new values work without code changes.
+      #
+      #   ┌──────────────────┬────────────────────────────────────────────────────┐
+      #   │ Provider         │ How "effort" is mapped                            │
+      #   ├──────────────────┼────────────────────────────────────────────────────┤
+      #   │ OpenAI           │ reasoning={"effort": effort}                      │
+      #   │ (GPT-5.x, o-*)  │ temperature is NOT sent (API rejects it)          │
+      #   │                  │ effort: none|minimal|low|medium|high|xhigh        │
+      #   ├──────────────────┼────────────────────────────────────────────────────┤
+      #   │ Anthropic        │ mode=adaptive: adaptive thinking                  │
+      #   │                  │ mode=manual: manual budget thinking               │
+      #   │                  │ mode=auto: adaptive then fallback to manual       │
+      #   │                  │ effort: low|medium|high|max                       │
+      #   ├──────────────────┼────────────────────────────────────────────────────┤
+      #   │ Gemini           │ mode=level: thinking_level                        │
+      #   │                  │ mode=budget: thinking_budget                      │
+      #   │                  │ mode=auto: 2.x->budget, 3.x+->level              │
+      #   │                  │ (budget mapping: low→1024 med→8192 high→24576)   │
+      #   │                  │ level/budget: LOW|MEDIUM|HIGH                     │
+      #   ├──────────────────┼────────────────────────────────────────────────────┤
+      #   │ Ollama           │ Logged only (reasoning is model-internal)         │
+      #   └──────────────────┴────────────────────────────────────────────────────┘
+      # ═══════════════════════════════════════════════════════════════════════════════
       providers:
+        # ── OpenAI ──────────────────────────────────────────────────────────────────
         - name: openai
-          api_key: "${OPENAI_API_KEY}"  # Or set in environment
-          # api_key: ""  #  Or set in environment
+          api_key: "${OPENAI_API_KEY}"
           models:
-            - name: gpt-5
+           - name: gpt-5.2
+             weight: 1.0
+             reasoning:
+               enabled: true
+               effort: high             # none|minimal|low|medium|high|xhigh
+        #     - name: gpt-5.2
+        #       weight: 1.0
+        #       reasoning:
+        #         enabled: true
+        #         effort: medium
+        #     # Non-reasoning model — uses temperature instead:
+        #     # - name: gpt-4o
+        #     #   weight: 1.0
+        #     #   temperature: 0.0
+
+        # ── Anthropic ───────────────────────────────────────────────────────────────
+        - name: anthropic
+          api_key: "${ANTHROPIC_API_KEY}"
+          models:
+#            - name: claude-opus-4-6
+#              weight: 1.0
+#              reasoning:
+#                enabled: true
+#                effort: high             # low|medium|high|max
+#                mode: adaptive             # auto|adaptive|manual
+            - name: claude-sonnet-4-5
               weight: 1.0
-              temperature: 1.0 
-            # - name: gpt-5-nano
-            #   weight: 1.0
-            #   temperature: 1.0 
-            # # - name: gpt-4o
-            #   weight: 1.0
-            #   temperature: 0.0
-            # - name: gpt-4o
-            #   weight: 1.0
-            #   temperature: 0.0
+              reasoning:
+                enabled: true
+                effort: high             # low|medium|high|max
+                mode: manual               # auto|adaptive|manual
 
-        # # - name: anthropic
-        # #   api_key: "${ANTHROPIC_API_KEY}"
-        # #   models:
-        # #     - name: claude-3-5-sonnet-20241022
-        # #       weight: 1.0
-        # #       temperature: 0.0
+        # ── Gemini ──────────────────────────────────────────────────────────────────
+        # Both 2.x and 3.x use the same "effort" config — the provider
+        # auto-detects which API parameter to use (thinking_budget vs thinking_level).
         - name: gemini
-          # Primary API key (required)
           api_key: "${GEMINI_API_KEY}"
-
-          # Fallback keys for rate limit handling (optional)
           fallback_keys:
-            # - "${GEMINI_API_KEY_1}"
-            # - "${GEMINI_API_KEY_2}"
-            # - "${GEMINI_API_KEY_3}"
-
+            - "${GEMINI_API_KEY_1}"
           models:
             - name: gemini-2.5-pro
               weight: 1.0
-              temperature: 0.0
+              reasoning:
+                enabled: true
+                effort: high            # low|medium|high  (→ thinking_budget 8192)
+                mode: budget                # auto|level|budget
+            - name: gemini-3.1-pro-preview
+              weight: 1.0
+              reasoning:
+                enabled: true
+                effort: high          # low|medium|high  (→ thinking_level MEDIUM)
+                mode: level           # auto|level|budget
+        
+        # ── Ollama (local) ──────────────────────────────────────────────────────────
         # - name: ollama
-        #   base_url: "${OLLAMA_BASE_URL:http://localhost:11434}"  # With default value
+        #   base_url: "${OLLAMA_BASE_URL:http://localhost:11434}"
         #   models:
-        #     - name: codeqwen:7b-chat-v1.5-q8_0
+        #     - name: deepseek-r1:14b
         #       weight: 1.0
-        #       temperature: 0.0  # Per-model temperature setting
+        #       temperature: 0.0
+        #       # reasoning:
+        #       #   enabled: true
+        #       #   effort: medium
 
 output:
-  dataset_name: Spider_TEST_TINY_03_12_25
+  dataset_name: SPIDER_TRAIN2_Calibration_28_02_26_All_models
   # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)

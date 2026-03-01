@@ -1,7 +1,7 @@
 % !TEX TS-program = lualatex
 % !TEX encoding = UTF-8 Unicode
 
-\documentclass[]{einformatica}
+\documentclass[print]{einformatica}
 \usepackage{graphicx}
 \usepackage{soul}
 \usepackage{booktabs}
@@ -27,26 +27,21 @@
 
 \begin{document}
 
-% Ensure the bibliography includes (and orders) the same 36 references as in
-% Updated/updated_MainArtcile.docx (DOCX reference list [1]..[36]).
-% This also guards against partial BibTeX runs that would otherwise show fewer items.
-\nocite{furst2024datamodel,shi2025survey,gao2023text2sql,spiderLeaderboard,shkapenyuk2025metadata,birdLeaderboard,yu2018spider,snowflakeCopilotInline,databricksGenie,fabricCopilotSql,chang2023drspider,yao2025arctic,zhong2017seq2sql,li2023bird,gretelSynthDataset,li2025omnisql,liu2025nl2sqlbugs,mitsopoulou2025analysis,pandey2024validation,pythonDocs311,duckdbDocs,sqlalchemyDocs20,sqlglotRepo,dependencyInjectorDocs,pyyaml,karwin2010sqlantipatterns,date2012sqlrelational,iso9075_2_2016,sqliteBareColumns,postgresGroupBy,mysqlGroupByHandling,molinaro2020sqlcookbook,ramakrishnan2003dbms,sqliteForeignKeys,openaiModelsDocs,geminiApiDocs}
-
-\title{Text-to-SQL Dataset Quality Assessment: The First Open-Source Validation Framework}
+\title{Text-to-SQL Dataset Quality Assessment: A Comprehensive Open-Source Validation Framework}
 
 \shortauthorshead{Sabadosh et al.}
 
-\eIsubmitted{1 Nov. 2024} 
-\eIrevised{15 Jan. 2025} 
-\eIaccepted{20 Feb. 2025}
-\eIpublished{1 Mar. 2025} 
-\eIyear{2025}
+\eIsubmitted{28 Feb. 2026} 
+\eIrevised{28 Feb. 2026} 
+\eIaccepted{28 Feb. 2026}
+\eIpublished{28 Feb. 2026} 
+\eIyear{2026}
 
 \EIauthorI
    {Volodymyr}
    {Sabadosh}
-   {Your Institution, Your Country}
-   {vsababadosh@gmail.com}
+   {Uzhhorod National University, Ukraine}
+   {volodymyr.sabadosh@uzhnu.edu.ua}
    {0009-0006-9933-444X}
    {*} %  if star present means corresponding author
 
@@ -56,7 +51,7 @@
    {Uzhhorod National University, Ukraine}
    {vladyslav.kotsovsky@uzhnu.edu.ua}
    {0000-0002-7045-7933}
-   {*} % second author, not corresponding
+   {} % not corresponding author
  
 \keywordset{Text-to-SQL system, dataset quality, LLM, SQL validation, semantic evaluation, empirical software engineering} 
 
@@ -79,7 +74,7 @@ Multi-layer validation exposes dataset defects missed by executability-based che
 
 Text-to-SQL systems, which transform natural language queries into structured SQL queries, are experiencing a period of rapid development driven primarily by remarkable progress in Large Language Models (LLMs), as well as fundamental scientific interest and practical industry needs.
 
-From a scientific perspective, the Text-to-SQL task serves as an important test of LLMs' capacity for structured reasoning and simultaneous understanding of natural language semantics and formal programming languages~\cite{furst2024datamodel,shi2025survey}. Recent achievements in this area demonstrate impressive results: systems using GPT-4 have reached 86.6\% execution accuracy~\cite{gao2023text2sql} on the Spider 1.0 leaderboard~\cite{spiderLeaderboard}, and 80.88\%~\cite{shkapenyuk2025metadata} on the BIRD leaderboard~\cite{birdLeaderboard}---approximately 7-8$\times$ higher compared to results from 2018~\cite{yu2018spider}, when the best non-LLM approaches (Seq2Seq/SQLNet/TypeSQL) on Spider 1.0 showed only $\sim$10\% accuracy.
+From a scientific perspective, the Text-to-SQL task serves as an important test of LLMs' capacity for structured reasoning and simultaneous understanding of natural language semantics and formal programming languages~\cite{furst2024datamodel,shi2025survey}. Recent achievements in this area demonstrate impressive results: systems using GPT-4 have reached 86.6\% execution accuracy~\cite{gao2023text2sql} on the Spider 1.0 leaderboard~\cite{spiderLeaderboard}, and 80.88\%~\cite{shkapenyuk2025metadata} on the BIRD leaderboard~\cite{birdLeaderboard}---approximately 7--8$\times$ higher compared to results from 2018~\cite{yu2018spider}, when the best non-LLM approaches (Seq2Seq/SQLNet/TypeSQL) on Spider 1.0 showed only $\sim$10\% accuracy.
 
 \begin{figure}[htbp]
   \centering
@@ -90,17 +85,17 @@ From a scientific perspective, the Text-to-SQL task serves as an important test 
 
 From a practical standpoint, Text-to-SQL LLM systems are being actively deployed by leading cloud platforms. Snowflake Copilot can generate SQL from natural language in Snowsight~\cite{snowflakeCopilotInline}; Databricks AI/BI Genie converts plain English questions into equivalent SQL queries~\cite{databricksGenie}; Microsoft Copilot in Fabric/Azure SQL supports Natural Language $\rightarrow$ SQL in SQL Database workspaces~\cite{fabricCopilotSql}. This lowers the barrier for business analysts and non-technical users, providing data access without knowledge of SQL syntax.
 
-The typical process of training LLMs for Text-to-SQL tasks includes three key components (Figure~\ref{fig:training_process}): a training dataset containing triplets of (natural language question, database schema, target SQL query), an adaptation method (fine-tuning or few-shot learning) and evaluation (content matching and execution based). During fine-tuning, models adjust their weights on large Text-to-SQL datasets to better capture the mapping between natural language and SQL. In few-shot settings, by contrast, the model relies on in-context learning, using only a handful of examples in the prompt without updating its parameters. In both cases, dataset quality is critical: in fine-tuning, even a small fraction of flawed examples among tens of thousands can introduce systematic errors, while in few-shot prompting each individual example directly shapes model behavior, so a single incorrect pair may lead to consistently wrong generations (see Section~\ref{sec:data_quality_robustness}). Consider specific types of errors that may be present in datasets:
+The typical process of training LLMs for Text-to-SQL tasks includes three key components (Figure~\ref{fig:training_process}): a training dataset containing triplets of (natural language question, database schema, target SQL query), an adaptation method (fine-tuning or few-shot learning) and evaluation (content matching and execution based). During fine-tuning, models adjust their weights on large Text-to-SQL datasets to better capture the mapping between natural language and SQL. In few-shot settings, by contrast, the model relies on in-context learning, using only a handful of examples in the prompt without updating its parameters. In both cases, dataset quality is critical: in fine-tuning, even a small fraction of flawed examples among tens of thousands can introduce systematic errors, while in few-shot prompting each individual example directly shapes model behavior, so a single incorrect pair may lead to consistently wrong generations (see Section~\ref{sec:data_quality_robustness}). The following types of errors may be present in datasets:
 
 \begin{itemize}
 \item \textbf{Database schema structural errors}: incorrect foreign keys (references to non-existent tables/columns), duplicate columns, multiple primary keys, unknown data types.
 \item \textbf{SQL syntax/execution errors}: queries that cannot be parsed or executed on corresponding databases.
 \item \textbf{Semantic mismatches}: SQL queries that are syntactically correct but logically do not correspond to the natural language question (e.g., using SUM instead of AVG, incorrect JOIN conditions, missing necessary filters).
-\item \textbf{SQL anti-patterns}: technically correct queries with performance or style issues (SELECT *, absence of LIMIT, functions in WHERE that block index usage).
+\item \textbf{SQL antipatterns}: technically correct queries with performance or style issues (SELECT *, absence of LIMIT, functions in WHERE that block index usage).
 \end{itemize}
 
 \subsection*{Problem statement}
-Despite the central role of datasets, most work on Text-to-SQL focuses on model architectures, prompting techniques and decoding strategies. Until recently, the quality of popular benchmarks was typically assumed rather than systematically measured. Recent studies have begun to scrutinize benchmark quality more directly, but existing studies either provide high-level descriptive statistics, focus on semantic label auditing for selected subsets, or concentrate on runtime validation of single generated queries rather than auditing entire corpora (see Section~\ref{sec:RelatedWork} for a detailed discussion). Consequently, researchers and practitioners still have limited visibility into structural defects, semantic mismatches, or stylistic anti-patterns hidden in widely used Text-to-SQL datasets. Therefore, our central research questions are:
+Despite the central role of datasets, most work on Text-to-SQL focuses on model architectures, prompting techniques and decoding strategies. Until recently, the quality of popular benchmarks was typically assumed rather than systematically measured. Recent studies have begun to scrutinize benchmark quality more directly, but existing studies either provide high-level descriptive statistics, focus on semantic label auditing for selected subsets, or concentrate on runtime validation of single generated queries rather than auditing entire corpora (see Section~\ref{sec:RelatedWork} for a detailed discussion). Consequently, researchers and practitioners still have limited visibility into structural defects, semantic mismatches, or stylistic antipatterns hidden in widely used Text-to-SQL datasets. Therefore, our central research questions are:
 
 \begin{itemize}
 \item \textbf{RQ1}: How can we systematically evaluate the overall quality of Text-to-SQL datasets?
@@ -109,7 +104,7 @@ Despite the central role of datasets, most work on Text-to-SQL focuses on model 
 
 \subsection*{Research objective}
 
-This paper addresses this question by proposing a comprehensive validation framework for Text-to-SQL datasets and using Spider 1.0 as the primary end-to-end testbed for the framework. Our work is positioned within empirical software engineering: we treat benchmark datasets as software artefacts that should be inspected, measured and improved with the same rigour as source code or test suites.
+This paper addresses these questions by proposing a comprehensive validation framework for Text-to-SQL datasets and using Spider 1.0 as the primary end-to-end testbed for the framework. Our work is positioned within empirical software engineering: we treat benchmark datasets as software artifacts that should be inspected, measured and improved with the same rigor as source code or test suites.
 
 \subsection*{Contribution statement}
 
@@ -134,7 +129,7 @@ We review prior work across three complementary dimensions: the evolution of Tex
 
 The development of Text-to-SQL systems has been fundamentally shaped by the evolution of benchmark datasets. Early large-scale efforts, particularly WikiSQL~\cite{zhong2017seq2sql}, provided a foundational testbed with 80,654 natural-language questions and corresponding SQL queries over 24,241 Wikipedia tables. While WikiSQL enabled initial data-driven experimentation at scale, its design imposed significant constraints: queries were limited to single tables with a restricted SQL grammar excluding JOINs, nested subqueries, and complex aggregations. These limitations hindered the evaluation of compositional reasoning and realistic multi-table relational scenarios.
 
-The release of Spider~\cite{yu2018spider} at EMNLP 2018 marked a pivotal advancement in the field. Spider comprises 10,181 natural-language questions mapped to 5,693 unique SQL queries across 200 databases spanning 138 diverse domains. The dataset was meticulously constructed and validated by 11 Yale University students, ensuring rigorous annotation quality. A consolidated update published in 2020 resolved annotation inconsistencies and schema discrepancies, establishing the canonical Spider 1.0 version that remains the community standard. Spider's prominence derives from several key attributes: systematic human validation ensuring semantic correctness; balanced distribution across domains and difficulty levels; realistic multi-table schemas with extensive foreign-key relationships reflecting real-world database design; comprehensive coverage of SQL constructs including nested queries, set operations, aggregation with grouping, and multi-hop reasoning patterns. As of 2025, Spider has become the most widely adopted benchmark in the field, with over 700 citations across major academic indexing services.
+The release of Spider~\cite{yu2018spider} at EMNLP 2018 marked a pivotal advancement in the field. Spider comprises 10,181 natural-language questions mapped to 5,693 unique SQL queries across 200 databases spanning 138 diverse domains. The dataset was meticulously constructed and validated by 11 Yale University students, aiming to ensure rigorous annotation quality. A consolidated update published in 2020 resolved annotation inconsistencies and schema discrepancies, establishing the canonical Spider 1.0 version that remains the community standard. Spider's prominence derives from several key attributes: systematic human validation ensuring semantic correctness; balanced distribution across domains and difficulty levels; realistic multi-table schemas with extensive foreign-key relationships reflecting real-world database design; comprehensive coverage of SQL constructs including nested queries, set operations, aggregation with grouping, and multi-hop reasoning patterns. As of 2025, Spider has become the most widely adopted benchmark in the field, with over 700 citations across major academic indexing services.
 
 Complementary benchmarks have emerged to address specific evaluation dimensions not fully captured by Spider. The BIRD benchmark~\cite{li2023bird} targets large-scale, content-rich databases (approximately 33 GB total), introducing practical challenges such as noisy data values, complex entity resolution requirements, and external knowledge dependencies. BIRD provides 12,751 question--SQL pairs across 95 substantial databases covering 37 professional domains, making it particularly valuable for assessing system robustness under realistic production conditions with imperfect data quality and ambiguous terminology.
 
@@ -160,7 +155,9 @@ A complementary line of work is represented by NL2SQL-BUGs~\cite{liu2025nl2sqlbu
 
 A different perspective on data quality is offered by Pandey et al.~\cite{pandey2024validation}, who propose a ``data accuracy'' validation framework for enterprise Text-to-SQL systems. Their approach focuses on runtime validation of generated SQL and query results through schema validation, syntax checking, logical consistency checks (e.g., aggregate--grouping coherence), data integrity verification, and multi-agent feedback loops implemented with LangGraph and AutoGen. Although this framework uses several components like those needed for dataset quality assurance, it is fundamentally designed for per-query validation in production systems rather than large-scale offline auditing of benchmark or synthetic corpora. It operates on individual generated queries and their results and therefore does not analyze dataset-level error patterns, measure overall ``dataset health'', or provide tools for systematic dataset curation. Moreover, the framework is presented primarily at an architectural and conceptual level: there is no publicly available implementation, no quantitative evaluation on standard benchmarks (e.g., Spider, BIRD, OmniSQL), and no support for batch-mode processing of tens of thousands of NL--SQL pairs. Semantic checks are restricted to intra-SQL consistency (e.g., aggregates vs. GROUP BY) and do not address the correctness of the natural-language--to-SQL mapping across an entire dataset.
 
-Additional efforts in the literature acknowledge the importance of validation but remain fragmented and narrowly scoped. Synthetic data pipelines (e.g., Gretel, OmniSQL) typically apply internal LLM-based or heuristic filters, while many works rely almost exclusively on execution-based filtering---discarding examples whose SQL fails to run on the corresponding database. Although such filtering can improve training stability, it is ultimately naïve and insufficient: successful execution does not verify the correctness of SQL logic, the semantic alignment between the question and the query, the integrity of the underlying schema, or the presence of stylistic and efficiency-related anti-patterns. Consequently, these procedures cannot serve as general-purpose dataset auditing methods and address only a small subset of the quality issues that arise in modern Text-to-SQL datasets.
+Several concurrent lines of work address related but complementary aspects of Text-to-SQL data curation. BenchPress~\cite{wenz2025benchpress} accelerates benchmark construction by using retrieval-augmented LLMs to propose natural language descriptions for enterprise SQL logs, with human experts selecting or editing the drafts; it targets benchmark \emph{creation} (SQL$\rightarrow$NL annotation) rather than post-hoc quality \emph{validation} of existing NL--SQL pairs, and our framework could serve as an automated downstream check for pairs produced by such a pipeline. Synthesis-oriented systems such as DB-Explore~\cite{ma2025dbexplore} and SQL-Synth~\cite{wang2025sqlsynth} embed execution-based or LLM-based filters within their generation pipelines to improve output quality; however, these filters are tightly coupled to the synthesis workflow and do not generalize to arbitrary corpora, do not cover schema-level or antipattern dimensions, and do not produce the item-level annotations needed for systematic curation. LinkAlign~\cite{wang2025linkalign} addresses schema linking for large-scale multi-database environments and constructs the AmbiDB dataset to capture real-world schema ambiguity; our framework could complement such efforts by assessing schema integrity and semantic correctness of the resulting linked datasets. Safarzadeh et al.~\cite{safarzadeh2025sql2nl} propose a paraphrase-based robustness evaluation that reveals brittleness of NL2SQL models under linguistic variation; their SQL2NL paraphrases could serve as stress tests for our semantic judge's consistency. Finally, MultiSpider~2.0~\cite{pham2025multispider2} extends Spider~2.0 to eight languages, targeting multilingual enterprise settings; applying our framework to such multilingual benchmarks would test its generality across languages and dialect-specific failure modes.
+
+Additional efforts in the literature acknowledge the importance of validation but remain fragmented and narrowly scoped. Synthetic data pipelines (e.g., Gretel, OmniSQL) typically apply internal LLM-based or heuristic filters, while many works rely almost exclusively on execution-based filtering---discarding examples whose SQL fails to run on the corresponding database. Although such filtering can improve training stability, it is ultimately naïve and insufficient: successful execution does not verify the correctness of SQL logic, the semantic alignment between the question and the query, the integrity of the underlying schema, or the presence of stylistic and efficiency-related antipatterns. Consequently, these procedures cannot serve as general-purpose dataset auditing methods and address only a small subset of the quality issues that arise in modern Text-to-SQL datasets.
 
 Taken together, existing approaches provide important analytical foundations and illustrate the need for quality control, but they do not offer a comprehensive, automated, and scalable solution for validating Text-to-SQL datasets themselves. Our work builds on these insights by introducing a multi-level validation framework---covering structural, syntactic, semantic, and stylistic dimensions---implemented in an extensible open-source system designed to evaluate both human-curated benchmarks and large-scale synthetic datasets at scale.
 
@@ -170,11 +167,11 @@ In this section, we describe the design, architecture, and implementation of our
 
 \subsection{Architectural overview of the text2sql-dataset-analyzer framework}
 
-In this section we present \texttt{text2sql-dataset-analyzer}, a novel framework and, to the best of our knowledge, the first dedicated tool for systematic, multi-layer quality assessment of Text-to-SQL benchmarks. The framework is released as open-source software, which allows other researchers and practitioners to inspect, extend, and apply it to their own Text-to-SQL corpora. 
+In this section, we present \texttt{text2sql-dataset-analyzer}, a novel framework and, to the best of our knowledge, the first dedicated tool for systematic, multi-layer quality assessment of Text-to-SQL benchmarks. The framework is released as open-source software, which allows other researchers and practitioners to inspect, extend, and apply it to their own Text-to-SQL corpora. 
 
 \textbf{Design principles.} The system represents a configuration-driven streaming data-processing architecture designed to address the challenges of large-scale Text-to-SQL dataset validation and quality assessment. The architecture implements three foundational design principles: modularity through well-defined component interfaces, scalability via constant-memory streaming processing, and extensibility through configuration-driven composition. This design enables the system to process datasets of arbitrary size while maintaining deterministic memory footprint characteristics, a critical requirement when analyzing multi-gigabyte benchmark datasets such as Spider, BIRD, or OmniSQL 2.5 M.
 
-\textbf{Technology Stack.} The implementation relies on a carefully selected technology stack centered on Python 3.11~\cite{pythonDocs311}, chosen for its mature ecosystem of SQL tooling and support for large language model integration. DuckDB~\cite{duckdbDocs} serves as the primary analytics backend, offering columnar storage optimized for analytical queries while exposing a standard SQL interface. For interaction with relational databases, we use SQLAlchemy 2.0~\cite{sqlalchemyDocs20}--based adapters, which provide a uniform abstraction layer over concrete engines; in the current implementation, SQLite and PostgreSQL are supported as execution backends, but additional engines can be integrated with minimal effort. SQL parsing and structural analysis are handled by sqlglot~\cite{sqlglotRepo}, a dialect-aware parser capable of dealing with syntactic variations across SQLite, PostgreSQL, MySQL, and other SQL dialects commonly encountered in Text-to-SQL datasets. Component orchestration relies on the \texttt{dependency\_injector} library~\cite{dependencyInjectorDocs}, which facilitates type-safe dependency resolution and enables runtime composition of analysis pipelines through declarative YAML configuration loaded via PyYAML~\cite{pyyaml}. 
+\textbf{Technology Stack.} The implementation relies on a carefully selected technology stack centered on Python 3.11~\cite{pythonDocs311}, chosen for its mature ecosystem of SQL tooling and support for large language model integration. DuckDB~\cite{duckdbDocs} serves as the primary analytics backend, offering columnar storage optimized for analytical queries while exposing a standard SQL interface. For interaction with relational databases, we use SQLAlchemy 2.0-based adapters~\cite{sqlalchemyDocs20}, which provide a uniform abstraction layer over concrete engines; in the current implementation, SQLite and PostgreSQL are supported as execution backends, but additional engines can be integrated with minimal effort. SQL parsing and structural analysis are handled by sqlglot~\cite{sqlglotRepo}, a dialect-aware parser capable of dealing with syntactic variations across SQLite, PostgreSQL, MySQL, and other SQL dialects commonly encountered in Text-to-SQL datasets. Component orchestration relies on the \texttt{dependency\_injector} library~\cite{dependencyInjectorDocs}, which facilitates type-safe dependency resolution and enables runtime composition of analysis pipelines through declarative YAML configuration loaded via PyYAML~\cite{pyyaml}. 
 
 \textbf{User Interface.} User interaction with the system occurs primarily through a command-line interface exposed via the \texttt{text2sql} entry point. The interface supports two distinct operational modes corresponding to the system's primary use cases. The first mode, invoked through \texttt{text2sql run --config <config.yaml>}, executes the complete analysis pipeline from raw dataset ingestion through all configured analyzers to final metric persistence and report generation. The second mode, accessible via \texttt{text2sql report}, enables standalone report generation from previously computed metrics, supporting both configuration-driven batch report generation (\texttt{--config}) and targeted single-report generation (\texttt{--database <path> --type <report-type>}). This separation of concerns between analysis and reporting allows researchers to iterate on report designs and formats without re-executing computationally expensive analysis stages, particularly relevant when semantic validation via large language models can require hours of processing time.
 
@@ -204,7 +201,7 @@ The system architecture follows a layered design pattern comprising five runtime
 
 \item \textbf{Query Execution Analyzer} evaluates dynamic executability within the corresponding database. Queries are run in a sandboxed, SELECT-only mode; execution time and row counts are recorded, and failures are categorized to distinguish syntax problems, semantic errors, and connectivity issues.
 
-\item \textbf{Query Antipattern Detector} uses a rule-based approach to flag 13 SQL antipatterns, such as functions in WHERE predicates blocking index usage, correlated subqueries with quadratic complexity, and implicit joins. Each detected antipattern contributes a weighted penalty to a 0--100 quality score.
+\item \textbf{Query Antipattern Detector} uses a rule-based approach to flag 13 SQL antipatterns, such as functions in WHERE predicates blocking index usage, correlated subqueries with quadratic complexity, and implicit joins.
 
 \item \textbf{Semantic LLM Judge Analyzer} uses large language models to assess how well SQL queries answer their natural-language questions. 
 \end{enumerate}
@@ -232,7 +229,7 @@ The Database Identity Normalizer addresses a fundamental challenge in Text-to-SQ
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.75\textwidth]{figures/fig4_dbidentity.png}
+  \includegraphics[width=0.85\textwidth]{figures/fig4_dbidentity.png}
   \caption{DbIdentity normalization process: guaranteed dbId filling via health check or creation from DDL}
   \label{fig:dbidentity}
 \end{figure}
@@ -258,7 +255,7 @@ The Schema Validation Analyzer constitutes a critical component of the quality a
 
 Figure~\ref{fig:schema_analyzer} illustrates the three-branch schema validation architecture. The analyzer processes databases through parallel validation pathways, each targeting distinct quality dimensions. The first branch extracts foreign key definitions from database metadata through dialect-specific system catalogs, with fallback to dataset-provided schema files when explicit constraint metadata proves unavailable. The second branch performs schema introspection via column enumeration and primary key discovery to detect structural anomalies. The third branch executes data queries to assess content quality. This multi-pathway design enables comprehensive validation spanning constraint integrity, column definitions, and data completeness.
 
-Foreign key structural validation examines constraint definitions through five checks: Missing Parent Table (verifying referenced tables exist), Missing Parent Column (confirming parent columns presence), Arity Mismatch (enforcing equal column counts in composite keys), Type Mismatch (detecting incompatible types after normalization to dialect affinity families), and Target Not Key (verifying parent columns possess uniqueness constraints). Foreign key data validation detects orphaned values---rows where foreign key column values lack corresponding parent table entries---through dialect-specific integrity check commands. Column and type validation operates independently, detecting duplicate column names within tables (case-insensitive comparison), unknown or unsupported data types, and tables with multiple primary key definitions. Data quality validation executes row count queries to identify empty tables---schema structures lacking actual data---which can confound training algorithms or produce misleading evaluation results when queries execute successfully against vacant schemas.
+Foreign key structural validation examines constraint definitions through five checks: Missing Parent Table (verifying referenced tables exist), Missing Parent Column (confirming parent column presence), Arity Mismatch (enforcing equal column counts in composite keys), Type Mismatch (detecting incompatible types after normalization to dialect affinity families), and Target Not Key (verifying parent columns possess uniqueness constraints). Foreign key data validation detects orphaned values---rows where foreign key column values lack corresponding parent table entries---through dialect-specific integrity check commands. Column and type validation operates independently, detecting duplicate column names within tables (case-insensitive comparison), unknown or unsupported data types, and tables with multiple primary key definitions. Data quality validation executes row count queries to identify empty tables---schema structures lacking actual data---which can confound training algorithms or produce misleading evaluation results when queries execute successfully against vacant schemas.
 
 \subsection{Query Syntax Analyzer}\label{sec:syntax_analyzer}
 
@@ -271,7 +268,7 @@ The Query Syntax Analyzer performs static structural analysis of SQL statements,
   \label{fig:syntax_analyzer}
 \end{figure}
 
-The Abstract Syntax Tree Construction stage employs sqlglot parser to transform SQL text into a hierarchical tree where nodes represent syntactic constructs---SELECT expressions, JOIN operations, WHERE predicates, subqueries, and CTEs. Parsing failures are captured with detailed error messages facilitating identification of malformed queries.
+The Abstract Syntax Tree Construction stage employs the sqlglot parser to transform SQL text into a hierarchical tree where nodes represent syntactic constructs---SELECT expressions, JOIN operations, WHERE predicates, subqueries, and CTEs. Parsing failures are captured with detailed error messages facilitating identification of malformed queries.
 
 In the Structural Feature Extraction stage, the analyzer traverses the AST to compute a feature vector capturing syntactic properties relevant to query complexity. Five feature groups are extracted. Basic structure features count projections, quantify WHERE predicate complexity, and detect GROUP BY and ORDER BY clauses. Join and relation features count JOIN types (INNER, LEFT, \ldots), enumerate distinct tables, and compute maximum join depth, capturing relational complexity. Advanced features measure subquery nesting depth, CTE usage, window functions (OVER clauses), and recursive CTEs. Aggregation features track aggregate functions (COUNT, SUM, \ldots), HAVING clauses, and DISTINCT operations. Set operation features detect UNION, INTERSECT, and EXCEPT operators and their nesting patterns. 
 
@@ -309,7 +306,7 @@ The Query Antipattern Detector implements a rule-based static analysis framework
 \begin{itemize}
 \item \textbf{NOT IN with nullable subqueries}: When subquery returns NULL, SQL's three-valued logic causes the entire NOT IN expression to evaluate to false/NULL unexpectedly, silently filtering all rows~\cite{karwin2010sqlantipatterns,date2012sqlrelational}. Example: \texttt{WHERE id NOT IN (SELECT parent\_id FROM table)} returns empty set if any \texttt{parent\_id} is NULL.
 
-\item \textbf{LIMIT without ORDER BY}: Using LIMIT without ORDER BY, the database may returns an arbitrary subset of rows in an undefined order~\cite{karwin2010sqlantipatterns,iso9075_2_2016}. The result set is non-deterministic and may vary between executions, violating benchmark reproducibility requirements.
+\item \textbf{LIMIT without ORDER BY}: Using LIMIT without ORDER BY, the database may return an arbitrary subset of rows in an undefined order~\cite{karwin2010sqlantipatterns,iso9075_2_2016}. The result set is non-deterministic and may vary between executions, violating benchmark reproducibility requirements.
 
 \item \textbf{OFFSET without ORDER BY}: Similar to LIMIT without ORDER BY, OFFSET without ordering produces non-deterministic pagination~\cite{karwin2010sqlantipatterns,iso9075_2_2016}. Rows may shift between pages across executions, leading to duplicates or missing records in paginated results.
 
@@ -321,7 +318,7 @@ The Query Antipattern Detector implements a rule-based static analysis framework
 \begin{itemize}
 \item \textbf{Functions in WHERE} (\texttt{WHERE LOWER(col) = 'value'}): Applying functions to indexed columns prevents index usage, forcing full table scans~\cite{karwin2010sqlantipatterns,molinaro2020sqlcookbook,ramakrishnan2003dbms}. The database cannot utilize the index because it must compute the function for every row before comparison.
 
-\item \textbf{Correlated subqueries}: Row-by-row execution exhibits $O(n^2)$ complexity~\cite{karwin2010sqlantipatterns,molinaro2020sqlcookbook,ramakrishnan2003dbms}. Modern optimizers (PostgreSQL, Oracle) may decorrelate automatically, but SQLite executes literally, making this particularly problematic for large datasets~\cite{sqliteBareColumns}.
+\item \textbf{Correlated subqueries}: Row-by-row execution exhibits $O(n^2)$ complexity~\cite{karwin2010sqlantipatterns,molinaro2020sqlcookbook,ramakrishnan2003dbms}. Modern optimizers (PostgreSQL, Oracle) may decorrelate automatically, but SQLite executes them literally, making this particularly problematic for large datasets~\cite{sqliteBareColumns}.
 
 \item \textbf{Leading wildcard LIKE} (\texttt{LIKE '\%pattern'}): Prevents index prefix matching, requiring full table scan even on indexed columns~\cite{karwin2010sqlantipatterns,molinaro2020sqlcookbook,ramakrishnan2003dbms}. Indexes can only be used when the pattern starts with a known prefix.
 \end{itemize}
@@ -336,14 +333,6 @@ The Query Antipattern Detector implements a rule-based static analysis framework
 \item \textbf{Columns in EXISTS subqueries} (\texttt{EXISTS (SELECT col FROM ...)}): EXISTS only checks row existence; selecting specific columns wastes I/O~\cite{karwin2010sqlantipatterns,molinaro2020sqlcookbook}. The database may still fetch the column data unnecessarily. Using SELECT 1 or SELECT * is a convention that signals the columns are irrelevant.
 \end{itemize}
 
-\textbf{Quality Score Computation.} Detected antipatterns are synthesized into a scalar quality metric through weighted penalty aggregation. The general scoring formula is:
-
-\begin{equation}
-\text{quality\_score} = 100 - \sum_{\text{severity} \in \mathcal{S}} n_{\text{severity}} \times p_{\text{severity}}
-\end{equation}
-
-where \(\mathcal{S}\) denotes the set of severity levels defined by the configuration, $n_{\text{severity}}$ denotes the frequency of antipatterns in each severity category, and $p_{\text{severity}}$ represents the configurable penalty weight for that severity level. The penalty coefficients encode relative technical impact: correctness violations receive maximum penalty, edge-case failures moderate penalty, performance issues minor penalty, and style concerns minimal penalty.  
-
 It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 279 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
 
 \subsection{Multi-Model Semantic Validation Architecture}\label{sec:semantic}
@@ -356,9 +345,7 @@ The Semantic LLM Judge Analyzer constitutes the most sophisticated component of 
     \label{fig:semantic_judge}
   \end{figure}
   
-\textbf{Smart DDL Generation.} The first stage addresses the token efficiency challenge inherent in providing database schema context to language models. Naïvely transmitting complete database schemas can consume thousands of tokens for databases with dozens of tables, rapidly exceeding context window limits or consuming substantial portions of available context that could be better utilized for reasoning. This stage prepares a compact, token-efficient representation of the database schema and sample data that is injected as context into the LLM-based semantic Text-to-SQL judge. The system supports two DDL generation modes: full and query-derived. In full mode, the system retrieves metadata for the entire database schema. In query-derived mode, it first parses the SQL query with sqlglot to build an abstract syntax tree and extract only the tables referenced in FROM clauses, JOIN conditions, and subqueries. The database adapter then queries the system catalogs only for these referenced tables, retrieving column names, data types, primary keys, and foreign key relationships. After this selection step, both modes follow the same pipeline: the system executes SELECT queries to sample a configurable number of example values from each column (by default, two per column), giving the language model concrete data instances that complement the type information. Finally, the collected metadata is formatted into CREATE TABLE statements with inline comments containing the example values, producing a minimal DDL specification.
-
-In practice, query-derived mode reduces token usage by a factor of 2--3 compared to full mode, making it attractive for resource-constrained deployments; however, its truncated schema context and reliance on sparse value sampling can bias semantic evaluation, because the judge may lack the tables or representative examples needed to distinguish genuinely unanswerable questions from incorrect table selection. To avoid this and keep our semantic validation results cleanly interpretable, in this work we therefore report results using full mode (complete schemas), leaving a systematic comparison of query-derived and full mode, including a deeper analysis of value-sampling effects, to future work.
+\textbf{Smart DDL Generation.} The first stage addresses the token-efficiency challenge inherent in providing database schema context to language models. Naïvely transmitting complete database schemas can consume thousands of tokens for databases with dozens of tables, rapidly exceeding context window limits or consuming substantial portions of available context that could be better utilized for reasoning. This stage prepares a compact, token-efficient representation of the database schema and sample data that is injected as context into the LLM-based semantic Text-to-SQL judge. In our evaluation, we use full-mode schema context: the system retrieves metadata for the entire database schema (tables, columns, data types, primary keys, and foreign keys). It then executes SELECT queries to sample a configurable number of example values from each column (by default, two per column), giving the language model concrete data instances that complement the type information. Finally, the collected metadata is formatted into CREATE TABLE statements with inline comments containing the example values, producing a minimal DDL specification.
 
 \textbf{Prompt Template Resolution.} The second stage combines the generated smart DDL with contextual elements to produce complete evaluation prompts. Templates are loaded from YAML configuration files to facilitate experimentation with different prompt formulations. Each template contains dynamic placeholders:
 
@@ -393,19 +380,17 @@ This multi-model approach provides natural defense against systematic biases of 
 
 \textbf{Consensus decision.} The fourth stage aggregates the individual model responses through weighted voting to determine consensus verdicts and identify cases requiring human review. Each model is associated with a non-negative scalar weight specified in the configuration file, allowing researchers to encode prior beliefs about the relative reliability or cost-effectiveness of different providers (for example, assigning higher weights to empirically validated frontier models while giving lower weights to cheaper or fully local models). The aggregation procedure operates along two complementary axes. First, it computes an unweighted majority verdict by counting, for each of the four categories, how many models produced that verdict; a majority consensus is deemed to exist when a single category accounts for more than half of all non-failed model responses, and a verdict is unanimous when all such responses coincide. Second, it derives a scalar semantic quality score in the closed interval $[0,1]$ by mapping CORRECT to 1.0, PARTIALLY\_CORRECT to 0.5, and both INCORRECT and UNANSWERABLE to 0.0, and then computing a provider-weighted average according to formula:
 
-\begin{equation}
+\begin{equation*}
 \text{score}_{\text{consensus}} = \frac{\sum_{i=1}^{n} w_i \cdot v_i}{\sum_{i=1}^{n} w_i}
-\end{equation}
+\end{equation*}
 
 where $v_i$ denotes the mapped verdict value and $w_i$ the corresponding model weight. This score captures the aggregate tendency of weighted models to regard a query as semantically adequate, while the majority and unanimity indicators characterize the degree of inter-model agreement. Records lacking any strict majority or exhibiting strongly divergent verdicts across models are of particular interest for dataset curation, as they frequently correspond to questions whose intent is underspecified, to SQL queries with subtle semantic flaws, or to cases where multiple, mutually incompatible interpretations of the question are plausible.
 
-The multi-model semantic validation architecture addresses several research challenges in Text-to-SQL evaluation. By employing multiple models with different architectures and training data, the system reduces the risk of systematic biases that might arise from relying on a single model family. The consensus voting mechanism provides natural uncertainty quantification, with disagreement among models serving as a signal that examples may be problematic or ambiguous rather than clearly correct or incorrect. The structured output format with confidence scores enables downstream analysis to weight semantic validation results appropriately, for example by flagging low-confidence verdicts for human review or by analyzing whether certain query patterns systematically produce low-confidence judgments.
-
 \section{Experimental Setup and Results}\label{sec:Results}
 
-This section reports empirical results from applying the validation framework (Section~\ref{sec:Methods}) to all 11,840 examples in Spider 1.0~\cite{yu2018spider} across three partitions: Test (2,147 examples, 40 databases), Dev (1,034 examples, 20 databases), and Train (8,659 examples, 146 databases). The dataset was obtained from the official Spider resources maintained by the Yale LILY group~\cite{spiderLeaderboard} in January 2025. The experimental infrastructure employed the technology stack described in Section~\ref{sec:Methods}, with SQLite 3.45.0 as the target dialect consistent with Spider's original database format~\cite{yu2018spider,sqliteForeignKeys}. LLM-based semantic validation used OpenAI GPT-5~\cite{openaiModelsDocs} and Google Gemini 2.5 Pro~\cite{geminiApiDocs} (both accessed November 2025). These reasoning-optimized models were used under provider-default reasoning behavior.
+This section reports empirical results from applying the validation framework (Section~\ref{sec:Methods}) to all 11,840 examples in Spider 1.0~\cite{yu2018spider} across three partitions: Test (2,147 examples, 40 databases), Dev (1,034 examples, 20 databases), and Train (8,659 examples, 146 databases). The Train partition comprises both the core 7,000 examples (\texttt{train\_spider.json}) and the supplementary 1,659 examples (\texttt{train\_others.json}) distributed with Spider 1.0; the commonly cited figure of 10,181 refers to the core splits only (7,000 + 1,034 + 2,147). We audit the full release to ensure completeness. The dataset was obtained from the official Spider resources maintained by the Yale LILY group~\cite{spiderLeaderboard} in January 2025. The experimental infrastructure employed the technology stack described in Section~\ref{sec:Methods}, with SQLite 3.45.0 as the target dialect consistent with Spider's original database format~\cite{yu2018spider,sqliteForeignKeys}. LLM-based semantic validation used OpenAI GPT-5~\cite{openaiModelsDocs} with default reasoning effort level of ``medium'' and Google Gemini 2.5 Pro~\cite{geminiApiDocs} with default thinking budget of 8,192 tokens (both accessed November 2025). These default reasoning configurations balance accuracy with computational efficiency.
 
-The analysis pipeline operated in the streaming architecture described in Section~\ref{sec:Methods}, with analyzer components configured per the methodology detailed in Sections~\ref{sec:schema_analyzer}--\ref{sec:semantic}. Schema validation executed once per unique database identifier (206 total) with cached metadata reused for queries sharing databases. Query-level analyzers operated independently on each SQL statement. Antipattern detection followed the SQLite-specific severity configuration (Section~\ref{sec:antipattern_detector}) with 13 antipatterns and penalty weighting (Critical: -30, High: -15, Medium: -5, Low: -2). Execution testing used the query execution analyzer configured with \texttt{mode=all} (see Section~\ref{sec:Methods}), which executes SELECT statements with automatic LIMIT 1 injection. When a LIMIT clause is absent, it tests UPDATE/DELETE/INSERT statements inside a rollback transaction while blocking destructive operations (e.g., DROP/\allowbreak TRUNCATE/\allowbreak ALTER). Semantic judging used two-model consensus with verdict categories (CORRECT/\allowbreak PARTIALLY\_CORRECT/\allowbreak INCORRECT/\allowbreak UNANSWERABLE) as defined in Section~\ref{sec:semantic}; configuration parameters included \texttt{schema\_mode=full}, \texttt{num\_examples=2}, and parallel voting enabled (\texttt{parallel\_voters=true}, \texttt{max\_workers=2}).
+The analysis pipeline operated in the streaming architecture described in Section~\ref{sec:Methods}, with analyzer components configured per the methodology detailed in Sections~\ref{sec:schema_analyzer}--\ref{sec:semantic}. Schema validation executed once per unique database identifier (206 total) with cached metadata reused for queries sharing databases. Query-level analyzers operated independently on each SQL statement. Antipattern detection followed the SQLite-specific severity configuration (Section~\ref{sec:antipattern_detector}) with 13 antipatterns classified across four severity levels (Critical, High, Medium, Low). Execution testing used the query execution analyzer configured with \texttt{mode=all} (see Section~\ref{sec:Methods}), which executes SELECT statements with automatic LIMIT 1 injection. When a LIMIT clause is absent, it tests UPDATE/DELETE/INSERT statements inside a rollback transaction while blocking destructive operations (e.g., DROP/\allowbreak TRUNCATE/\allowbreak ALTER). Semantic judging used two-model consensus with verdict categories (CORRECT/\allowbreak PARTIALLY\_CORRECT/\allowbreak INCORRECT/\allowbreak UNANSWERABLE) as defined in Section~\ref{sec:semantic}; configuration parameters included \texttt{schema\_mode=full}, \texttt{num\_examples=2}, and parallel voting enabled (\texttt{parallel\_voters=true}, \texttt{max\_workers=2}).
 
 Results are organized across five quality dimensions reported in Sections~\ref{sec:schema_results}--\ref{sec:semantic_results}: (i) database schema integrity (Section~\ref{sec:schema_results}); (ii) SQL syntactic structure (Section~\ref{sec:syntax_results}); (iii) dynamic executability (Section~\ref{sec:execution_results}); (iv) antipattern prevalence (Section~\ref{sec:antipattern_results}); and (v) semantic correctness (Section~\ref{sec:semantic_results}). Sections~\ref{sec:performance}--\ref{sec:integrated} report computational performance and integrated quality assessment.
 
@@ -505,13 +490,13 @@ Table~\ref{tab:schema_fk_data_violations} enumerates databases with foreign key 
         sakila\_1 & Train & 38,273 & 91.3\% \\
         flight\_2 & Dev & 2,403 & 5.7\% \\
         flight\_4 & Train & 1,240 & 3.0\% \\
-        car\_1 & Dev & 2 & <0.1\% \\
-        hr\_1 & Train & 6 & <0.1\% \\
-        college\_1 & Train & 2 & <0.1\% \\
-        wta\_1 & Dev & 1 & <0.1\% \\
-        hospital\_1 & Train & 1 & <0.1\% \\
-        allergy\_1 & Train & 1 & <0.1\% \\
-        pilot\_1 & Test & 1 & <0.1\% \\
+        car\_1 & Dev & 2 & $<$0.1\% \\
+        hr\_1 & Train & 6 & $<$0.1\% \\
+        college\_1 & Train & 2 & $<$0.1\% \\
+        wta\_1 & Dev & 1 & $<$0.1\% \\
+        hospital\_1 & Train & 1 & $<$0.1\% \\
+        allergy\_1 & Train & 1 & $<$0.1\% \\
+        pilot\_1 & Test & 1 & $<$0.1\% \\
         \midrule
         TOTAL & --- & 41,927 & 100\% \\
         \bottomrule
@@ -573,7 +558,7 @@ Table~\ref{tab:syntax_overall} presents overall syntactic analysis results.
 
 All 11,840 queries parsed successfully (100\%). Complexity scores show minimal variation: mean scores range from 39.0 to 40.7, with identical median (41) across all partitions.
 
-Examination of difficulty level distributions (Table~\ref{tab:difficulty}) reinforces this consistency pattern, with difficulty distributions consistent across Test and Dev, with approximately 24\% Easy, 58--59\% Medium, and 17\% Hard. Train contains 66 Expert-level queries (0.8\%), while Test and Dev contain none.
+Examination of difficulty level distributions (Table~\ref{tab:difficulty}) reinforces this pattern, with nearly identical proportions across Test and Dev: approximately 24\% Easy, 58--59\% Medium, and 17\% Hard. Train contains 66 Expert-level queries (0.8\%), while Test and Dev contain none.
 
 \begin{table}[ht]
     \caption{Query difficulty distribution across partitions}
@@ -660,7 +645,7 @@ Table~\ref{tab:antipatterns_overall} presents overall code quality metrics.
     \end{tabular}
 \end{table}
 
-The most of queries contain no detected antipatterns: 82.5\% (Test), 83.7\% (Dev), 86.5\% (Train).
+Most queries contain no detected antipatterns: 82.5\% (Test), 83.7\% (Dev), 86.5\% (Train).
 
 Table~\ref{tab:antipatterns_top5} presents antipattern distribution by type and severity.
 
@@ -686,6 +671,12 @@ Table~\ref{tab:antipatterns_top5} presents antipattern distribution by type and 
 \end{table}
 
 Missing GROUP BY is the most frequent high severity antipattern (945 total occurrences), affecting 6.9--11.1\% of queries per partition. NOT IN with nullable columns affects 2.6--4.4\% of queries. Critical Cartesian products total 17 queries across all partitions (2 in Test, 2 in Dev, 13 in Train). All 17 Cartesian product cases were manually verified and confirmed as incorrect queries representing broken join logic; notably, all 17 were also unanimously judged INCORRECT by both LLM models (Gemini 2.5 Pro and GPT-5) in semantic validation (Section~\ref{sec:semantic_results}), providing independent confirmation of their defect status.
+
+The Missing GROUP BY prevalence is particularly significant because it exploits SQLite's permissive handling of aggregates with non-aggregated ``bare'' columns---behavior that the SQLite documentation characterizes as an intentional extension~\cite{sqliteBareColumns}. Under the SQL standard~\cite{iso9075_2_2016}, every non-aggregated column in the SELECT list must appear in the GROUP BY clause; stricter engines such as PostgreSQL and MySQL (when \texttt{ONLY\_FULL\_GROUP\_BY} is enabled) reject these queries outright~\cite{postgresGroupBy,mysqlGroupByHandling}. Models trained on these 945 examples may therefore learn dialect-specific SQL that produces errors or non-deterministic results when deployed against standard-conformant database systems.
+
+Similarly, the 348 queries using NOT IN with potentially nullable columns introduce a subtle correctness risk rooted in SQL's three-valued logic~\cite{iso9075_2_2016}: if the subquery returns any NULL value, the NOT IN predicate evaluates to UNKNOWN for every outer row, causing the WHERE clause to silently filter out all rows and return an empty result set~\cite{karwin2010sqlantipatterns,date2012sqlrelational}. While this does not affect Spider's internal evaluation (where the gold query and the candidate query share the same SQLite environment), it represents a latent correctness hazard for any downstream application or cross-engine deployment.
+
+Taken together, these antipattern classes highlight a gap between benchmark-internal correctness and production robustness: the gold SQL is technically correct under SQLite's permissive semantics, but encodes dialect-specific patterns that compromise portability, reproducibility, and training signal quality for real-world Text-to-SQL systems.
 
 \subsection{Semantic Correctness via LLM Consensus}\label{sec:semantic_results}
 
@@ -742,7 +733,31 @@ Table~\ref{tab:mixed_breakdown} breaks down the Mixed category by disagreement d
 
 The dominant pattern is the CORRECT $\leftrightarrow$ PARTIALLY\_CORRECT boundary ($\sim$59--60\% of Mixed cases), consistent with instances where the generated SQL largely matches intent but differs in minor constraints (e.g., DISTINCT/NULL handling, small filtering nuances). The next-largest group is CORRECT $\leftrightarrow$ INCORRECT disagreements ($\sim$19--24\% of Mixed), reflecting cases where judges differ in how strictly they interpret semantic mismatches. Importantly, disagreement patterns that involve an INCORRECT judgment (e.g., INCORRECT $\leftrightarrow$ PARTIALLY\_CORRECT at 6.7--7.3\%, and INCORRECT $\leftrightarrow$ UNANSWERABLE patterns in ``Other'') likely correspond to fundamentally flawed queries rather than benign ambiguity, even if the models disagree on severity. Under this interpretation, the effective incorrect rate may be higher than what unanimous INCORRECT verdicts alone indicate.
 
-We manually reviewed all 31 cases unanimously labeled UNANSWERABLE and confirmed that the LLM consensus verdicts were correct: in each instance, the question cannot be answered from the provided schema alone (e.g., missing required tables/columns or inherent ambiguity). Finally, we cross-checked Dev-set semantic issues reported in~\cite{liu2025nl2sqlbugs} against our semantic validation. The 16 overlapping Dev items and our consensus outcomes were:
+We manually reviewed all 31 cases unanimously labeled UNANSWERABLE and confirmed that the LLM consensus verdicts were correct: in each instance, the question cannot be answered from the provided schema alone (e.g., missing required tables/columns or inherent ambiguity).
+
+\label{sec:calibration}To further quantify the reliability of the two-model consensus, we conducted a systematic calibration study against expert human judgments. We drew a stratified random sample of 150 items (50~CORRECT, 50~INCORRECT, 50~Mixed consensus) spanning all three Spider partitions (Dev, Test, Train). Each sampled item was re-evaluated by four additional frontier LLMs (GPT-5.2, Claude Opus 4.6, Claude Sonnet 4.5, and Gemini 3.1~Pro~Preview) alongside an independent human expert who served as the ground-truth annotator, using the same four-category verdict taxonomy (CORRECT, PARTIALLY\_CORRECT, INCORRECT, UNANSWERABLE). Table~\ref{tab:calibration} presents the confusion matrix comparing the original two-model consensus against the human verdict.
+
+\begin{table}[ht]
+    \caption{Confusion matrix: original two-model consensus vs.\ human verdict ($n=150$)}
+    \label{tab:calibration}
+    \centering
+    \footnotesize
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{Original Consensus} & \textbf{CORRECT} & \textbf{PARTIAL} & \textbf{INCORRECT} & \textbf{UNANS.} & \textbf{Total} \\
+        \midrule
+        CORRECT          & 48 & 2  & 0  & 0 & 50 \\
+        INCORRECT        & 0  & 0  & 50 & 0 & 50 \\
+        Mixed            & 14 & 23 & 10 & 3 & 50 \\
+        \midrule
+        Total            & 62 & 25 & 60 & 3 & 150 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+When the two-model consensus reaches agreement, reliability is very high: 96\% of CORRECT consensus items were confirmed correct by the human expert (the remaining 4\% were PARTIALLY\_CORRECT---none were incorrect), and 100\% of INCORRECT consensus items were confirmed incorrect. Collapsing to a binary accept/reject decision (CORRECT and PARTIALLY\_CORRECT vs.\ INCORRECT and UNANSWERABLE), the consensus achieves 100\% accuracy on the 100 non-Mixed items, with Cohen's $\kappa = 1.000$~\cite{cohen1960coefficient}. Multi-class agreement (CORRECT, PARTIALLY\_CORRECT, INCORRECT) yields $\kappa = 0.961$, corresponding to ``almost perfect'' agreement on the Landis--Koch scale~\cite{landis1977measurement}. The Mixed category (50~items) distributes across all human verdicts: 14~CORRECT, 23~PARTIALLY\_CORRECT, 10~INCORRECT, and 3~UNANSWERABLE, confirming that inter-model disagreement reliably flags items with genuine ambiguity or subtle defects rather than mere noise.
+
+Finally, we cross-checked Dev-set semantic issues reported in~\cite{liu2025nl2sqlbugs} against our semantic validation. The 16 overlapping Dev items and our consensus outcomes were:
 
 Consensus INCORRECT (9/16): 67, 494, 579, 773, 774, 819, 820, 961, 962
 
@@ -754,7 +769,7 @@ We manually reviewed all 16 items and confirmed that 101, 128, 129, 811, and 812
 
 \subsection{Computational Performance Characteristics}\label{sec:performance}
 
-Experiments executed on a single workstation (macOS 14.x, Apple Silicon, 16GB RAM). Table~\ref{tab:performance} presents per-query processing time for each analyzer component.
+Experiments were executed on a single workstation (macOS 14.x, Apple Silicon, 16GB RAM). Table~\ref{tab:performance} presents per-query processing time for each analyzer component.
 
 \begin{table}[ht]
     \caption{Per-query processing time by analyzer component}
@@ -881,13 +896,11 @@ The quality gradient observed across partitions---Test (90.0\% valid schemas), T
 
 \subsection{Antipattern Prevalence and SQL Portability}
 
-The antipattern analysis (Section~\ref{sec:antipattern_results}) reveals that specific high-severity patterns exhibit concerning prevalence. Missing GROUP BY affects 945 queries (8.0\% of the dataset), exploiting SQLite's permissive handling of aggregates with non-aggregated ``bare'' columns---behavior that is non-portable and can fail under stricter engines or modes (e.g., PostgreSQL, and MySQL when ONLY\_FULL\_GROUP\_BY is enabled)~\cite{sqliteBareColumns,postgresGroupBy,mysqlGroupByHandling}. Models trained on these examples may learn dialect-specific SQL that breaks when deployed against stricter systems. Similarly, 348 queries use NOT IN with potentially nullable columns, introducing correctness risks under SQL's three-valued logic: if the subquery returns NULL, the predicate can evaluate to UNKNOWN (and thus be filtered out in WHERE), removing rows unexpectedly~\cite{iso9075_2_2016}. These patterns matter less for benchmark performance (where evaluation uses the same SQLite environment that training examples target) but become critical in production environments with heterogeneous database systems and strict SQL conformance requirements. Finally, the critical Cartesian-product join cases identified in Section~\ref{sec:antipattern_results} represent a particularly severe portability and correctness hazard because they can silently inflate result sets and teach pathological join behavior.
+The antipattern analysis in Section~\ref{sec:antipattern_results} reveals a systemic tension between benchmark-specific evaluation and production deployment. Spider's ground-truth SQL is correct under SQLite's permissive semantics but encodes dialect-specific patterns---most notably bare-column aggregation without GROUP BY and NULL-unsafe NOT IN predicates---that would fail or produce wrong results under stricter, standard-conformant engines. This gap raises broader questions about whether benchmark performance translates to real-world robustness, particularly as Text-to-SQL systems are increasingly deployed against heterogeneous database backends in production environments.
 
 \subsection{Semantic Ambiguity and the Limits of Automated Evaluation}
 
-The semantic validation results (Section~\ref{sec:semantic_results}) provide direct evidence that formal correctness is insufficient for evaluating Text-to-SQL systems. Only 60--66\% of examples achieved unanimous CORRECT verdicts from two frontier LLM judges, while 8--10\% were unanimously judged INCORRECT, and 23--27\% fell into the Mixed disagreement category. The disagreement breakdown shows that Mixed cases concentrate primarily at the CORRECT$\leftrightarrow$PARTIALLY\_CORRECT boundary ($\sim$59--60\% of Mixed), indicating that many disputed examples admit multiple valid SQL implementations or differ in subtle constraints (e.g., DISTINCT, NULL handling, boundary conditions). These boundary cases expose a fundamental challenge for benchmark-based evaluation: exact-match metrics penalize plausible alternatives, while execution-based metrics may accept incorrect solutions that coincidentally match results on small test databases.
-
-Importantly, Mixed does not always reflect benign ambiguity. A substantial fraction of Mixed outcomes include an INCORRECT judgment (e.g., CORRECT$\leftrightarrow$INCORRECT at $\sim$19--24\% of Mixed, and INCORRECT$\leftrightarrow$PARTIALLY\_CORRECT at $\sim$7\%), suggesting that the effective error rate may exceed what unanimous INCORRECT verdicts alone indicate. At the same time, not all outcomes are ambiguous: we manually reviewed all 31 cases unanimously labeled UNANSWERABLE and confirmed the consensus verdicts (Section~\ref{sec:semantic_results}). Similarly, we manually verified all 17 critical Cartesian-product join cases and confirmed they are genuine defects; both judges unanimously labeled all 17 as INCORRECT (Section~\ref{sec:antipattern_results}). Finally, our cross-check against the 16 Dev-set semantic issues reported in~\cite{liu2025nl2sqlbugs} shows that some items labeled ``invalid'' in prior analyses are semantically correct under manual review, reinforcing that benchmark ``correctness'' depends on interpretation criteria and motivating evaluation protocols that explicitly accommodate ambiguity and multiple valid formulations.
+The semantic validation results (Section~\ref{sec:semantic_results}) expose a fundamental challenge for benchmark-based evaluation. Exact-match metrics penalize plausible alternative SQL formulations, while execution-based metrics may accept incorrect solutions that coincidentally produce matching results on small test databases. The substantial Mixed-verdict fraction documented in Section~\ref{sec:semantic_results} illustrates that many Text-to-SQL examples admit multiple valid interpretations, yet current evaluation protocols lack mechanisms to accommodate this ambiguity. Extrapolating the calibration-study distribution (28\% CORRECT, 46\% PARTIALLY\_CORRECT among Mixed items) to the full dataset suggests that the estimated true correctness rate is approximately 67--73\% (strict CORRECT) or 83--86\% when including PARTIALLY\_CORRECT items, indicating that the headline 60--66\% consensus-CORRECT figure represents a conservative lower bound. At the same time, inter-model disagreement does not always reflect benign ambiguity---the calibration study (Section~\ref{sec:calibration}) confirms that a non-trivial share of disputed items are genuinely incorrect, making the Mixed category a reliable triage signal for human review rather than mere noise. Our cross-check against prior semantic-issue reports~\cite{liu2025nl2sqlbugs} further underscores that benchmark ``correctness'' is interpretation-dependent: some items flagged as invalid in earlier analyses are semantically correct under alternative, equally defensible criteria. These observations motivate evaluation protocols that explicitly define interpretation rules---covering under-specification, acceptable reformulations, and schema assumptions---and publish curated subsets with transparent, testable labeling criteria.
 
 \subsection{Remediation Priorities for Spider}
 
@@ -895,11 +908,13 @@ Based on impact analysis, we recommend the following remediation priorities for 
 
 Beyond database-level repair, maintainers should prioritize query-level curation by (v) fixing/removing verified high-severity defects (e.g., critical Cartesian-product joins) and (vi) explicitly annotating/excluding confirmed invalid items from standard accuracy reporting---including both non-solvable UNANSWERABLE questions and queries that are strongly supported as incorrect by multiple signals (agreement between both LLM judges, manual review, and prior semantic issue reports such as~\cite{liu2025nl2sqlbugs}). Finally, we recommend publishing an official high-confidence subset excluding examples with schema defects, confirmed invalid items, and high-severity query defects, enabling controlled experiments on known-clean data.
 
+We note that this study focuses on defect detection and prioritization; it does not yet demonstrate that acting on these recommendations yields measurable downstream improvements in model performance (e.g., execution accuracy or test-suite accuracy gains after filtering or repairing flagged items). Such controlled training and evaluation experiments---comparing models trained on the original corpus versus a remediated or high-confidence subset---are an important next step for establishing the practical impact of dataset-level quality assurance and are pursued in ongoing work (see Section~\ref{sec:Conclusions}).
+
 \subsection{Threats to Validity}
 
 LLM-based semantic validation can introduce systematic biases. First, evaluation leakage/contamination is possible: frontier models may have been exposed to Spider or related artifacts during pre-training, which could influence judgments. While the substantial disagreement rate (23--27\% Mixed verdicts) and non-trivial unanimous INCORRECT fraction (8--10\%) suggest judges are not merely reproducing fixed labels, these observations do not rule out contamination; eliminating this threat would require models demonstrably untrained on Spider.
 
-Second, two-model consensus improves robustness relative to a single judge but does not remove correlated error: both models may share failure modes on SQL semantics (e.g., NULL behavior, duplicate elimination, boundary conditions) or specific domains, yielding high-confidence but still incorrect judgments. Accordingly, we treat consensus outcomes as strong signals rather than definitive ground truth and complement them with targeted manual checks on selected consensus subsets (Section~\ref{sec:semantic_results}). Third, providing sampled cell values (Section~\ref{sec:semantic}) introduces sampling bias: samples may miss edge cases (e.g., rare categories, extreme values, NULL prevalence) needed for accurate semantic judgment---especially for aggregates or distribution-dependent predicates---potentially leading to misclassification even when SQL is logically correct.
+Second, two-model consensus improves robustness relative to a single judge but does not remove correlated error: both models may share failure modes on SQL semantics (e.g., NULL behavior, duplicate elimination, boundary conditions) or specific domains, yielding high-confidence but still incorrect judgments. To mitigate this threat, we calibrated the consensus against independent human expert judgments on a stratified 150-item sample (Section~\ref{sec:calibration}): Cohen's $\kappa = 1.000$ (binary) and $\kappa = 0.961$ (multi-class) demonstrate that when the two models agree, their verdicts align almost perfectly with human assessment. We nonetheless treat consensus outcomes as strong signals rather than definitive ground truth and complement them with targeted manual checks on selected consensus subsets (Section~\ref{sec:semantic_results}). Third, providing sampled cell values (Section~\ref{sec:semantic}) introduces sampling bias: samples may miss edge cases (e.g., rare categories, extreme values, NULL prevalence) needed for accurate semantic judgment---especially for aggregates or distribution-dependent predicates---potentially leading to misclassification even when SQL is logically correct.
 
 \section{Conclusions and Future Work}\label{sec:Conclusions}
 
@@ -911,7 +926,7 @@ This paper presents \texttt{text2sql-dataset-analyzer}, an open-source, end-to-e
 
 Applying the framework to all 11,840 Spider 1.0 examples (Train/Dev/Test) shows that traditional checks can substantially overestimate dataset health. Despite 100\% parsing success and 99.97--100\% execution success, schema analysis uncovers 89 structural foreign-key errors and 41,927 referential-integrity violations concentrated in a small number of databases. We further observe pronounced quality heterogeneity across partitions: Dev exhibits the lowest schema validity (65.0\%) even though it is the primary signal for model selection, and the flight\_2 database alone affects 35.6\% of Dev examples---a mismatch that can systematically bias hyperparameter tuning and validation-based model selection.
 
-Semantic validation with a two-model LLM committee indicates that only 60--66\% of items receive unanimous CORRECT judgments, while 8--10\% are unanimously INCORRECT and 23--27\% remain disputed. We ground these signals with targeted manual review. All 31 unanimously UNANSWERABLE cases were confirmed as non-solvable under the provided schemas. In addition, the Query Quality Analyzer flagged 17 high-severity Cartesian-product join cases (missing join predicates); all 17 also received an INCORRECT consensus from the semantic committee, and manual inspection verified them as real bugs. We also manually cross-checked 16 Dev semantic issues previously reported in~\cite{liu2025nl2sqlbugs} and found partial agreement: several items labeled as invalid in~\cite{liu2025nl2sqlbugs} are semantically correct under our criteria, highlighting that validity judgments depend on explicit interpretation rules (e.g., under specification, acceptable reformulations, and schema assumptions). These findings motivate publishing curated subsets together with transparent, testable labeling criteria.
+Semantic validation with a two-model LLM committee indicates that only 60--66\% of items receive unanimous CORRECT judgments, while 8--10\% are unanimously INCORRECT and 23--27\% remain disputed. A calibration study on 150 stratified items confirms the consensus reliability: Cohen's $\kappa = 1.000$ (binary) and $\kappa = 0.961$ (multi-class) against independent human expert judgments, with 96\% precision for CORRECT and 100\% for INCORRECT consensus verdicts (Section~\ref{sec:calibration}). We ground these signals with targeted manual review. All 31 unanimously UNANSWERABLE cases were confirmed as non-solvable under the provided schemas. In addition, the Query Quality Analyzer flagged 17 high-severity Cartesian-product join cases (missing join predicates); all 17 also received an INCORRECT consensus from the semantic committee, and manual inspection verified them as real bugs. We also manually cross-checked 16 Dev semantic issues previously reported in~\cite{liu2025nl2sqlbugs} and found partial agreement: several items labeled as invalid in~\cite{liu2025nl2sqlbugs} are semantically correct under our criteria, highlighting that validity judgments depend on explicit interpretation rules (e.g., under specification, acceptable reformulations, and schema assumptions). These findings motivate publishing curated subsets together with transparent, testable labeling criteria.
 
 Beyond correctness labels, the audit surfaces systematic portability and robustness hazards in the gold SQL, including missing GROUP BY under SQLite's permissive aggregate handling and NULL-sensitive NOT IN patterns. Taken together, the results support treating Text-to-SQL benchmarks as software artifacts that require continuous quality assurance, and they provide a prioritized repair roadmap for Spider focusing on critical Dev remediation (flight\_2), high-impact Train repairs (e.g., sakila\_1 and structural foreign-key issues), and semantic filtering strategies for high-confidence evaluation.
 
@@ -923,21 +938,17 @@ We validate only Spider 1.0; applying the framework to additional benchmarks and
 
 Finally, this study focuses on detection and prioritization rather than automated repair and downstream impact. Future work should develop repair pipelines for common defect classes (e.g., foreign key mismatches, missing GROUP BY rewrites, NULL-safe anti-joins) and evaluate portability by re-executing queries across stricter engines while reporting cross-dialect discrepancies. Controlled training studies comparing models trained and evaluated on the original dataset versus cleaned or high-confidence subsets are needed to quantify how dataset remediation affects generalization and robustness.
 
-Overall, our results argue for treating Text-to-SQL benchmarks as software artefacts that require continuous quality assurance. By making comprehensive auditing practical and reproducible, the framework enables benchmark maintainers to track regressions, publish curated subsets, and prioritize repairs that measurably improve both training signal quality and evaluation validity.
+Overall, our results argue for treating Text-to-SQL benchmarks as software artifacts that require continuous quality assurance. By making comprehensive auditing practical and reproducible, the framework enables benchmark maintainers to track regressions, publish curated subsets, and prioritize repairs that measurably improve both training signal quality and evaluation validity.
 
-\subsection*{Acknowledgment}
-
-The authors acknowledge the support of Intellias in funding and providing resources that enabled access to frontier large language models used in this study.
-
-\Funding{This research did not receive any specific grant from funding agencies in the public, commercial or not-for-profit sectors.}
+\Funding{No funds, grants, or other support was received for this work.}
 
 \Data{The Text-to-SQL dataset analysis tool developed in this study is available as open-source software on GitHub: https://github.com/vsabadosh/text2sql-dataset-analyzer. The repository includes the configuration files and scripts required to reproduce the analysis, along with precomputed metrics and generated reports for the Spider 1.0 dataset. Detailed, partition-specific outputs (Train/Dev/Test), including the exported reports and artifacts referenced in the paper, are provided in the repository root under the MainSpiderResults directory.}
 
-\CompetingInterests{The author declares that there are no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.}
+\CompetingInterests{The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.}
 
 \Credits{
 Volodymyr Sabadosh: Conceptualization, Software Design, Data curation, Formal analysis, Methodology, Investigation, Visualization, Writing -- original draft, Writing -- review and editing.
-Vladyslav Kotsovsky: Supervision, Writing -- review \& editing.
+Vladyslav Kotsovsky: Supervision, Writing -- review and editing.
 % See https://credit.niso.org/
 }
 

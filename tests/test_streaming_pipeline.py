@@ -13,6 +13,7 @@ def test_full_pipeline(tmp_path):
     # use example config relative to repo root
     os.environ["OPENAI_API_KEY"] = "OPEN_API_KEY"
     os.environ["GEMINI_API_KEY"] = "GEMINI_KEY"
+    os.environ["HF_TOKEN"] = "HF_TOKEN"
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     cfg_path = os.path.join(repo_root, "configs", "pipeline.example.yaml")
     out_dir = run_pipeline(cfg_path)

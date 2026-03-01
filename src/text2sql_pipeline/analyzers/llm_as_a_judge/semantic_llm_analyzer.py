@@ -277,6 +277,7 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
                         explanation="",
                         weight=provider.weight,
                         error=str(e),
+                        reasoning_effort=provider.reasoning.effort if provider.reasoning.enabled else None,
                     )
                 results.append(res)
         return results
@@ -318,7 +319,8 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
                     verdict=verdict,
                     explanation=explanation,
                     weight=provider.weight,
-                    error=None
+                    error=None,
+                    reasoning_effort=provider.reasoning.effort if provider.reasoning.enabled else None,
                 )
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse JSON from {provider.name}/{provider.model_name}: {e}")
@@ -328,7 +330,7 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
                     verdict="FAILED",
                     explanation="",
                     weight=provider.weight,
-                    error=f"JSON parse error: {str(e)}"
+                    error=f"JSON parse error: {str(e)}",
                 )
         except Exception as e:
             logger.warning(f"Provider {provider.name}/{provider.model_name} failed: {e}")
@@ -338,7 +340,7 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
                 verdict="FAILED",
                 explanation="",
                 weight=provider.weight,
-                error=str(e)
+                error=str(e),
             )
     
     def _aggregate_results(self, voter_results: List[VoterResult]) -> LLMJudgeFeatures:
