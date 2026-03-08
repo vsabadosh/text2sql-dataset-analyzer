@@ -141,7 +141,9 @@ cython_debug/
 *.swp
 *.swo
 *~
-.DS_Store
+# macOS metadata files
+/.DS_Store
+**/.DS_Store
 
 # Project specific
 *.sqlite

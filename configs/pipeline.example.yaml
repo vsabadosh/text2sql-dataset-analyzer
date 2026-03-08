@@ -12,27 +12,12 @@ sourceDb:
 load:
   name: jsonl # jsonl | json | csv | hf
   params:
-    # path: data_examples/spider/calibration_subsets/calibration_dev.jsonl
     path: data_examples/spider/calibration_subsets/calibration_train2.jsonl
-
     # path: data_examples/spider-tiny-10.jsonl
-    # path: data_examples/merged_filtered_test_dev.jsonl
-    # path: data_examples/spider/spider_train.jsonl
-    # path: data_examples/spider/spider_dev_new.jsonl
-    # path: data_examples/spider/spider_test_new.jsonl
 
-# # Example using HuggingFace datasets (with optional token for private repos)
-# load:
-#   name: hf
-#   params:
-#     name: "koookiy/spider-SQL-data-train"
-#     split: "train"
-#     token: "${HF_TOKEN}"  # Optional: HuggingFace API token for private datasets
 
 # Progress tracking configuration
 progress:
-  # expected_items: 8659      # Optional: Expected number of items for percentage tracking
-  # expected_items: 8659        # Optional: Expected number of items for percentage tracking
   expected_items: 60        # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 

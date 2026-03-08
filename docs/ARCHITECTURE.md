@@ -2,14 +2,28 @@
 
 Complete system architecture with diagrams and explanations.
 
-**Version**: 2.0  
-**Last Updated**: January 25, 2026
+**Version**: 2.1  
+**Last Updated**: March 8, 2026
 
 ---
 
-## What's New in Version 2.0
+## What's New in Version 2.1
 
-### Major Features Added
+### Changes in 2.1 (March 2026)
+
+1. **Reasoning Model Support**
+   - Per-model `reasoning` configuration (effort, mode) that takes priority over temperature
+   - Provider-specific mapping: OpenAI (effort levels), Anthropic (adaptive/manual/auto modes), Gemini (level/budget/auto modes)
+   - Pass-through design: new effort values work without code changes
+   - Updated model support: GPT-5.x, Claude Sonnet 4.5/Opus 4.6, Gemini 2.5/3.1
+
+2. **Calibration Workflow**
+   - Scripts for human calibration of LLM judge verdicts
+   - Stratified sampling, per-partition subset building
+   - Agreement metrics computation (Cohen's kappa, F1, confusion matrix)
+   - Item-level verdict export for manual review
+
+### Features Added in 2.0
 
 1. **LLM-as-a-Judge Semantic Validation**
    - Multi-provider support (OpenAI, Anthropic, Gemini, Ollama)
@@ -63,8 +77,10 @@ Complete system architecture with diagrams and explanations.
 3. [Component Architecture](#component-architecture)
 4. [Data Flow Architecture](#data-flow-architecture)
 5. [Module Details](#module-details)
-6. [Integration Patterns](#integration-patterns)
-7. [Deployment Architecture](#deployment-architecture)
+6. [LLM-as-a-Judge Architecture](#llm-as-a-judge-architecture)
+7. [Integration Patterns](#integration-patterns)
+8. [Deployment Architecture](#deployment-architecture)
+9. [Calibration Workflow](#calibration-workflow)
 
 ---
 
@@ -370,7 +386,7 @@ Resolve prompt template (3 variants + custom support):
 Query LLM voters (OpenAI, Anthropic, Gemini, Ollama):
   • Parallel execution with configurable workers
   • API key fallback/rotation (Gemini multi-key support)
-  • Per-model temperature and weight configuration
+  • Per-model reasoning or temperature configuration
        ↓
 Parse JSON responses with code fence handling
        ↓
@@ -389,6 +405,7 @@ Output: LLM judge metric with voter breakdown
 
 **Key Features:**
 - **Multi-provider support**: OpenAI, Anthropic, Gemini, Ollama
+- **Reasoning models**: Per-model effort/mode configuration (see Reasoning Configuration below)
 - **Weighted voting**: Configurable weights per model
 - **Parallel execution**: ThreadPoolExecutor with configurable max_workers
 - **API key rotation**: Automatic fallback for Gemini rate limits
@@ -915,9 +932,9 @@ Verdict scores:
 Weighted Score = Σ(verdict_score × weight) / Σ(weights)
 
 Example with 3 voters:
-- GPT-4o (weight 1.0): CORRECT → 1.0
-- Gemini (weight 1.0): PARTIALLY_CORRECT → 0.5
-- Claude (weight 1.0): CORRECT → 1.0
+- GPT-5.2 (weight 1.0): CORRECT → 1.0
+- Gemini-2.5-pro (weight 1.0): PARTIALLY_CORRECT → 0.5
+- Claude-sonnet-4-5 (weight 1.0): CORRECT → 1.0
 
 Weighted Score = (1.0 + 0.5 + 1.0) / 3.0 = 0.833
 ```
@@ -985,6 +1002,53 @@ VoterResult                                   VoterResult
                            ▼
                   LLMJudgeMetricEvent
 ```
+
+### Reasoning Model Configuration
+
+Each LLM model supports an optional `reasoning` block that takes priority over `temperature`. The `effort` value is passed through to each provider's API as-is, so new effort levels work without code changes.
+
+**Per-Provider Mapping:**
+
+| Provider | `effort` values | `mode` options | API behavior |
+|----------|----------------|----------------|-------------|
+| **OpenAI** (GPT-5.x, o-*) | `none`, `minimal`, `low`, `medium`, `high`, `xhigh` | -- | Sets `reasoning={"effort": effort}`; temperature is not sent |
+| **Anthropic** (Claude) | `low`, `medium`, `high`, `max` | `adaptive`, `manual`, `auto` | `adaptive` = adaptive thinking; `manual` = budget thinking; `auto` = adaptive with manual fallback |
+| **Gemini** (2.x, 3.x) | `low`, `medium`, `high` | `level`, `budget`, `auto` | `budget` maps low/med/high to 1024/8192/24576 tokens; `level` uses thinking_level; `auto` selects based on model version |
+| **Ollama** | any | -- | Logged only; reasoning is model-internal |
+
+**Configuration example:**
+```yaml
+models:
+  - name: gpt-5.2
+    weight: 1.0
+    reasoning:
+      enabled: true
+      effort: high              # Reasoning effort level
+
+  - name: claude-sonnet-4-5
+    weight: 1.0
+    reasoning:
+      enabled: true
+      effort: high
+      mode: manual              # Anthropic thinking mode
+
+  - name: gemini-2.5-pro
+    weight: 1.0
+    reasoning:
+      enabled: true
+      effort: high
+      mode: budget              # Gemini thinking budget
+```
+
+Non-reasoning models use `temperature` instead:
+```yaml
+models:
+  - name: gpt-4o
+    weight: 1.0
+    temperature: 0.0            # Standard temperature-based sampling
+```
+
+---
 
 ### API Key Management (Gemini)
 
@@ -1478,6 +1542,42 @@ Metric Categories:
 
 ---
 
+## Calibration Workflow
+
+The project includes scripts for human calibration and validation of LLM judge verdicts, located in `scripts/`:
+
+```
+Calibration Pipeline:
+═════════════════════
+
+1. generate_calibration_sample.py
+   └─ Build stratified sample from LLM judge reports
+      (e.g. 50 CORRECT + 50 INCORRECT + 50 Mixed = 150 items)
+      └─ Output: calibration_sample.csv
+
+2. build_calibration_subsets.py
+   └─ Split CSV into per-partition JSONL subsets (dev/test/train)
+      └─ Output: calibration_{partition}.jsonl
+
+3. [Human annotation step]
+   └─ Annotators review items and assign verdicts in reports
+
+4. compute_calibration_metrics.py
+   └─ Compare human vs LLM verdicts
+      ├─ Confusion matrix
+      ├─ Per-category precision (CORRECT/INCORRECT/Mixed)
+      ├─ Binary accuracy, precision, recall, F1
+      └─ Cohen's kappa (binary and multi-class)
+
+5. export_calibration_table.py
+   └─ Export item-level verdict comparison to CSV
+      └─ Output: calibration_verdicts.csv
+```
+
+This workflow validates LLM judge reliability by measuring inter-rater agreement between automated LLM verdicts and human expert judgments.
+
+---
+
 ## Summary
 
 ### Architecture Strengths
@@ -1516,10 +1616,12 @@ Metric Categories:
 - DuckDB 0.9+ (analytics database for metrics)
 - dependency-injector 4.41+ (DI container)
 
+**LLM Provider SDKs:**
+- OpenAI SDK 1.0+ (GPT-4o, GPT-5.x, o-series reasoning models)
+- Anthropic SDK (Claude Sonnet 4.5, Opus 4.6)
+- google-genai 1.0+ (Gemini 2.5, 3.1 series)
+
 **Optional Dependencies:**
-- OpenAI SDK 1.0+ (GPT models)
-- Anthropic SDK (Claude models)
-- Google Generative AI 0.8+ (Gemini models)
 - Rich/tqdm (progress bars)
 - HuggingFace datasets/hub (HF loader)
 
@@ -1547,7 +1649,7 @@ Metric Categories:
 
 ---
 
-**Document Version**: 2.0  
-**Last Updated**: January 25, 2026  
+**Document Version**: 2.1  
+**Last Updated**: March 8, 2026  
 **Maintained By**: Text2SQL Dataset Analyzer Team
 
