@@ -28,15 +28,16 @@
 % Please, add only really required packages here
 
 \begin{document}
+\raggedbottom
 
 \title{Text-to-SQL Dataset Quality Assessment: A Comprehensive Open-Source Validation Framework}
 
 \shortauthorshead{Sabadosh et al.}
 
-\eIsubmitted{28 Feb. 2026} 
-\eIrevised{28 Feb. 2026} 
-\eIaccepted{28 Feb. 2026}
-\eIpublished{28 Feb. 2026} 
+\eIsubmitted{08 Mar. 2026} 
+\eIrevised{08 Mar. 2026} 
+\eIaccepted{08 Mar. 2026}
+\eIpublished{08 Mar. 2026} 
 \eIyear{2026}
 
 \EIauthorI
@@ -63,7 +64,7 @@
 \textbf{Context}: 
 LLM-based Text-to-SQL has advanced quickly, but benchmark and training datasets may contain defects that distort evaluation and fine-tuning. \\
 \textbf{Objective}: 
-Our objective is to develop and demonstrate a comprehensive automated system for evaluating Text-to-SQL dataset quality through multi-level validation addressing current gaps in systematic quality assessment. \\
+Our objective is to develop and demonstrate a comprehensive automated system for evaluating Text-to-SQL dataset quality through multi-level validation that addresses current gaps in systematic quality assessment. \\
 \textbf{Method}: 
 We implement a modular validation tool covering schema integrity, static SQL analysis, execution testing, antipattern detection, and semantic correspondence. Semantic correspondence is evaluated via an LLM-as-a-judge committee with majority voting. The system produces per-item annotations and persists all metrics in an analytical database, enabling direct querying and export as structured JSONL files or Markdown reports. \\
 \textbf{Results}:
@@ -89,7 +90,7 @@ From a scientific perspective, the Text-to-SQL task serves as an important test 
 
 From a practical standpoint, Text-to-SQL LLM systems are being actively deployed by leading cloud platforms. Snowflake Copilot can generate SQL from natural language in Snowsight~\cite{snowflakeCopilotInline}; Databricks AI/BI Genie converts plain English questions into equivalent SQL queries~\cite{databricksGenie}; Microsoft Copilot in Fabric/Azure SQL supports Natural Language $\rightarrow$ SQL in SQL Database workspaces~\cite{fabricCopilotSql}. This lowers the barrier for business analysts and non-technical users, providing data access without knowledge of SQL syntax.
 
-The typical process of training LLMs for Text-to-SQL tasks includes three key components (Figure~\ref{fig:training_process}): a training dataset containing triplets of (natural language question, database schema, target SQL query), an adaptation method (fine-tuning or few-shot learning) and evaluation (content matching and execution based). During fine-tuning, models adjust their weights on large Text-to-SQL datasets to better capture the mapping between natural language and SQL. In few-shot settings, by contrast, the model relies on in-context learning, using only a handful of examples in the prompt without updating its parameters. In both cases, dataset quality is critical: in fine-tuning, even a small fraction of flawed examples among tens of thousands can introduce systematic errors, while in few-shot prompting each individual example directly shapes model behavior, so a single incorrect pair may lead to consistently wrong generations (see Section~\ref{sec:data_quality_robustness}). The following types of errors may be present in datasets:
+The typical process of training LLMs for Text-to-SQL tasks includes three key components (Figure~\ref{fig:training_process}): a training dataset containing triplets of (natural language question, database schema, target SQL query), an adaptation method (fine-tuning or few-shot learning) and evaluation (content matching and execution-based). During fine-tuning, models adjust their weights on large Text-to-SQL datasets to better capture the mapping between natural language and SQL. In few-shot settings, by contrast, the model relies on in-context learning, using only a handful of examples in the prompt without updating its parameters. In both cases, dataset quality is critical: in fine-tuning, even a small fraction of flawed examples among tens of thousands can introduce systematic errors, while in few-shot prompting each individual example directly shapes model behavior, so a single incorrect pair may lead to consistently wrong generations (see Section~\ref{sec:data_quality_robustness}). The following types of errors may be present in datasets:
 
 \begin{itemize}
 \item \textbf{Database schema structural errors}: incorrect foreign keys (references to non-existent tables/columns), duplicate columns, multiple primary keys, unknown data types.
@@ -123,7 +124,7 @@ The main contributions of this paper are:
 
 \subsection*{How the paper is structured}
 
-The remainder of this paper is organized as follows. Section 2 reviews related work. Section 3 describes our dataset auditing framework and analyzers. Section 4 reports empirical results. Section 5 discusses implications and threats to validity. Section 6 concludes and outlines future work. \ref{app:detailed_tables} provides detailed per-database quality tables.
+The remainder of this paper is organized as follows. Section~\ref{sec:RelatedWork} reviews related work. Section~\ref{sec:Methods} describes our dataset auditing framework and analyzers. Section~\ref{sec:Results} reports empirical results. Section~\ref{sec:Discussion} discusses implications and threats to validity. Section~\ref{sec:Conclusions} concludes the paper and outlines future work. \ref{app:detailed_tables} provides detailed per-database quality tables.
 
 \section{Related Work}\label{sec:RelatedWork}
 
@@ -159,7 +160,7 @@ A closely related line of work is represented by NL2SQL-BUGs~\cite{liu2025nl2sql
 
 A different perspective on data quality is offered by Pandey et al.~\cite{pandey2024validation}, who propose a ``data accuracy'' validation framework for enterprise Text-to-SQL systems. Their approach focuses on runtime validation of generated SQL and query results through schema validation, syntax checking, logical consistency checks (e.g., aggregate--grouping coherence), data integrity verification, and multi-agent feedback loops implemented with LangGraph and AutoGen. Although this framework uses several components like those needed for dataset quality assurance, it is fundamentally designed for per-query validation in production systems rather than large-scale offline auditing of benchmark or synthetic corpora. It operates on individual generated queries and their results and therefore does not analyze dataset-level error patterns, measure overall ``dataset health'', or provide tools for systematic dataset curation. Moreover, the framework is presented primarily at an architectural and conceptual level: there is no publicly available implementation, no quantitative evaluation on standard benchmarks (e.g., Spider, BIRD, OmniSQL), and no support for batch-mode processing of tens of thousands of NL--SQL pairs. Semantic checks are restricted to intra-SQL consistency (e.g., aggregates vs. GROUP BY) and do not address the correctness of the natural-language--to-SQL mapping across an entire dataset.
 
-Several concurrent lines of work address related but distinct aspects of Text-to-SQL data curation. BenchPress~\cite{wenz2025benchpress} accelerates benchmark construction by using retrieval-augmented LLMs to propose natural language descriptions for enterprise SQL logs, with human experts selecting or editing the drafts; it targets benchmark \emph{creation} (SQL$\rightarrow$NL annotation) rather than post-hoc quality \emph{validation} of existing NL--SQL pairs, and our framework could serve as an automated downstream check for pairs produced by such a pipeline. Synthesis-oriented systems such as DB-Explore~\cite{ma2025dbexplore} and SQL-Synth~\cite{wang2025sqlsynth} embed execution-based or LLM-based filters within their generation pipelines to improve output quality; however, these filters are tightly coupled to the synthesis workflow and do not generalize to arbitrary corpora, do not cover schema-level or antipattern dimensions, and do not produce the item-level annotations needed for systematic curation. LinkAlign~\cite{wang2025linkalign} addresses schema linking for large-scale multi-database environments and constructs the AmbiDB dataset to capture real-world schema ambiguity; our framework could complement such efforts by assessing schema integrity and semantic correctness of the resulting linked datasets. Safarzadeh et al.~\cite{safarzadeh2025sql2nl} propose a paraphrase-based robustness evaluation that reveals brittleness of NL2SQL models under linguistic variation; their SQL2NL paraphrases could serve as stress tests for our semantic judge's consistency. Finally, MultiSpider~2.0~\cite{pham2025multispider2} extends Spider~2.0 to eight languages, targeting multilingual enterprise settings; applying our framework to such multilingual benchmarks would test its generality across languages and dialect-specific failure modes.
+Several concurrent lines of work address related but distinct aspects of Text-to-SQL data curation. BenchPress~\cite{wenz2025benchpress} accelerates benchmark construction by using retrieval-augmented LLMs to propose natural language descriptions for enterprise SQL logs, with human experts selecting or editing the drafts; it targets benchmark \emph{creation} (SQL$\rightarrow$NL annotation) rather than post-hoc quality \emph{validation} of existing NL--SQL pairs, and our framework could serve as an automated downstream check for pairs produced by such a pipeline. Synthesis-oriented systems such as DB-Explore~\cite{ma2025dbexplore} and SQL-Synth~\cite{wang2025sqlsynth} embed execution-based or LLM-based filters within their generation pipelines to improve output quality; however, these filters are tightly coupled to the synthesis workflow and do not generalize to arbitrary corpora, do not cover schema-level or antipattern dimensions, and do not produce the item-level annotations needed for systematic curation. LinkAlign~\cite{wang2025linkalign} addresses schema linking for large-scale multi-database environments and constructs the AmbiDB dataset to capture real-world schema ambiguity; our framework could complement such efforts by assessing schema integrity and semantic correctness of the resulting linked datasets. Safarzadeh et al.~\cite{safarzadeh2025sql2nl} propose a paraphrase-based robustness evaluation that reveals brittleness of NL2SQL models under linguistic variation; their SQL2NL paraphrases could serve as stress tests for our semantic judge's consistency.
 
 Additional efforts in the literature acknowledge the importance of validation but remain fragmented and narrowly scoped. Synthetic data pipelines (e.g., Gretel, OmniSQL) typically apply internal LLM-based or heuristic filters, while many works rely almost exclusively on execution-based filtering---discarding examples whose SQL fails to run on the corresponding database. Although such filtering can improve training stability, it is ultimately naïve and insufficient: successful execution does not verify the correctness of SQL logic, the semantic alignment between the question and the query, the integrity of the underlying schema, or the presence of stylistic and efficiency-related antipatterns. Consequently, these procedures cannot serve as general-purpose dataset auditing methods and address only a small subset of the quality issues that arise in modern Text-to-SQL datasets.
 
@@ -288,7 +289,7 @@ The Query Antipattern Detector implements a rule-based static analysis framework
     \end{tabular}
 \end{table}
 
-It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 279 tests that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
+It is worth noting that, although the Query Antipattern Detector is just one of several modules in the overall system, it received the most extensive test coverage. Specifically, we implemented 279 pytest test cases that exercise all 13 detection rules and their dialect-configurable severity mappings. The suite targets high-risk SQL edge cases (e.g., NULL three-valued logic, omitted join predicates, non-deterministic pagination via LIMIT/OFFSET without ORDER BY, and aggregation corner cases), providing a regression harness against rule drift as the detector evolves.
 
 \FloatBarrier
 \subsection{Multi-Model Semantic Validation Architecture}\label{sec:semantic}
@@ -301,7 +302,7 @@ The Semantic LLM Judge Analyzer constitutes the most sophisticated component of 
     \label{fig:semantic_judge}
   \end{figure}
   
-\textbf{Smart DDL Generation.} The first stage prepares a structured representation of the database schema and sample data that is injected as context into the LLM-based semantic judge. The system retrieves metadata for the entire database schema (tables, columns, data types, primary keys, and foreign keys) and executes SELECT queries to sample a configurable number of example values from each column (by default, two per column), giving the language model concrete data instances that complement the type information. The collected metadata is then formatted into CREATE TABLE statements with inline comments containing the example values, producing a compact DDL specification.
+\textbf{Schema Context Synthesis.} The first stage prepares a structured representation of the database schema and sample data that is injected as context into the LLM-based semantic judge. The system retrieves metadata for the entire database schema (tables, columns, data types, primary keys, and foreign keys) and executes SELECT queries to sample a configurable number of example values from each column (by default, two per column), giving the language model concrete data instances that complement the type information. The collected metadata is then formatted into CREATE TABLE statements with inline comments containing the example values, producing a compact DDL specification.
 
 \textbf{Prompt Template Resolution.} The second stage combines the generated smart DDL with contextual elements to produce complete evaluation prompts. Templates are loaded from YAML configuration files to facilitate experimentation with different prompt formulations. Each template contains dynamic placeholders:
 
@@ -321,7 +322,7 @@ The assembled prompt specifies a strictly structured response format in which th
   \label{fig:prompt_structure}
 \end{figure}
 
-The ``explanation'' field encodes a short natural-language justification; for CORRECT verdicts, the explanation is required to be an empty string, thereby preventing spurious narrative output, while for all other verdicts, the explanation must be a concise single-line description (bounded to at most 160--200 characters) that identifies the dominant semantic issue. This response specification transforms otherwise free-form LLM outputs into machine-parseable judgments that can be aggregated systematically across large datasets.
+The ``explanation'' field encodes a short natural-language justification; for CORRECT verdicts, the explanation is required to be an empty string, thereby preventing spurious narrative output, while for all other verdicts, the explanation must be a concise single-line description (limited to 160--200 characters) that identifies the dominant semantic issue. This response specification transforms otherwise free-form LLM outputs into machine-parseable judgments that can be aggregated systematically across large datasets.
 
 \textbf{Multi-Model Consensus Voting.} This stage queries multiple language models in parallel, collecting independent judgments. Our architecture supports four provider categories, each offering distinct characteristics:
 
@@ -344,9 +345,9 @@ where $v_i$ denotes the mapped verdict value and $w_i$ the corresponding model w
 
 \section{Experimental Setup and Results}\label{sec:Results}
 
-This section reports empirical results from applying the validation framework (Section~\ref{sec:Methods}) to all 11,840 examples in Spider 1.0~\cite{yu2018spider} across three partitions: Test (2,147 examples, 40 databases), Dev (1,034 examples, 20 databases), and Train (8,659 examples, 146 databases). The Train partition comprises both the core 7,000 examples (\texttt{train\_spider.json}) and the supplementary 1,659 examples (\texttt{train\_others.json}) distributed with Spider 1.0; the commonly cited figure of 10,181 refers to the core splits only (7,000 + 1,034 + 2,147). We audit the full release to ensure completeness. The dataset was obtained from the official Spider resources maintained by the Yale LILY group~\cite{spiderLeaderboard} in January 2025. The experimental infrastructure employed the technology stack described in Section~\ref{sec:Methods}, with SQLite 3.45.0 as the target dialect consistent with Spider's original database format~\cite{yu2018spider,sqliteForeignKeys}. LLM-based semantic validation used OpenAI GPT-5~\cite{openaiModelsDocs} with default reasoning effort level of ``medium'' and Google Gemini 2.5 Pro~\cite{geminiApiDocs} with default thinking budget of 8,192 tokens (both accessed November 2025). These default reasoning configurations balance accuracy with computational efficiency.
+This section reports empirical results from applying the validation framework (Section~\ref{sec:Methods}) to all 11,840 examples in Spider 1.0~\cite{yu2018spider} across three partitions: Test (2,147 examples, 40 databases), Dev (1,034 examples, 20 databases), and Train (8,659 examples, 146 databases). The Train partition comprises both the core 7,000 examples (\texttt{train\_spider.json}) and the supplementary 1,659 examples (\texttt{train\_others.json}) distributed with Spider 1.0; the commonly cited figure of 10,181 refers to the core splits only (7,000 + 1,034 + 2,147). We audit the full release to ensure completeness. The dataset was obtained from the official Spider resources maintained by the Yale LILY group~\cite{spiderLeaderboard} in January 2025. The experimental infrastructure employed the technology stack described in Section~\ref{sec:Methods}, with SQLite 3.45.0 as the target dialect consistent with Spider's original database format~\cite{yu2018spider,sqliteForeignKeys}. LLM-based semantic validation used OpenAI GPT-5~\cite{openaiModelsDocs} with default reasoning effort level of ``medium'' and Google Gemini-2.5-pro~\cite{geminiApiDocs} with default thinking budget of 8,192 tokens (both accessed November 2025). These default reasoning configurations balance accuracy with computational efficiency.
 
-The analysis pipeline operated in the streaming architecture described in Section~\ref{sec:Methods}, with analyzer components configured per the methodology detailed in Sections~\ref{sec:schema_analyzer}--\ref{sec:semantic}. Schema validation executed once per unique database identifier (206 total) with cached metadata reused for queries sharing databases. Query-level analyzers operated independently on each SQL statement. Antipattern detection followed the SQLite-specific severity configuration (Section~\ref{sec:antipattern_detector}) with 13 antipatterns classified across four severity levels (Critical, High, Medium, Low). Execution testing used the query execution analyzer configured with \texttt{mode=all} (see Section~\ref{sec:Methods}), which executes SELECT statements with automatic LIMIT 1 injection. When a LIMIT clause is absent, it tests UPDATE/DELETE/INSERT statements inside a rollback transaction while blocking destructive operations (e.g., DROP/\allowbreak TRUNCATE/\allowbreak ALTER). Semantic judging used two-model consensus with verdict categories (CORRECT/\allowbreak PARTIALLY\_CORRECT/\allowbreak INCORRECT/\allowbreak UNANSWERABLE) as defined in Section~\ref{sec:semantic}; configuration parameters included \texttt{schema\_mode=full}, \texttt{num\_examples=2}, and parallel voting enabled (\texttt{parallel\_voters=true}, \texttt{max\_workers=2}).
+The analysis pipeline operated in the streaming architecture described in Section~\ref{sec:Methods}, with analyzer components configured per the methodology detailed in Sections~\ref{sec:schema_analyzer}--\ref{sec:semantic}. Schema validation executed once per unique database identifier (206 total) with cached metadata reused for queries sharing databases. Query-level analyzers operated independently on each SQL statement. Antipattern detection followed the SQLite-specific severity configuration (Section~\ref{sec:antipattern_detector}) with 13 antipatterns classified across four severity levels (Critical, High, Medium, Low). Execution testing used the query execution analyzer configured with \texttt{mode=all} (see Section~\ref{sec:Methods}), which executes SELECT statements with automatic LIMIT 1 injection when no LIMIT clause is present, and tests UPDATE/DELETE/INSERT statements inside a rollback transaction while blocking destructive operations (e.g., DROP/\allowbreak TRUNCATE/\allowbreak ALTER). Semantic judging used two-model consensus with verdict categories (CORRECT/\allowbreak PARTIALLY\_CORRECT/\allowbreak INCORRECT/\allowbreak UNANSWERABLE) as defined in Section~\ref{sec:semantic}; configuration parameters included \texttt{schema\_mode=full}, \texttt{num\_examples=2}, and parallel voting enabled (\texttt{parallel\_voters=true}, \texttt{max\_workers=2}).
 
 Results are organized across five quality dimensions reported in Sections~\ref{sec:schema_results}--\ref{sec:semantic_results}: (i) database schema integrity (Section~\ref{sec:schema_results}); (ii) SQL syntactic structure (Section~\ref{sec:syntax_results}); (iii) dynamic executability (Section~\ref{sec:execution_results}); (iv) antipattern prevalence (Section~\ref{sec:antipattern_results}); and (v) semantic correctness (Section~\ref{sec:semantic_results}). Sections~\ref{sec:performance}--\ref{sec:integrated} report computational performance and integrated quality assessment.
 
@@ -406,7 +407,7 @@ Foreign key structural errors total 89 across all partitions (4 in Test, 7 in De
 
 FK Type Mismatch (38 occurrences) and FK Target Not Key (43 occurrences) dominate structural errors. Referential integrity violations total 41,927 rows across 10 databases.
 
-Detailed per-database breakdowns of foreign key errors and data violations are provided in \ref{app:detailed_tables} (Tables~\ref{tab:schema_dbs_by_error}--\ref{tab:schema_empty_tables}). The violations are highly concentrated: three databases account for 99.98\% of all referential integrity violations---sakila\_1 in Train (38,273 rows, 91.3\%), flight\_2 in Dev (2,403 rows, 5.7\%), and flight\_4 in Train (1,240 rows, 3.0\%). The remaining seven affected databases each contribute fewer than ten violations.
+Detailed per-database breakdowns of foreign key errors and data violations are provided in~\ref{app:detailed_tables} (Tables~\ref{tab:schema_dbs_by_error}--\ref{tab:schema_empty_tables}). The violations are highly concentrated: three databases account for 99.98\% of all referential integrity violations---sakila\_1 in Train (38,273 rows, 91.3\%), flight\_2 in Dev (2,403 rows, 5.7\%), and flight\_4 in Train (1,240 rows, 3.0\%). The remaining seven affected databases each contribute fewer than ten violations.
 
 The Train partition also contains 71 empty tables across 9 databases (\ref{app:detailed_tables}, Table~\ref{tab:schema_empty_tables}), seven of which have 0\% data coverage. These empty-schema databases (e.g., \texttt{academic}, \texttt{imdb}, \texttt{yelp}) suggest incomplete data loading during dataset construction; queries referencing these tables will return empty results regardless of SQL correctness.
 
@@ -432,8 +433,6 @@ Examination of difficulty level distributions (Table~\ref{tab:difficulty}) revea
         \bottomrule
     \end{tabular}
 \end{table}
-
-One notable exception to cross-partition consistency emerges in the Expert difficulty category: Train contains 66 Expert-level queries (0.8\% of the partition) while Test and Dev contain none. These 66 queries represent the most structurally complex examples in the entire Spider dataset.
 
 Analysis of JOIN distribution (Table~\ref{tab:joins}) reveals a second dimension where Train exhibits systematically higher complexity compared to Test and Dev. Single-table queries dominate all partitions (56--61\%). Train exhibits higher multi-table query representation (44.02\%) compared to Test (40.15\%) and Dev (39.46\%), with particularly elevated 3-JOIN and 4+-JOIN frequencies.
 
@@ -527,7 +526,7 @@ Table~\ref{tab:antipatterns_top5} presents antipattern distribution by type and 
     \end{tabular}
 \end{table}
 
-Missing GROUP BY is the most frequent high severity antipattern (945 total occurrences), affecting 6.9--11.1\% of queries per partition. NOT IN with nullable columns affects 2.6--4.4\% of queries. Critical Cartesian products total 17 queries across all partitions (2 in Test, 2 in Dev, 13 in Train). All 17 Cartesian product cases were manually verified and confirmed as incorrect queries representing broken join logic; notably, all 17 were also unanimously judged INCORRECT by both LLM models (Gemini 2.5 Pro and GPT-5) in semantic validation (Section~\ref{sec:semantic_results}), providing independent confirmation of their defect status.
+Missing GROUP BY is the most frequent high severity antipattern (945 total occurrences), affecting 6.9--11.1\% of queries per partition. NOT IN with nullable columns affects 2.6--4.4\% of queries. Critical Cartesian products total 17 queries across all partitions (2 in Test, 2 in Dev, 13 in Train). All 17 Cartesian product cases were manually verified and confirmed as incorrect queries representing broken join logic; notably, all 17 were also unanimously judged INCORRECT by both LLM models (Gemini-2.5-pro and GPT-5) in semantic validation (Section~\ref{sec:semantic_results}), providing independent confirmation of their defect status.
 
 The Missing GROUP BY prevalence is particularly significant because it exploits SQLite's permissive handling of aggregates with non-aggregated ``bare'' columns---behavior that the SQLite documentation characterizes as an intentional extension~\cite{sqliteBareColumns}. Under the SQL standard~\cite{iso9075_2_2016}, every non-aggregated column in the SELECT list must appear in the GROUP BY clause; stricter engines such as PostgreSQL and MySQL (when \texttt{ONLY\_FULL\_GROUP\_BY} is enabled) reject these queries outright~\cite{postgresGroupBy,mysqlGroupByHandling}. Models trained on these 945 examples may therefore learn dialect-specific SQL that produces errors or non-deterministic results when deployed against standard-conformant database systems.
 
@@ -537,7 +536,7 @@ Taken together, these antipattern classes highlight a gap between benchmark-inte
 
 \subsection{Semantic Correctness via LLM Consensus}\label{sec:semantic_results}
 
-Table~\ref{tab:semantic} presents semantic validation results obtained via LLM consensus voting (Gemini 2.5 Pro and GPT-5).
+Table~\ref{tab:semantic} presents semantic validation results obtained via LLM consensus voting (Gemini-2.5-pro and GPT-5).
 
 \begin{table}[ht]
     \caption{Semantic validation results via LLM consensus voting}
@@ -560,12 +559,12 @@ Table~\ref{tab:semantic} presents semantic validation results obtained via LLM c
 
 Test and Dev exhibit comparable correctness rates (65.6\% and 66.2\%), while Train shows lower correctness (59.9\%). Explicitly incorrect queries total 1,132 across all partitions (8.0--10.0\% per partition). Model disagreement (Mixed) affects 23.4--26.7\% of queries across partitions.
 
-A detailed breakdown of the Mixed category by disagreement direction is provided in \ref{app:detailed_tables} (Table~\ref{tab:mixed_breakdown}). The dominant pattern is the CORRECT~$\leftrightarrow$~PARTIALLY\_CORRECT boundary ($\sim$59--60\% of Mixed cases across all partitions), consistent with instances where the SQL largely matches intent but differs in minor constraints (e.g., DISTINCT/NULL handling). The next-largest group is CORRECT~$\leftrightarrow$~INCORRECT ($\sim$19--24\%), where judges differ in how strictly they interpret semantic mismatches. Disagreement patterns involving an INCORRECT judgment likely correspond to fundamentally flawed queries rather than benign ambiguity, suggesting that the effective incorrect rate may be higher than unanimous INCORRECT verdicts alone indicate.
+A detailed breakdown of the Mixed category by disagreement direction is provided in~\ref{app:detailed_tables} (Table~\ref{tab:mixed_breakdown}). The dominant pattern is the CORRECT~$\leftrightarrow$~PARTIALLY\_CORRECT boundary ($\sim$59--60\% of Mixed cases across all partitions), consistent with instances where the SQL largely matches intent but differs in minor constraints (e.g., DISTINCT/NULL handling). The next-largest group is CORRECT~$\leftrightarrow$~INCORRECT ($\sim$19--24\%), where judges differ in how strictly they interpret semantic mismatches. Disagreement patterns involving an INCORRECT judgment likely correspond to fundamentally flawed queries rather than benign ambiguity, suggesting that the effective incorrect rate may be higher than unanimous INCORRECT verdicts alone indicate.
 
-\textbf{Inter-model agreement.} To formally characterize the extent of these disagreements, Table~\ref{tab:kappa} quantifies agreement between Gemini~2.5~Pro and GPT-5 using Cohen's $\kappa$~\cite{cohen1960coefficient}. On the full four-category scale the two judges achieve $\kappa = 0.42$ (moderate agreement) with 74.0\% raw agreement over all 11,840 items. When categories are collapsed to a binary Accept (CORRECT $\cup$ PARTIALLY\_CORRECT) versus Reject (INCORRECT $\cup$ UNANSWERABLE) distinction, agreement rises to $\kappa = 0.61$ (substantial), with 90.0\% raw agreement. This pattern---moderate four-category but substantial binary $\kappa$---is consistent with the disagreement analysis: the dominant source of discord is the CORRECT~$\leftrightarrow$~PARTIALLY\_CORRECT boundary, where judges differ on whether minor issues constitute a partial defect or are negligible. On the operationally critical question of whether a query is \emph{fundamentally correct or fundamentally wrong}, the two frontier models agree in $\sim$90\% of cases.
+\textbf{Inter-model agreement.} To formally characterize the extent of these disagreements, Table~\ref{tab:kappa} quantifies agreement between Gemini-2.5-pro and GPT-5 using Cohen's $\kappa$~\cite{cohen1960coefficient}. On the full four-category scale the two judges achieve $\kappa = 0.42$ (moderate agreement) with 74.0\% raw agreement over all 11,840 items. When categories are collapsed to a binary Accept (CORRECT $\cup$ PARTIALLY\_CORRECT) versus Reject (INCORRECT $\cup$ UNANSWERABLE) distinction, agreement rises to $\kappa = 0.61$ (substantial), with 90.0\% raw agreement. This pattern---moderate four-category but substantial binary $\kappa$---is consistent with the disagreement analysis: the dominant source of discord is the CORRECT~$\leftrightarrow$~PARTIALLY\_CORRECT boundary, where judges differ on whether minor issues constitute a partial defect or are negligible. On the operationally critical question of whether a query is \emph{fundamentally correct or fundamentally wrong}, the two frontier models agree in $\sim$90\% of cases.
 
 \begin{table}[ht]
-    \caption{Inter-model agreement between Gemini 2.5 Pro and GPT-5}
+    \caption{Inter-model agreement between Gemini-2.5-pro and GPT-5}
     \label{tab:kappa}
     \centering
     \footnotesize
@@ -616,7 +615,7 @@ We manually reviewed all 16 items and confirmed that 101, 128, 129, 811, and 812
 
 \subsection{Computational Performance Characteristics}\label{sec:performance}
 
-Experiments were executed on a single workstation (macOS 14.x, Apple Silicon, 16GB RAM). Table~\ref{tab:performance} presents processing time by analyzer component.
+Experiments were executed on a single workstation (macOS 14.x, Apple M1 Pro, 16\,GB RAM). Table~\ref{tab:performance} presents processing time by analyzer component.
 
 \begin{table}[ht]
     \caption{Processing time by analyzer component and partition}
@@ -680,7 +679,7 @@ Table~\ref{tab:integrated} synthesizes key results across all validation dimensi
 
 The integrated assessment reveals consistent patterns: all partitions achieve perfect or near-perfect parsing and execution, with 82.5--86.5\% of queries free of any detected antipatterns, but substantial schema defects (10--35\% invalid databases) and moderate semantic correctness (60--66\% correct). Dev exhibits the lowest schema validity (65.0\%) despite its critical role in model selection. The 17 critical Cartesian product antipatterns represent confirmed incorrect queries, validated both through manual inspection and independent LLM semantic judgment.
 
-The complete prioritized remediation list consolidating all critical database quality issues is provided in \ref{app:detailed_tables} (Table~\ref{tab:critical_dbs}); it identifies 17 databases across all partitions that require targeted repair, ranging from catastrophic referential-integrity failures (sakila\_1: 38,273 violations) to structural FK errors and empty-schema databases.
+The complete prioritized remediation list consolidating all critical database quality issues is provided in~\ref{app:detailed_tables} (Table~\ref{tab:critical_dbs}); it identifies 17 databases across all partitions that require targeted repair, ranging from catastrophic referential-integrity failures (sakila\_1: 38,273 violations) to structural FK errors and empty-schema databases.
 
 \FloatBarrier
 \section{Discussion}\label{sec:Discussion}
@@ -737,7 +736,7 @@ Full semantic validation remains expensive: end-to-end judging over 11,840 examp
 
 We validate only Spider 1.0; applying the framework to additional benchmarks and large synthetic corpora (e.g., BIRD, OmniSQL) would clarify which defect classes are dataset-specific versus systematic. The semantic committee currently uses two judges; extending to a more diverse set of models and incorporating stratified human spot checks could improve reliability, particularly when prior analyses (e.g.,~\cite{liu2025nl2sqlbugs}) disagree due to differing criteria. Future work should also refine semantic judging context with richer but token-efficient database summaries (e.g., stratified value sampling and lightweight column statistics such as NULL rates and distinct counts) to reduce sampling-induced misclassification.
 
-Moreover, it is also possible to enhance the analysis layer of our system by using either bithreshold~\cite{kotsovsky2024bithreshold} or multithreshold approaches~\cite{kotsovsky2024multivalued,kotsovsky2025smoothed}.
+Moreover, the rule-based severity classification in the analysis layer could be augmented with a learned classifier; for instance, bithreshold neural-network regressors~\cite{kotsovsky2024bithreshold} could replace fixed severity mappings with data-driven thresholds trained on expert-labeled defect annotations, potentially improving detection accuracy on borderline cases.
 
 Finally, this study focuses on detection and prioritization rather than automated repair and downstream impact. Future work should develop repair pipelines for common defect classes (e.g., foreign key mismatches, missing GROUP BY rewrites, NULL-safe anti-joins) and evaluate portability by re-executing queries across stricter engines while reporting cross-dialect discrepancies. Controlled training studies comparing models trained and evaluated on the original dataset versus cleaned or high-confidence subsets are needed to quantify how dataset remediation affects generalization and robustness.
 
@@ -770,7 +769,7 @@ During the preparation of this manuscript, the authors used ChatGPT (OpenAI) as 
 
 This appendix provides granular per-database tables referenced in Sections~\ref{sec:schema_results}--\ref{sec:integrated}.
 
-\begin{table}[ht]
+\begin{table}[H]
     \caption{Database identifiers by foreign key error type ($\times$ denotes error count per database)}
     \label{tab:schema_dbs_by_error}
     \centering
@@ -794,7 +793,7 @@ This appendix provides granular per-database tables referenced in Sections~\ref{
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
+\begin{table}[H]
     \caption{Databases with foreign key data violations}
     \label{tab:schema_fk_data_violations}
     \centering
@@ -819,7 +818,7 @@ This appendix provides granular per-database tables referenced in Sections~\ref{
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
+\begin{table}[H]
     \caption{Databases with empty tables in Spider Train partition}
     \label{tab:schema_empty_tables}
     \centering
@@ -843,14 +842,14 @@ This appendix provides granular per-database tables referenced in Sections~\ref{
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
+\begin{table}[H]
     \caption{Mixed consensus breakdown (percentages relative to Mixed category)}
     \label{tab:mixed_breakdown}
     \centering
     \footnotesize
     \begin{tabular}{lccc}
         \toprule
-        \textbf{Disagreement Pattern (Gemini $\rightarrow$ GPT-5)} & \textbf{Spider Test} & \textbf{Spider Dev} & \textbf{Spider Train} \\
+        \textbf{Disagreement Pattern (Gemini-2.5-pro $\rightarrow$ GPT-5)} & \textbf{Spider Test} & \textbf{Spider Dev} & \textbf{Spider Train} \\
         \midrule
         CORRECT $\rightarrow$ PARTIALLY\_CORRECT & 315 (60.3\%) & 144 (59.5\%) & 1,375 (59.4\%) \\
         CORRECT $\rightarrow$ INCORRECT & 124 (23.8\%) & 57 (23.6\%) & 449 (19.4\%) \\
@@ -868,7 +867,7 @@ This appendix provides granular per-database tables referenced in Sections~\ref{
     \end{tabular}
 \end{table}
 
-\begin{table}[ht]
+\begin{table}[H]
     \caption{Critical databases requiring immediate remediation}
     \label{tab:critical_dbs}
     \centering

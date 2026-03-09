@@ -1,32 +1,35 @@
 # Schema Validation Report
 
-**Generated:** 2026-03-09 11:48:08
+**Generated:** 2025-11-11 17:05:19
 
 ## Executive Summary
 
-**Databases:** 20 · **Clean:** 13 (65.0%) · **Fatal Errors:** 0 · **Errors:** 7 · **Warnings:** 0
+**Databases:** 20 · **Clean:** 13 (65.0%) · **Fatal Errors:** 0 · **Errors:** 5 · **Warnings:** 2
 
-**Tables scanned:** 80 · **Empty tables:** 0 · **Total FKs:** 64 · **Invalid FKs:** 7
+**Tables scanned:** 80 · **Empty tables:** 0 · **Invalid FKs:** 7
 
-**Total warnings:** 0 · **DBs with FK data violations:** 3
-
-**Dataset items using DBs with errors:** 350 of 1,034 (33.8%)
+**Total warnings:** 3 · **DBs with FK data violations:** 3
 
 **Empty Table Analysis:** 0 used in queries · 0 unused
 
 **Top issue:** fk_type_mismatch (5)
 
-## ❌ Databases with Errors (7)
+## ❌ Databases with Errors (5)
 
 | Database | Tables | Non-empty | Errors | Warnings | FK Violations |
 |----------|--------|-----------|--------|----------|---------------|
-| car_1 | 6 | 6/6 (100%) | 2 | 0 | 2 |
+| car_1 | 6 | 6/6 (100%) | 2 | 1 | 2 |
 | concert_singer | 4 | 4/4 (100%) | 2 | 0 | 0 |
 | employee_hire_evaluation | 4 | 4/4 (100%) | 1 | 0 | 0 |
-| flight_2 | 3 | 3/3 (100%) | 0 | 0 | 2400 |
 | museum_visit | 3 | 3/3 (100%) | 1 | 0 | 0 |
 | voter_1 | 3 | 3/3 (100%) | 1 | 0 | 0 |
-| wta_1 | 3 | 3/3 (100%) | 0 | 0 | 1 |
+
+## ⚠️ Databases with Warnings Only (2)
+
+| Database | Tables | Non-empty | Warnings | FK Violations |
+|----------|--------|-----------|----------|---------------|
+| flight_2 | 3 | 3/3 (100%) | 1 | 2400 |
+| wta_1 | 3 | 3/3 (100%) | 1 | 1 |
 
 ## ✅ Clean Databases (13)
 
@@ -43,13 +46,16 @@
 
 ### Database: car_1
 
-**Status:** ❌ 3 errors · **Non-empty:** 6/6 (100%) · **FK:** N/A · **IC:** 2 violations
+**Status:** ❌ 2 errors, 1 warning · **Non-empty:** 6/6 (100%) · **FK:** N/A · **IC:** 2 violations
 
 **Errors**
 
-⛔ Found 2 FK data violation(s)
 ⛔ Foreign key column types differ: car_makers.Country (TEXT→TEXT) vs countries.CountryId (INTEGER→INTEGER)
 ⛔ Table car_names FK ['Model'] references model_list['Model'] which is not PK/UNIQUE.
+
+**Warnings**
+
+⚠️ Found 2 FK data violation(s)
 
 **Tables (summary)**
 
@@ -83,19 +89,6 @@ Total: 4 · Non-empty: 4 · Empty: 0
 Total: 4 · Non-empty: 4 · Empty: 0
 
 
-### Database: flight_2
-
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** 2400 violations
-
-**Errors**
-
-⛔ Found 2400 FK data violation(s)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
 ### Database: museum_visit
 
 **Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
@@ -122,13 +115,26 @@ Total: 3 · Non-empty: 3 · Empty: 0
 Total: 3 · Non-empty: 3 · Empty: 0
 
 
+### Database: flight_2
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** 2400 violations
+
+**Warnings**
+
+⚠️ Found 2400 FK data violation(s)
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
 ### Database: wta_1
 
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** 1 violations
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** 1 violations
 
-**Errors**
+**Warnings**
 
-⛔ Found 1 FK data violation(s)
+⚠️ Found 1 FK data violation(s)
 
 **Tables (summary)**
 

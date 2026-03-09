@@ -1,14 +1,18 @@
 # Schema Validation Report
 
-**Generated:** 2025-11-13 09:27:48
+**Generated:** 2026-03-09 11:51:53
 
 ## Executive Summary
 
 **Databases:** 146 · **Clean:** 110 (75.3%) · **Fatal Errors:** 0 · **Errors:** 32 · **Warnings:** 4
 
-**Tables scanned:** 793 · **Empty tables:** 71 · **Invalid FKs:** 78
+**Tables scanned:** 793 · **Empty tables:** 71 · **Total FKs:** 717 · **Invalid FKs:** 78
 
 **Total warnings:** 9 · **DBs with FK data violations:** 6
+
+**Dataset items using DBs with errors:** 2,155 of 8,659 (24.9%)
+
+**Empty Table Analysis:** 68 used in queries · 3 unused
 
 **Top issue:** fk_target_not_key (41)
 
