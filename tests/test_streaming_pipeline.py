@@ -11,8 +11,8 @@ from text2sql_pipeline.pipeline.engine import run_pipeline
 
 def test_full_pipeline(tmp_path):
     # use example config relative to repo root
-    os.environ["OPENAI_API_KEY"] = "OPEN_API_KEY"
-    os.environ["GEMINI_API_KEY"] = "GEMINI_KEY"
+    os.environ["OPENAI_API_KEY"] = "YOU_OPENAI_API_KEY"
+    os.environ["GEMINI_API_KEY"] = "YOU_GEMINI_API_KEY"
     os.environ["HF_TOKEN"] = "HF_TOKEN"
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     cfg_path = os.path.join(repo_root, "configs", "pipeline.example.yaml")
