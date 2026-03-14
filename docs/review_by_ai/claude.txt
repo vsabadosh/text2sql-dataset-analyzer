@@ -1,0 +1,64 @@
+Here is a thorough, multi-dimensional analysis of your paper.
+
+Deep Analysis: "Text-to-SQL Dataset Quality Assessment: A Comprehensive Open-Source Validation Framework"
+Overall Assessment
+This is a solid, well-structured empirical software engineering paper with genuine contributions. The rejection is likely not due to fatal flaws but rather a combination of presentation issues, scope limitations, and some methodological concerns that reviewers commonly flag. Let me break this down dimension by dimension.
+
+Strengths
+1. Clear Problem Framing
+The paradox you expose — near-perfect executability coexisting with substantial hidden defects — is genuinely interesting and counterintuitive. The finding that Dev has worse schema quality (65%) than Test (90%) directly challenges benchmark construction assumptions and is the paper's most striking result.
+2. Engineering Rigor
+The five-layer architecture is thoughtfully designed. The streaming/constant-memory approach, YAML-driven configuration, and DuckDB analytics backend reflect real production-engineering thinking. The 279 pytest cases for the antipattern detector is a concrete, credible quality signal.
+3. Scale33
+Auditing all 11,840 Spider 1.0 examples across all three partitions (not just a sample) is a legitimate methodological strength, especially compared to prior work that audited subsets.
+4. Human Calibration Study
+The 150-item stratified calibration with Cohen's κ = 1.000 (binary) against author judgments is your strongest methodological defense. Most papers using LLM-as-a-judge skip this entirely.
+5. Concrete Remediation Value
+Table 18 (critical databases) and the prioritized roadmap give the community something actionable. The sakila_1 / flight_2 findings are practically important.
+
+Weaknesses — Likely Reasons for Rejection
+1. The Calibration Study Has a Bias Problem (Critical)
+This is probably the most significant issue. The human annotators who calibrated the LLM judges are the paper's own authors. You write:
+
+"Each sampled item was independently re-evaluated by the authors, who served as the ground-truth annotators"
+
+Reviewers will flag this as circular: the people who designed the framework, chose the LLMs, and wrote the paper are also the gold-standard judges. Even with κ = 1.000, an independent annotator pool (ideally with inter-annotator agreement between independent judges before comparing to LLMs) is the expected standard. This likely drew a major reviewer objection.
+2. Two-Model Consensus Is Insufficient (Significant)
+Using only GPT-5 and Gemini-2.5-pro creates correlated bias — both are frontier commercial models trained on overlapping data, likely including Spider. You acknowledge contamination risk but don't sufficiently mitigate it. The paper would be substantially stronger with at least one model that has lower Spider exposure (e.g., an Ollama/local model), or with a documented contamination test.
+3. The "Mixed" Category Is Underanalyzed (Significant)
+23–27% of items fall into the "Mixed" disagreement category, which is a very large fraction. Your analysis of this bucket (Table 17) is descriptive but the interpretation is underdeveloped. The claim that Mixed items "reliably flag genuine ambiguity" is supported only by the calibration sample of 50 Mixed items — but 50 items out of 2,000+ disputed cases is a thin basis for a strong claim about the whole category.
+4. No Downstream Validation (Important)
+You explicitly acknowledge this: "This study focuses on defect detection and prioritization; it does not yet demonstrate that acting on these recommendations yields measurable downstream improvements." Reviewers at an engineering-focused journal will ask: if you repair flight_2, do model rankings actually change? Without at least one controlled experiment showing that your detected defects affect model evaluation outcomes, the paper remains a diagnostic tool without proven impact. This is a common reason for rejection at venues that require a closed experimental loop.
+5. Scope Claim vs. Scope Delivered
+The title and framing promise a "comprehensive" framework for Text-to-SQL datasets broadly, but the entire experimental section is Spider 1.0 only. BIRD and OmniSQL are mentioned but not evaluated. Reviewers will note this mismatch — either the title/framing should be scoped down, or a second benchmark should be included to demonstrate generalizability.
+6. Semantic Judge Prompting — Reproducibility Gap
+Figure 7 sketches the prompt structure, but the exact prompt templates are not shown in the paper (referenced as YAML files in the repo). For a paper making claims based on LLM-as-a-judge verdicts across 11,840 items, the complete prompt should be in the appendix. Some reviewers will consider this a reproducibility issue.
+7. Empty Tables Finding Is Undercontextualized
+The 71 empty tables in Train (including databases like imdb, yelp, academic with 0% data coverage) is a potentially important finding — queries over these databases will always return empty results regardless of SQL correctness. But you don't analyze how many of the 8,659 Train queries reference these databases, which would tell us the actual contamination rate. You report 9 affected databases but not the query impact.
+8. Difficulty Classification Novelty Is Overstated
+Section 3.4 describes an extended difficulty classification system, but the differences from Spider's original scheme (adding CTEs, window functions) are incremental rather than novel. Since Spider has no CTEs or window functions at all (as you note in Section 4.2), this extension has zero empirical impact on the audit results. It's a framework feature that doesn't do anything in the experiment — reviewers may flag this as padding.
+
+Writing and Presentation Issues
+Abstract: The abstract is well-structured but the results sentence is vague — "non-trivial portion of items exhibiting semantic mismatch or ambiguity" buries your most concrete finding (8–10% unanimous INCORRECT, 41,927 FK violations). Lead with the numbers.
+Section 2.3 (Related Work): The positioning against NL2SQL-BUGs is strong, but the treatment of Pandey et al. is somewhat dismissive. A reviewer who knows that work might push back on how you characterize it as "architectural and conceptual level only."
+Section 4.5 Cross-Validation: The disagreement with NL2SQL-BUGs on 5 of 16 items is interesting but handled too briefly. If your framework finds items that prior work incorrectly flagged as invalid, that is actually a contribution — but it needs more than two sentences.
+Section 5.4: The estimate that "true correctness rate is approximately 67–73%" by extrapolating the calibration distribution is methodologically shaky. Extrapolating from 50 Mixed items to 2,000+ is a big leap that needs qualification.
+
+Specific Recommendations for Revision
+In order of likely impact on acceptance:
+
+Replace author-calibration with independent annotators. Even 3 CS graduate students independently labeling a 100-item sample would substantially strengthen this section. Report inter-annotator κ before comparing to LLM consensus.
+Add at least one downstream experiment. Train a standard baseline (e.g., fine-tuned T5 or a prompted GPT model) on original Spider Train, then on a subset with sakila_1 / flight_2 / Cartesian-product items removed. Report whether execution accuracy on Dev changes. Even null results are publishable here.
+Add a second benchmark. Running the schema and antipattern analyzers (not necessarily the full LLM judge) on BIRD's Dev set would take hours, not weeks. Even partial coverage on BIRD would let you make a generalizability claim.
+Include the full prompt in an appendix. This is a one-page addition that closes a reproducibility concern.
+Analyze query impact of empty-table databases. A single SQL query: SELECT COUNT(*) FROM items WHERE db_id IN ('academic','imdb','yelp',...) against your DuckDB analytics database gives you this immediately.
+Reframe the difficulty classifier. Either position it as infrastructure for future datasets or remove the novelty claim. Its zero empirical impact in the Spider experiment is a vulnerability.
+Strengthen the Mixed category discussion. Either expand the calibration sample for Mixed items specifically, or be more conservative in claims about what Mixed verdicts mean.
+
+
+Suitability for e-Informatica
+e-Informatica is an empirical software engineering journal, which means they expect a tight feedback loop between tool design and measured empirical consequences. Your paper is strongest on the tooling side and weakest on the "what difference does it make" side. The journal's scope is a good fit, but the paper reads more like a tool paper than a full empirical study. Adding the downstream experiment (point 2 above) would likely be the single highest-leverage change for this specific venue.
+
+Summary Table
+DimensionRatingKey IssueProblem significanceStrongWell-motivated, paradox is compellingTechnical contributionGoodFive-layer architecture is soundExperimental scaleGoodAll 11,840 items, all partitionsCalibration methodologyWeakAuthor-as-judge, no independent annotationLLM judge robustnessModerateTwo correlated commercial modelsDownstream validationMissingNo impact on model performance shownScope vs. claimsModerateSpider-only vs. "comprehensive framework"Writing qualityGoodClear, well-organizedReproducibilityModeratePrompts not in paper
+The paper is clearly publishable with revisions — it is not a weak submission. The path to acceptance is narrowing the scope claims or broadening the experiments to match them, adding an independent calibration, and including at least one downstream impact experiment. Sonnet 4.6
