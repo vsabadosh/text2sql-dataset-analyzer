@@ -230,8 +230,10 @@ class MarkdownReportGenerator:
                 for db_id, tables_count, non_empty, fk_violations, error_msg in rows:
                     pct = (non_empty / tables_count * 100) if tables_count > 0 else 0
                     ne_str = f"{non_empty}/{tables_count} ({pct:.0f}%)" if tables_count > 0 else "N/A"
-                    err_short = (error_msg[:40] + "...") if error_msg and len(error_msg) > 40 else (error_msg or "")
-                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {fk_violations} | {err_short} |")
+                    # Keep a longer error preview while preserving markdown table formatting.
+                    err_clean = (error_msg or "").replace("\n", " ").replace("|", "\\|").strip()
+                    err_preview = (err_clean[:180] + "...") if len(err_clean) > 180 else err_clean
+                    sections.append(f"| {db_id} | {tables_count} | {ne_str} | {fk_violations} | {err_preview} |")
                 sections.append("")
         except Exception:
             pass

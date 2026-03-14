@@ -5,6 +5,7 @@ from .protocol import SAAdapter
 from .errors import DDLApplyError
 import sqlglot
 from sqlglot import exp
+from sqlglot.errors import ParseError
 from typing import List, Dict, ClassVar
 
 class SAAdapterABC(SAAdapter, ABC):
@@ -28,7 +29,12 @@ class SAExecMixin:
                     raise DDLApplyError(db_id, f"[{dialect_name}] Statement failed: {preview}\n{e}") from e
  
     def _ddl_to_ast_list(self, ddl: str, read: str) -> List[exp.Expression]:
-        return sqlglot.parse(ddl, read=read)
+        ast_list = sqlglot.parse(ddl, read=read)
+        # sqlglot may return None entries for empty/invalid statements (e.g., double semicolons).
+        # Treat such schemas as invalid so callers can mark the item as failed instead of crashing later.
+        if any(stmt is None for stmt in ast_list):
+            raise ParseError("DDL contains empty or unsupported statements")
+        return ast_list
 
     def _canonical_ir(self, ast_list: List[exp.Expression]) -> Dict:
         """

@@ -22,11 +22,29 @@ class DbIdentityAssign:
     def __init__(self, db_manager: DbManager) -> None:
         self.db_manager = db_manager
 
+    def _mark_failed(self, item: DataItem, reason: str) -> None:
+        """Mark item as failed in normalization, so analyzers can skip safely."""
+        item.metadata = item.metadata or {}
+        if "analysisSteps" not in item.metadata:
+            item.metadata["analysisSteps"] = []
+        item.metadata["analysisSteps"].append({
+            "name": "db_identity_assign",
+            "status": "failed",
+            "reason": reason,
+        })
+
     def normalize_stream(self, items: Iterable[DataItem]) -> Iterable[DataItem]:
         for item in items:
             if item.dbId is not None:
                 # Check database health
-                health, error = self.db_manager.status(item.dbId)
+                try:
+                    health, _ = self.db_manager.status(item.dbId)
+                except Exception as e:
+                    reason = f"Database health check failed for {item.dbId}: {e}"
+                    logger.warning(reason)
+                    self._mark_failed(item, reason)
+                    yield item
+                    continue
                 if health != "ok":
                     # Database is not healthy, try to recreate from schema if available
                     if item.schema is not None:
@@ -37,15 +55,27 @@ class DbIdentityAssign:
                             assert recreated_db_id == item.dbId
                             logger.info(f"Successfully recreated database {item.dbId} from schema")
                         except Exception as e:
-                            logger.warning(f"Failed to recreate database {item.dbId} from schema: {e}")
+                            reason = f"Failed to recreate database {item.dbId} from schema: {e}"
+                            logger.warning(reason)
+                            self._mark_failed(item, reason)
                     else:
-                        logger.warning(f"Database {item.dbId} is unhealthy but no schema available for recreation")
+                        reason = f"Database {item.dbId} is unhealthy but no schema available for recreation"
+                        logger.warning(reason)
+                        self._mark_failed(item, reason)
                 yield item
                 continue
 
             if item.schema is not None:
-                item.dbId = self.db_manager.identity_from_schema(item.schema)
+                try:
+                    item.dbId = self.db_manager.identity_from_schema(item.schema)
+                except Exception as e:
+                    reason = f"Failed to create db identity from schema: {e}"
+                    logger.warning(reason)
+                    self._mark_failed(item, reason)
                 yield item
                 continue
 
-            raise ValueError("DbIdentityAssign: both dbId and schema are missing")
+            reason = "DbIdentityAssign: both dbId and schema are missing"
+            logger.warning(reason)
+            self._mark_failed(item, reason)
+            yield item

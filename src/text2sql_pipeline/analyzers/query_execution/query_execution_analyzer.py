@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import Iterable, Iterator
 from datetime import datetime
+import logging
 import time
+import threading
 import sqlglot
 from sqlglot import exp
 
@@ -16,6 +18,8 @@ from .metrics import (
     QueryExecutionStats,
     QueryExecutionTags
 )
+
+logger = logging.getLogger(__name__)
 
 
 @register_analyzer("query_execution_analyzer")
@@ -42,12 +46,14 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
         db_manager: DbManager,
         enabled: bool,
         mode: str = "select_only",
-        safety_limit: int = 1
+        safety_limit: int = 1,
+        timeout_seconds: float = 30.0,
     ) -> None:
         self.db_manager = db_manager
         self.mode = mode
         self.safety_limit = safety_limit
         self.enabled = enabled
+        self.timeout_seconds = timeout_seconds
 
     def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit query execution metrics."""
@@ -166,13 +172,12 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
             # Add LIMIT to SELECT queries without one
             query_to_execute = sql
             
-            if is_select and not any(ast.find_all(exp.Limit)):
+            if is_select and ast.args.get("limit") is None:
                 try:
                     modified_ast = ast.copy()
                     modified_ast = modified_ast.limit(self.safety_limit)
                     query_to_execute = modified_ast.sql(dialect=dialect)
                 except Exception:
-                    # If modification fails, use original
                     query_to_execute = sql
             
             # Execute query
@@ -188,28 +193,57 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
         except Exception as e:
             return False, f"Execution error: {str(e)}"
     
-    def _execute_select(self, eng, query: str) -> tuple:
-        """Execute SELECT query and fetch results."""
-        with eng.connect() as conn:
-            conn.exec_driver_sql(query)
-        
+    def _execute_with_timeout(self, eng, func, query: str) -> tuple:
+        """Run *func(conn, query)* in a thread, interrupt via SQLite if it exceeds timeout."""
+        result: list = []
+        error: list = []
+        raw_conn_ref: list = []
+
+        def _target():
+            try:
+                with eng.connect() as conn:
+                    raw = conn.connection.dbapi_connection
+                    raw_conn_ref.append(raw)
+                    func(conn, query)
+                result.append(True)
+            except Exception as exc:
+                error.append(exc)
+
+        t = threading.Thread(target=_target, daemon=True)
+        t.start()
+        t.join(timeout=self.timeout_seconds)
+
+        if t.is_alive():
+            if raw_conn_ref:
+                try:
+                    raw_conn_ref[0].interrupt()
+                except Exception:
+                    pass
+            t.join(timeout=5)
+            return False, f"Query timed out after {self.timeout_seconds}s"
+
+        if error:
+            raise error[0]
         return True, None
+
+    def _execute_select(self, eng, query: str) -> tuple:
+        def _run(conn, q):
+            conn.exec_driver_sql(q)
+
+        return self._execute_with_timeout(eng, _run, query)
     
     def _execute_with_rollback(self, eng, query: str) -> tuple:
         """
         Execute UPDATE/DELETE/INSERT in transaction with ROLLBACK.
-        
-        This tests query validity without actually changing data.
+        Tests query validity without actually changing data.
         """
-        with eng.connect() as conn:
-            # Start transaction explicitly
+        def _run(conn, q):
             trans = conn.begin()
             try:
-                conn.exec_driver_sql(query)
-                # Always rollback - we only want to test, not modify data
+                conn.exec_driver_sql(q)
                 trans.rollback()
             except Exception as e:
                 trans.rollback()
                 raise e
-        
-        return True, None
+
+        return self._execute_with_timeout(eng, _run, query)
