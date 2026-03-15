@@ -740,35 +740,37 @@ class TestNotInNullableAntipattern:
     # ========================================
 
     def test_not_in_with_null_literal_detected(self):
-        """NOT IN with NULL in literal list always returns empty - critical bug."""
+        """NOT IN with NULL in literal list is a null_comparison_equals issue."""
         sql = "SELECT * FROM users WHERE id NOT IN (1, 2, NULL)"
         result = detect_antipatterns(sql)
         
-        assert result.has_not_in_nullable is True
-        assert any(ap.pattern == "not_in_nullable" for ap in result.antipatterns)
-        assert any("NULL literal" in ap.message or "empty result" in ap.message 
-                   for ap in result.antipatterns if ap.pattern == "not_in_nullable")
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+        assert result.has_not_in_nullable is False
 
     def test_not_in_with_null_at_start_of_list_detected(self):
-        """NULL at start of literal list should be detected."""
+        """NULL at start of literal list should be detected as null_comparison_equals."""
         sql = "SELECT * FROM users WHERE id NOT IN (NULL, 1, 2)"
         result = detect_antipatterns(sql)
         
-        assert result.has_not_in_nullable is True
+        assert result.has_null_comparison_equals is True
+        assert result.has_not_in_nullable is False
 
     def test_not_in_with_null_at_end_of_list_detected(self):
-        """NULL at end of literal list should be detected."""
+        """NULL at end of literal list should be detected as null_comparison_equals."""
         sql = "SELECT * FROM users WHERE id NOT IN (1, 2, 3, NULL)"
         result = detect_antipatterns(sql)
         
-        assert result.has_not_in_nullable is True
+        assert result.has_null_comparison_equals is True
+        assert result.has_not_in_nullable is False
 
     def test_not_in_with_only_null_detected(self):
-        """NOT IN (NULL) is also problematic."""
+        """NOT IN (NULL) is detected as null_comparison_equals."""
         sql = "SELECT * FROM users WHERE id NOT IN (NULL)"
         result = detect_antipatterns(sql)
         
-        assert result.has_not_in_nullable is True
+        assert result.has_null_comparison_equals is True
+        assert result.has_not_in_nullable is False
 
     def test_not_in_with_string_literals_no_null_not_flagged(self):
         """NOT IN with only non-NULL literals should not be flagged."""
@@ -784,14 +786,14 @@ class TestNotInNullableAntipattern:
         
         assert result.has_not_in_nullable is False
 
-    def test_in_with_null_literal_not_flagged(self):
-        """IN (without NOT) with NULL is not the same bug - only NOT IN is problematic."""
+    def test_in_with_null_literal_flagged_as_null_comparison(self):
+        """IN with NULL in value list is flagged: col IN (1, 2, NULL) uses implicit = NULL."""
         sql = "SELECT * FROM users WHERE id IN (1, 2, NULL)"
         result = detect_antipatterns(sql)
         
-        # IN with NULL just means "id = 1 OR id = 2 OR id = NULL" which is fine
-        # (the NULL comparison just returns unknown, doesn't break the whole expression)
         assert result.has_not_in_nullable is False
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
 
     def test_not_in_subquery_and_null_literal_both_detected(self):
         """If both subquery and NULL literal issues exist, at least one is flagged."""
@@ -1197,6 +1199,43 @@ class TestNullComparisonEqualsAntipattern:
         result = detect_antipatterns(sql)
 
         assert result.has_null_comparison_equals is True
+
+    # ========================================
+    # IN with NULL literal tests
+    # ========================================
+
+    def test_in_with_null_and_strings_detected(self):
+        """IN list with NULL and string literals: NULL part silently never matches."""
+        sql = "SELECT * FROM events WHERE consent IN (NULL, 'N/A', '')"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+        assert any("IN list" in ap.message for ap in result.antipatterns
+                    if ap.pattern == "null_comparison_equals")
+
+    def test_in_with_null_only_detected(self):
+        """IN (NULL) is equivalent to = NULL — always UNKNOWN."""
+        sql = "SELECT * FROM users WHERE status IN (NULL)"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
+
+    def test_in_without_null_not_flagged(self):
+        """IN with only non-NULL literals should not be flagged."""
+        sql = "SELECT * FROM events WHERE consent IN ('N/A', '')"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is False
+
+    def test_not_in_with_null_flagged_as_null_comparison(self):
+        """NOT IN with NULL literal in list is the same root cause — null_comparison_equals, not not_in_nullable."""
+        sql = "SELECT * FROM users WHERE id NOT IN (NULL, 1, 2)"
+        result = detect_antipatterns(sql)
+
+        assert result.has_null_comparison_equals is True
+        assert result.has_not_in_nullable is False
 
 
 class TestCartesianProductAntipattern:

@@ -92,15 +92,23 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
             prompt_file=prompt_file
         )
         
-        # Build providers from configuration
-        config = {"providers": providers} if providers else {"providers": []}
-        self.providers: List[Provider] = build_providers(config)
-        
-        if not self.providers:
-            logger.warning("No LLM providers configured for semantic_llm_analyzer analyzer")
+        # Build providers only when analyzer is enabled.
+        # This avoids provider initialization side effects/log noise for disabled analyzers.
+        if self.enabled:
+            config = {"providers": providers} if providers else {"providers": []}
+            self.providers: List[Provider] = build_providers(config)
+            if not self.providers:
+                logger.warning("No LLM providers configured for semantic_llm_analyzer analyzer")
+        else:
+            self.providers = []
     
     def analyze(self, items: Iterable[DataItem], sink: MetricsSink, dataset_id: str) -> Iterator[DataItem]:
         """Process items and emit semantic validation metrics."""
+        if not self.enabled:
+            for item in items:
+                yield item
+            return
+
         # Check if providers are available
         if not self.providers:
             logger.info("No LLM providers configured, skipping semantic_llm_analyzer analyzer")
@@ -110,9 +118,6 @@ class SemanticLLMAnalyzer(AnnotatingAnalyzer):
             return
 
         for item in items:
-            if not self.enabled:
-                yield item;  
-                continue     
             # Check if any previous analyzer failed - skip if so
             if has_previous_failure(item.metadata or {}):
                 # Emit a 'skipped' metric to record this decision

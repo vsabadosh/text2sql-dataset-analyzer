@@ -211,6 +211,12 @@ def _detect_null_comparison_equals(
     Flags cases where NULL appears on either side of:
       =, !=, <>, <, >, <=, >=
 
+    Also flags IN lists that contain NULL literals:
+      col IN (NULL, 'N/A', '')
+    This is equivalent to col = NULL OR col = 'N/A' OR col = '', and the
+    col = NULL part always evaluates to UNKNOWN, so NULL values are silently
+    never matched. The correct form is: col IS NULL OR col IN ('N/A', '').
+
     In SQL three-valued logic, any comparison with NULL using these operators
     evaluates to NULL (unknown), not TRUE or FALSE. This usually indicates that
     IS NULL / IS NOT NULL was intended instead.
@@ -244,6 +250,26 @@ def _detect_null_comparison_equals(
                     )
                 )
                 # One instance per query is enough
+                return
+
+    # Check IN/NOT IN value lists for NULL literals: NULL in a value list
+    # uses implicit = NULL / != NULL which always evaluates to UNKNOWN.
+    for in_node in ast.find_all(exp.In):
+        for expr in (in_node.expressions or []):
+            if _is_null_literal(expr):
+                features.has_null_comparison_equals = True
+                antipatterns.append(
+                    AntipatternInstance(
+                        pattern=pattern,
+                        severity=severity,
+                        message=(
+                            "IN list contains NULL literal which will never match. "
+                            "NULL cannot be compared with = or IN; it always evaluates to UNKNOWN. "
+                            "Use col IS NULL OR col IN (...) instead."
+                        ),
+                        location="IN expression with NULL in value list",
+                    )
+                )
                 return
 
 
@@ -865,26 +891,23 @@ def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[Antipa
 
 def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """
-    Detect NOT IN with potential NULL handling issues.
+    Detect NOT IN with nullable subquery.
     
-    Two problematic cases:
-    1. NOT IN (subquery) - if subquery returns any NULL, the entire NOT IN evaluates to NULL
-    2. NOT IN (literal_list_with_NULL) - always returns empty result set
+    `NOT IN (subquery)` is dangerous when the subquery can return NULL rows,
+    because the entire NOT IN expression evaluates to NULL (unknown) and
+    no rows are returned. Use NOT EXISTS instead.
     
-    In SQL three-valued logic:
-    - `x NOT IN (1, 2, NULL)` is equivalent to `x != 1 AND x != 2 AND x != NULL`
-    - Since `x != NULL` is always NULL (unknown), the entire expression is NULL
-    - This means NOT IN with NULL always returns 0 rows (a correctness bug)
+    Note: NOT IN with explicit NULL literals in value lists (e.g. NOT IN (1, NULL))
+    is handled by _detect_null_comparison_equals as it's the same root cause —
+    NULL used in a comparison context.
     """
     pattern = AntipatternPattern.NOT_IN_NULLABLE.value
     severity = severity_map.get(pattern, "high")
     
     # Method 1: Look for Not(In(...)) pattern
     for not_expr in ast.find_all(exp.Not):
-        # Check if this NOT wraps an IN expression
         in_exprs = list(not_expr.find_all(exp.In))
         for in_expr in in_exprs:
-            # Check 1: IN contains a subquery (may return NULL)
             subqueries = list(in_expr.find_all(exp.Subquery))
             if subqueries:
                 features.has_not_in_nullable = True
@@ -895,25 +918,10 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
                     location="WHERE clause"
                 ))
                 return
-            
-            # Check 2: IN contains explicit NULL literal in the list
-            # e.g., WHERE id NOT IN (1, 2, NULL) - always returns empty result
-            for expr in (in_expr.expressions or []):
-                if isinstance(expr, exp.Null):
-                    features.has_not_in_nullable = True
-                    antipatterns.append(AntipatternInstance(
-                        pattern=pattern,
-                        severity=severity,
-                        message="NOT IN with NULL literal in list: this expression ALWAYS returns empty result set due to SQL three-valued logic",
-                        location="WHERE clause"
-                    ))
-                    return
     
     # Method 2: Check if sqlglot has a separate NotIn expression type
-    # Some SQL parsers represent "NOT IN" as a distinct node type
     if not features.has_not_in_nullable and hasattr(exp, 'NotIn'):
         for not_in in ast.find_all(exp.NotIn):
-            # Check for subquery
             subqueries = list(not_in.find_all(exp.Subquery))
             if subqueries:
                 features.has_not_in_nullable = True
@@ -924,18 +932,6 @@ def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternI
                     location="WHERE clause"
                 ))
                 return
-            
-            # Check for NULL literal in list
-            for expr in (not_in.expressions or []):
-                if isinstance(expr, exp.Null):
-                    features.has_not_in_nullable = True
-                    antipatterns.append(AntipatternInstance(
-                        pattern=pattern,
-                        severity=severity,
-                        message="NOT IN with NULL literal in list: this expression ALWAYS returns empty result set due to SQL three-valued logic",
-                        location="WHERE clause"
-                    ))
-                    return
 
 
 def _detect_limit_without_order_by(
