@@ -1385,6 +1385,97 @@ class TestCartesianProductAntipattern:
 
         assert result.has_cartesian_product is False
 
+    def test_bird_1014_lap_records_in_italy_not_cartesian(self):
+        """
+        Regression: BIRD dev question_id=1014 should NOT be marked as Cartesian.
+        Join to scalar subquery alias T4 uses expression = T4.column.
+        """
+        sql = (
+            "WITH fastest_lap_times AS (SELECT T1.raceId, T1.FastestLapTime, "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "as time_in_seconds FROM results AS T1 WHERE T1.FastestLapTime IS NOT NULL ) "
+            "SELECT T1.FastestLapTime as lap_record FROM results AS T1 "
+            "INNER JOIN races AS T2 on T1.raceId = T2.raceId "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "INNER JOIN (SELECT MIN(fastest_lap_times.time_in_seconds) as min_time_in_seconds "
+            "FROM fastest_lap_times "
+            "INNER JOIN races AS T2 on fastest_lap_times.raceId = T2.raceId "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "WHERE T3.country = 'Italy' ) AS T4 ON "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "= T4.min_time_in_seconds LIMIT 1"
+        )
+        result = detect_antipatterns(sql)
+        assert result.parseable is True
+        assert result.has_cartesian_product is False
+
+    def test_bird_1015_austrian_grand_prix_record_not_cartesian(self):
+        """
+        Regression: BIRD dev question_id=1015 should NOT be marked as Cartesian.
+        """
+        sql = (
+            "WITH fastest_lap_times AS ( SELECT T1.raceId, T1.FastestLapTime, "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "as time_in_seconds FROM results AS T1 WHERE T1.FastestLapTime IS NOT NULL ) "
+            "SELECT T2.name FROM races AS T2 "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "INNER JOIN results AS T1 on T2.raceId = T1.raceId "
+            "INNER JOIN ( SELECT MIN(fastest_lap_times.time_in_seconds) as min_time_in_seconds "
+            "FROM fastest_lap_times "
+            "INNER JOIN races AS T2 on fastest_lap_times.raceId = T2.raceId "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "WHERE T2.name = 'Austrian Grand Prix') AS T4 ON "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "= T4.min_time_in_seconds WHERE T2.name = 'Austrian Grand Prix'"
+        )
+        result = detect_antipatterns(sql)
+        assert result.parseable is True
+        assert result.has_cartesian_product is False
+
+    def test_bird_1016_lap_record_pitstop_not_cartesian(self):
+        """
+        Regression: BIRD dev question_id=1016 should NOT be marked as Cartesian.
+        """
+        sql = (
+            "WITH fastest_lap_times AS ( SELECT T1.raceId, T1.driverId, T1.FastestLapTime, "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "as time_in_seconds FROM results AS T1 WHERE T1.FastestLapTime IS NOT NULL), "
+            "lap_record_race AS ( SELECT T1.raceId, T1.driverId FROM results AS T1 "
+            "INNER JOIN races AS T2 on T1.raceId = T2.raceId "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "INNER JOIN ( SELECT MIN(fastest_lap_times.time_in_seconds) as min_time_in_seconds "
+            "FROM fastest_lap_times "
+            "INNER JOIN races AS T2 on fastest_lap_times.raceId = T2.raceId "
+            "INNER JOIN circuits AS T3 on T2.circuitId = T3.circuitId "
+            "WHERE T2.name = 'Austrian Grand Prix') AS T4 ON "
+            "(CAST(SUBSTR(T1.FastestLapTime, 1, INSTR(T1.FastestLapTime, ':') - 1) AS REAL) * 60) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, ':') + 1, "
+            "INSTR(T1.FastestLapTime, '.') - INSTR(T1.FastestLapTime, ':') - 1) AS REAL)) + "
+            "(CAST(SUBSTR(T1.FastestLapTime, INSTR(T1.FastestLapTime, '.') + 1) AS REAL) / 1000) "
+            "= T4.min_time_in_seconds WHERE T2.name = 'Austrian Grand Prix') "
+            "SELECT T4.duration FROM lap_record_race "
+            "INNER JOIN pitStops AS T4 on lap_record_race.raceId = T4.raceId "
+            "AND lap_record_race.driverId = T4.driverId"
+        )
+        result = detect_antipatterns(sql)
+        assert result.parseable is True
+        assert result.has_cartesian_product is False
+
 class TestMissingGroupByAntipattern:
     """Test missing GROUP BY antipattern detection."""
 

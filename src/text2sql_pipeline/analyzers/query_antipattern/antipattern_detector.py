@@ -290,6 +290,8 @@ def _detect_cartesian_product(
             if not isinstance(join, exp.Join):
                 continue
 
+            joined_table_name: Optional[str] = _extract_join_source_name(join.this)
+
             # --- ON clause: explicit join conditions ---
             on_clause = join.args.get("on")
             if on_clause is not None:
@@ -335,6 +337,28 @@ def _detect_cartesian_product(
                         if (left_table in all_tables) or (right_table in all_tables):
                             tables_in_conditions |= all_tables
                             continue
+
+                # General case for expression-based joins:
+                # if ON references the joined table alias and at least one other
+                # table from this SELECT level, treat them as connected.
+                #
+                # Example:
+                #   JOIN subq t4 ON CAST(t1.col AS REAL) = t4.metric
+                # Columns from ON are {t1, t4} -> valid non-Cartesian join.
+                #
+                # Counterexample (should remain Cartesian):
+                #   JOIN activity t3 ON t2.actid = t2.actid
+                # Columns from ON are only {t2}; joined table t3 is not referenced.
+                if joined_table_name:
+                    on_tables: Set[str] = {
+                        str(col.table).lower()
+                        for col in on_clause.find_all(exp.Column)
+                        if getattr(col, "table", None)
+                    }
+                    on_tables &= all_tables
+
+                    if joined_table_name in on_tables and len(on_tables) >= 2:
+                        tables_in_conditions.update(on_tables)
 
             # --- USING (col...) also represents a join condition between tables ---
             using_clause = join.args.get("using")
@@ -1200,6 +1224,18 @@ def _collect_outer_tables(select: exp.Select) -> Set[str]:
                 outer_tables.add(str(alias).lower())
 
     return outer_tables
+
+
+def _extract_join_source_name(source: exp.Expression) -> Optional[str]:
+    """
+    Return lowercased alias/name for a JOIN source (table or subquery alias).
+    """
+    if isinstance(source, exp.Table):
+        name = source.alias_or_name
+        return str(name).lower() if name else None
+    if isinstance(source, exp.Subquery) and source.alias:
+        return str(source.alias).lower()
+    return None
 
 
 def _is_null_literal(node: exp.Expression) -> bool:
