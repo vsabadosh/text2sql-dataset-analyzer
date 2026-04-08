@@ -2,34 +2,65 @@ sourceDb:
   dialect: sqlite           # or: postgresql
   kind: file                # or: server
   # endpoint: "./data_examples/test_database"    # sqlite root folder
-  # endpoint: "./data_examples/database"    # sqlite root folder
-#  endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/test_database
-  endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/database
+  # endpoint: "./data_examples/databases"    # sqlite root folder
   # endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_train_20240627/train_databases
+  # endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/test_database
+  endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_dev_20240627/dev_databases
   # postgresql example:
   # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
 
 load:
   name: jsonl # jsonl | json | csv | hf
   params:
-    path: data_examples/spider/calibration_subsets/calibration_train2.jsonl
-    # path: data_examples/spider-tiny-10.jsonl
+#    path: data_examples/spider/calibration_subsets/calibration_train2.jsonl
+    #  path: data_examples/spider-tiny-10.jsonl
+    # path: data_examples/gretel/gretel_train.jsonl
+  #  path: data_examples/spider/spider_train.jsonl
+   path: data_examples/gretel/gretel_train.jsonl
+
+# load:
+#   name: hf
+#   params:
+#     name: "gretelai/synthetic_text_to_sql"
+#     split: "train"            # або "test"
+#     streaming: true
+#     columns: ["id", "sql_prompt", "sql", "sql_context"]
 
 
 # Progress tracking configuration
 progress:
-  expected_items: 60        # Optional: Expected number of items for percentage tracking
+  expected_items: 100000        # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 
+# # Spider
+# normalize:
+#   - name: alias_mapper
+#     params:
+#       mapping:
+#         id: id
+#         question: question
+#         sql: query
+#         dbId: db_id
+
+# Gretel
 normalize:
   - name: alias_mapper
     params:
       mapping:
-        question: question
-        sql: query
-        schema: schema
-        dbId: db_id
         id: id
+        question: sql_prompt
+        sql: sql
+        schema: sql_context   # важливо: тут DDL/контекст з HF датасету
+# Bird
+# normalize:
+#   - name: alias_mapper
+#     params:
+#       mapping:
+#         question: question
+#         sql: SQL
+#         schema: schema
+#         dbId: db_id
+#         id: id
 
   - name: id_assign        
     params:
@@ -41,7 +72,7 @@ normalize:
 analyze:
   - name: schema_validation_analyzer
     params:
-      enabled: true
+      enabled: false
 
   - name: query_syntax_analyzer
     params:
@@ -134,14 +165,14 @@ analyze:
 
   - name: query_execution_analyzer
     params:
-      enabled: true
+      enabled: false
       mode: all
 
   # LLM-as-a-Judge semantic validation (optional)
   # Uncomment and configure providers to enable semantic validation
   - name: semantic_llm_analyzer
     params:
-      enabled: true
+      enabled: false
       # Prompt configuration
       prompt_file: "configs/semantic_llm_prompts.yaml"  # Path to prompt templates
       prompt_variant: default  # Options: variant_1, variant_2, default
@@ -258,7 +289,7 @@ analyze:
         #       #   effort: medium
 
 output:
-  dataset_name: SPIDER_TRAIN2_Calibration_28_02_26_All_models
+  dataset_name: GRETEL_TRAIN_NEW_ANTIPATTERN
   # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)

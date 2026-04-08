@@ -26,6 +26,9 @@ pip install -e '.[progress]'
 
 # Optional: development tools
 pip install -e '.[dev]'
+pip install -e ".[dev,progress]"
+pip install --upgrade --force-reinstall -e ".[dev,progress]"
+
 ```
 
 ### Run Pipeline
