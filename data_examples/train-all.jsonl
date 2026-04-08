@@ -1,2 +1,0 @@
-{"db": "toydb", "question": "Count users", "sql": "SELECT COUNT(*) FROM users;"}
-{"db": "toydb", "question": "List users", "sql": "SELECT111 id, name FROM users;"}
