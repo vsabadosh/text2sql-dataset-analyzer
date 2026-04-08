@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg viewBox="0 0 1380 850" version="1.1"
+     xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .label       { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 13.5px; fill: #1f2937; font-weight: 600; }
+      .label-w     { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 13.5px; fill: #ffffff; font-weight: 700; }
+      .small-text  { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 12.75px; fill: #334155; }
+      .st-w        { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 12.75px; fill: #eef6ff; }
+      .tiny-text   { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 11.5px;  fill: #334155; }
+      .layer-box   { fill: #f3f6f9; stroke: #475569; stroke-width: 1.8; }
+      .comp        { fill: #3b82f6; stroke: #1d4ed8; stroke-width: 1.8; filter: url(#shadow); }
+      .config-comp { fill: #60a5fa; stroke: #2563eb; stroke-width: 1.8; filter: url(#shadow); }
+      .db-layer    { fill: #f5edff; stroke: #7c3aed; stroke-width: 2.2; }
+      .db-comp     { fill: #8b5cf6; stroke: #6d28d9; stroke-width: 1.8; filter: url(#shadow); }
+      .opt-layer   { fill: #fff3cd; stroke: #ff9800; stroke-width: 2; stroke-dasharray: 5,5; }
+      .arrow       { stroke: #334155; stroke-width: 2; fill: none; marker-end: url(#ah); }
+      .db-arrow    { stroke: #7c3aed; stroke-width: 2; fill: none; stroke-dasharray: 7,4; marker-end: url(#ah-db); }
+      .layer-label { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 15.5px; font-weight: 700; fill: #1e293b; }
+      .db-label-sm { font-family: Inter, "Segoe UI", Arial, sans-serif; font-size: 11px; fill: #7c3aed; font-style: italic; }
+    </style>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="#0f172a" flood-opacity="0.15"/>
+    </filter>
+    <marker id="ah" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#334155"/>
+    </marker>
+    <marker id="ah-db" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#7c3aed"/>
+    </marker>
+  </defs>
+
+  <!-- ================================================================ -->
+  <!--  0 &#x2014; CONFIGURATION &amp; ORCHESTRATION                    -->
+  <!-- ================================================================ -->
+  <rect x="56" y="32" width="1000" height="95" rx="5" ry="5"
+        style="fill:#e8f4f8;stroke:#2c5f7c;stroke-width:3"/>
+  <text x="556" y="54" text-anchor="middle" class="layer-label">0. CONFIGURATION &amp; ORCHESTRATION LAYER</text>
+  <text x="556" y="70" text-anchor="middle" class="small-text"
+        style="font-style:italic;font-weight:bold;fill:#d35400">&#x2605; Controls all pipeline behavior: component selection, parameters, execution modes &#x2605;</text>
+
+  <rect x="80"  y="82" width="290" height="40" rx="4" ry="4" class="config-comp"/>
+  <text x="225" y="98"  text-anchor="middle" class="label-w">YAML Configuration</text>
+  <text x="225" y="114" text-anchor="middle" class="st-w">Declarative spec + env vars (${VAR})</text>
+
+  <rect x="385" y="82" width="260" height="40" rx="4" ry="4" class="config-comp"/>
+  <text x="515" y="98"  text-anchor="middle" class="label-w">Config Parser</text>
+  <text x="515" y="114" text-anchor="middle" class="st-w">Loads YAML, resolves variables</text>
+
+  <rect x="660" y="82" width="290" height="40" rx="4" ry="4" class="config-comp"/>
+  <text x="805" y="98"  text-anchor="middle" class="label-w">DI Container</text>
+  <text x="805" y="114" text-anchor="middle" class="st-w">Wires components from config specs</text>
+
+  <path d="M 556,127 v 23" class="arrow"/>
+
+  <!-- ================================================================ -->
+  <!--  1 &#x2014; INPUT LAYER                                         -->
+  <!-- ================================================================ -->
+  <rect x="56" y="150" width="1000" height="120" rx="5" ry="5" class="layer-box"/>
+  <text x="556" y="175" text-anchor="middle" class="layer-label">1. INPUT LAYER</text>
+
+  <rect x="80"  y="190" width="220" height="60" rx="5" ry="5" class="comp"/>
+  <text x="190" y="215" text-anchor="middle" class="label-w">JSONL Loader</text>
+  <text x="190" y="235" text-anchor="middle" class="st-w">Streaming + gzip</text>
+
+  <rect x="315" y="190" width="220" height="60" rx="5" ry="5" class="comp"/>
+  <text x="425" y="215" text-anchor="middle" class="label-w">CSV Loader</text>
+  <text x="425" y="235" text-anchor="middle" class="st-w">Auto-detection</text>
+
+  <rect x="550" y="190" width="220" height="60" rx="5" ry="5" class="comp"/>
+  <text x="660" y="215" text-anchor="middle" class="label-w">JSON Loader</text>
+  <text x="660" y="235" text-anchor="middle" class="st-w">Standard arrays</text>
+
+  <rect x="785" y="190" width="220" height="60" rx="5" ry="5" class="comp"/>
+  <text x="895" y="215" text-anchor="middle" class="label-w">HuggingFace</text>
+  <text x="895" y="235" text-anchor="middle" class="st-w">Datasets Hub</text>
+
+  <path d="M 556,270 v 22" class="arrow"/>
+
+  <!-- ================================================================ -->
+  <!--  2 &#x2014; NORMALIZATION LAYER                                 -->
+  <!-- ================================================================ -->
+  <rect x="56" y="292" width="1000" height="120" rx="5" ry="5" class="layer-box"/>
+  <text x="556" y="317" text-anchor="middle" class="layer-label">2. NORMALIZATION LAYER</text>
+
+  <rect x="80"  y="332" width="280" height="60" rx="5" ry="5" class="comp"/>
+  <text x="220" y="357" text-anchor="middle" class="label-w">Alias Mapper</text>
+  <text x="220" y="377" text-anchor="middle" class="st-w">Field standardization</text>
+
+  <rect x="375" y="332" width="280" height="60" rx="5" ry="5" class="comp"/>
+  <text x="515" y="357" text-anchor="middle" class="label-w">ID Assignment</text>
+  <text x="515" y="377" text-anchor="middle" class="st-w">ID generation</text>
+
+  <rect x="670" y="332" width="280" height="60" rx="5" ry="5" class="comp"/>
+  <text x="810" y="357" text-anchor="middle" class="label-w">DB Identity Assign</text>
+  <text x="810" y="377" text-anchor="middle" class="st-w">Database resolution</text>
+
+  <path d="M 556,412 v 23" class="arrow"/>
+
+  <!-- ================================================================ -->
+  <!--  3 &#x2014; ANALYSIS LAYER  (3 analyzers)                       -->
+  <!-- ================================================================ -->
+  <rect x="56" y="435" width="1000" height="165" rx="5" ry="5" class="layer-box"/>
+  <text x="556" y="460" text-anchor="middle" class="layer-label">3. ANALYSIS LAYER</text>
+
+  <!-- Query Syntax -->
+  <rect x="70" y="475" width="300" height="110" rx="5" ry="5" class="comp"/>
+  <text x="220" y="497" text-anchor="middle" class="label-w">Query Syntax</text>
+  <text x="220" y="517" text-anchor="middle" class="st-w">&#x2022; AST parsing (sqlglot)</text>
+  <text x="220" y="537" text-anchor="middle" class="st-w">&#x2022; Complexity scoring</text>
+  <text x="220" y="557" text-anchor="middle" class="st-w">&#x2022; JOIN / CTE / subqueries</text>
+  <text x="220" y="577" text-anchor="middle" class="st-w">&#x2022; Difficulty classification</text>
+
+  <!-- Antipattern Detection -->
+  <rect x="385" y="475" width="300" height="110" rx="5" ry="5" class="comp"/>
+  <text x="535" y="497" text-anchor="middle" class="label-w">Antipattern Detection</text>
+  <text x="535" y="517" text-anchor="middle" class="st-w">&#x2022; 13 SQL antipatterns</text>
+  <text x="535" y="537" text-anchor="middle" class="st-w">&#x2022; 4 severity levels</text>
+  <text x="535" y="557" text-anchor="middle" class="st-w">&#x2022; Quality score (0&#x2013;100)</text>
+  <text x="535" y="577" text-anchor="middle" class="st-w">&#x2022; Per-dialect config</text>
+
+  <!-- Query Execution -->
+  <rect x="700" y="475" width="300" height="110" rx="5" ry="5" class="comp"/>
+  <text x="850" y="497" text-anchor="middle" class="label-w">Query Execution</text>
+  <text x="850" y="517" text-anchor="middle" class="st-w">&#x2022; SELECT-only / Full mode</text>
+  <text x="850" y="537" text-anchor="middle" class="st-w">&#x2022; Safety LIMIT injection</text>
+  <text x="850" y="557" text-anchor="middle" class="st-w">&#x2022; DML rollback testing</text>
+  <text x="850" y="577" text-anchor="middle" class="st-w">&#x2022; Timeout protection</text>
+
+  <path d="M 556,600 v 20" class="arrow"/>
+
+  <!-- ================================================================ -->
+  <!--  SOURCE DATABASE  (right sidebar)                                -->
+  <!-- ================================================================ -->
+  <rect x="1090" y="292" width="260" height="308" rx="8" ry="8" class="db-layer"/>
+  <text x="1220" y="318" text-anchor="middle" class="layer-label"
+        style="fill:#4a148c">SOURCE DATABASE</text>
+  <text x="1220" y="335" text-anchor="middle" class="tiny-text"
+        style="fill:#6b21a8;font-style:italic">SQLAlchemy adapters</text>
+
+  <!-- DbManager -->
+  <rect x="1110" y="348" width="220" height="50" rx="5" ry="5" class="db-comp"/>
+  <text x="1220" y="370" text-anchor="middle" class="label" style="fill:#fff">DbManager</text>
+  <text x="1220" y="387" text-anchor="middle" class="tiny-text" style="fill:#e8daff">engine() &#x00B7; status() &#x00B7; get_ddl()</text>
+
+  <!-- SQLite -->
+  <rect x="1110" y="416" width="105" height="45" rx="5" ry="5" class="db-comp"/>
+  <text x="1162" y="436" text-anchor="middle" class="label" style="fill:#fff">SQLite</text>
+  <text x="1162" y="452" text-anchor="middle" class="tiny-text" style="fill:#e8daff">File-based</text>
+
+  <!-- PostgreSQL -->
+  <rect x="1225" y="416" width="105" height="45" rx="5" ry="5" class="db-comp"/>
+  <text x="1277" y="436" text-anchor="middle" class="label" style="fill:#fff">PostgreSQL</text>
+  <text x="1277" y="452" text-anchor="middle" class="tiny-text" style="fill:#e8daff">Server</text>
+
+  <!-- DB cylinder -->
+  <ellipse cx="1220" cy="500" rx="62" ry="14" style="fill:#d8b4fe;stroke:#6d28d9;stroke-width:1.5"/>
+  <rect    x="1158" y="500" width="124" height="42" style="fill:#d8b4fe;stroke:none"/>
+  <ellipse cx="1220" cy="542" rx="62" ry="14" style="fill:#d8b4fe;stroke:#6d28d9;stroke-width:1.5"/>
+  <line x1="1158" y1="500" x2="1158" y2="542" style="stroke:#6d28d9;stroke-width:1.5"/>
+  <line x1="1282" y1="500" x2="1282" y2="542" style="stroke:#6d28d9;stroke-width:1.5"/>
+  <text x="1220" y="524" text-anchor="middle" class="tiny-text"
+        style="fill:#4a148c;font-weight:600">Source DB files</text>
+  <text x="1220" y="560" text-anchor="middle" class="tiny-text"
+        style="fill:#6b21a8">*.sqlite / pg server</text>
+
+  <!-- internal DB arrows -->
+  <path d="M 1162,398 v 18" style="stroke:#6d28d9;stroke-width:1.5;fill:none;marker-end:url(#ah-db)"/>
+  <path d="M 1277,398 v 18" style="stroke:#6d28d9;stroke-width:1.5;fill:none;marker-end:url(#ah-db)"/>
+  <path d="M 1220,461 v 25" style="stroke:#6d28d9;stroke-width:1.5;fill:none;marker-end:url(#ah-db)"/>
+
+  <!-- ================================================================ -->
+  <!--  DB &#x2192; pipeline  (dashed dependency arrows)                -->
+  <!-- ================================================================ -->
+
+  <!-- DB &#x2192; DB Identity Assign  (resolve db_id from schema/path) -->
+  <path d="M 1090,373 H 960" class="db-arrow"/>
+  <text x="1025" y="366" text-anchor="middle" class="db-label-sm">resolve db_id</text>
+
+  <!-- DB &#x2192; Query Execution  (engine() for actual SQL execution) -->
+  <path d="M 1090,530 H 1010" class="db-arrow"/>
+  <text x="1050" y="523" text-anchor="middle" class="db-label-sm">engine(db_id)</text>
+
+  <!-- ================================================================ -->
+  <!--  4 &#x2014; OUTPUT LAYER                                        -->
+  <!-- ================================================================ -->
+  <rect x="56" y="620" width="1000" height="100" rx="5" ry="5" class="layer-box"/>
+  <text x="556" y="645" text-anchor="middle" class="layer-label">4. OUTPUT LAYER</text>
+
+  <rect x="80"  y="660" width="430" height="44" rx="5" ry="5" class="comp"/>
+  <text x="295" y="687" text-anchor="middle" class="st-w">Annotated dataset (JSONL)</text>
+
+  <rect x="530" y="660" width="430" height="44" rx="5" ry="5" class="comp"/>
+  <text x="745" y="687" text-anchor="middle" class="st-w">DuckDB Analytics Database</text>
+
+  <path d="M 556,720 v 22" class="arrow"/>
+
+  <!-- ================================================================ -->
+  <!--  5 &#x2014; REPORT GENERATION  (optional)                       -->
+  <!-- ================================================================ -->
+  <rect x="56" y="742" width="1000" height="95" rx="5" ry="5" class="opt-layer"/>
+  <text x="556" y="764" text-anchor="middle" class="layer-label"
+        style="fill:#ff6f00">5. REPORT GENERATION (Optional)</text>
+  <text x="556" y="782" text-anchor="middle" class="small-text"
+        style="font-style:italic">Reads data from DuckDB &#x2192; Generates Markdown reports</text>
+
+  <rect x="72"  y="793" width="130" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="137" y="813" text-anchor="middle" class="tiny-text">1. Summary Report</text>
+
+  <rect x="208" y="793" width="126" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="271" y="813" text-anchor="middle" class="tiny-text">2. Schema Issues</text>
+
+  <rect x="340" y="793" width="108" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="394" y="813" text-anchor="middle" class="tiny-text">3. LLM Judge</text>
+
+  <rect x="454" y="793" width="136" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="522" y="813" text-anchor="middle" class="tiny-text">4. Execution Issues</text>
+
+  <rect x="596" y="793" width="136" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="664" y="813" text-anchor="middle" class="tiny-text">5. Query Structure</text>
+
+  <rect x="738" y="793" width="136" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="806" y="813" text-anchor="middle" class="tiny-text">6. Table Coverage</text>
+
+  <rect x="880" y="793" width="170" height="30" rx="4" ry="4" fill="#fff" stroke="#ff9800" stroke-width="1"/>
+  <text x="965" y="813" text-anchor="middle" class="tiny-text">7. Query Quality Report</text>
+
+</svg>
