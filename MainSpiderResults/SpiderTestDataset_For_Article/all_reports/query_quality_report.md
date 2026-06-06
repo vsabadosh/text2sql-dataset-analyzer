@@ -1,6 +1,6 @@
 # Query Quality Report
 
-**Generated:** 2026-04-10 07:44:36
+**Generated:** 2026-06-06 18:57:26
 
 ## Summary
 
@@ -18,12 +18,12 @@
 | NOT IN with nullable | 74 | 74 | 3.4% | ⚠️ High |
 | Leading wildcard LIKE | 50 | 50 | 2.3% | 🔵 Medium |
 | SELECT * | 12 | 12 | 0.6% | 🟢 Low |
-| Redundant DISTINCT | 6 | 6 | 0.3% | 🟢 Low |
+| Redundant DISTINCT | 4 | 4 | 0.2% | 🟢 Low |
 
 **Summary:** Avg quality score: 97.7/100 · Avg antipatterns per query: 0.2
-**Queries without antipatterns:** 1,772 (82.5% of analyzed queries)
+**Queries without antipatterns:** 1,774 (82.6% of analyzed queries)
 
-**By Severity:** Critical: 2 🔴 · High: 313 ⚠️ · Medium: 50 🔵 · Low: 18 🟢
+**By Severity:** Critical: 2 🔴 · High: 313 ⚠️ · Medium: 50 🔵 · Low: 16 🟢
 
 #### K1.1) Antipattern Details by item_id
 
@@ -59,9 +59,9 @@
 
 ##### Redundant DISTINCT (🟢 Low)
 
-- **Occurrences:** 6
-- **Affected queries (item_id): 6
-- **item_id list:** 372, 373, 860, 861, 1580, 1581
+- **Occurrences:** 4
+- **Affected queries (item_id): 4
+- **item_id list:** 860, 861, 1580, 1581
 
 ### K2) Unparseable Queries
 

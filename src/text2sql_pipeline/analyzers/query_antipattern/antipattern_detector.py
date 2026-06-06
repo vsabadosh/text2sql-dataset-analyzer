@@ -1339,8 +1339,10 @@ def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[Antipatte
         if not isinstance(top_level_distinct, exp.Distinct):
             continue
 
-        # There is a top‑level DISTINCT; now check whether it also has GROUP BY.
-        has_group_by = any(select.find_all(exp.Group))
+        # There is a top‑level DISTINCT; now check whether *this* SELECT has GROUP BY.
+        # We must NOT recurse into subqueries — a GROUP BY in a nested subquery
+        # does not make the outer DISTINCT redundant.
+        has_group_by = select.args.get("group") is not None
 
         if has_group_by:
             features.has_redundant_distinct = True

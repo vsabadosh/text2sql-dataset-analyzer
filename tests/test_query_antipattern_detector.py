@@ -1975,6 +1975,26 @@ class TestRedundantDistinctAntipattern:
         assert result.has_redundant_distinct is True
         assert any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
 
+    def test_outer_distinct_with_group_by_only_in_subquery_not_flagged(self):
+        """
+        Outer SELECT DISTINCT must NOT be flagged when the only GROUP BY lives
+        in a nested subquery. The inner GROUP BY guarantees uniqueness inside
+        the subquery, but not for the outer projection, so the outer DISTINCT
+        is not redundant. Regression test against subquery recursion.
+        """
+        sql = """
+        SELECT DISTINCT sub.a
+        FROM (
+            SELECT a, COUNT(*) AS c
+            FROM t
+            GROUP BY a
+        ) AS sub
+        """
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+        assert not any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
+
     def test_distinct_in_subquery_without_group_by_not_flagged(self):
         """DISTINCT in a subquery without GROUP BY should not be flagged."""
         sql = """
