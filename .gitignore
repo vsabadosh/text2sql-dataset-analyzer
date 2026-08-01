@@ -190,3 +190,5 @@ Spider_DEV*
 !MainSpiderResults/SpiderTestDataset_For_Article/**
 !MainSpiderResults/SpiderTrainDataset_For_Article_ALL_8659/
 !MainSpiderResults/SpiderTrainDataset_For_Article_ALL_8659/**
+!MainSpiderResults/MainSpiderResults/ManualValidation
+!MainSpiderResults/MainSpiderResults/ManualValidation/**
