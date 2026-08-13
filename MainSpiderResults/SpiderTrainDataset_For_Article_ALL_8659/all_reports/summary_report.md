@@ -17,7 +17,7 @@
 | Analyzer | Items Analyzed | Skipped | Success Rate (Analyzed) |
 |----------|----------------|---------|--------------------------|
 | Schema Validation | 146 | 0 | 75.34% |
-| Semantic Llm Judge | 8,659 | 0 | 60.01% |
+| Semantic Llm Judge | 8,659 | 0 | 59.9% |
 
 
 ## 🗄️ Schema Analysis
@@ -37,13 +37,19 @@
 
 ## 🤖 Semantic LLM Judge Analysis
 
+*Semantic metrics refreshed from the detailed LLM-judge report generated 2025-12-01 19:21:03.*
+
 - **Total Queries Evaluated:** 8,659
-- **Majority CORRECT:** 5,196 (60.0%)
-    *of which Unanimous CORRECT: 5,196 (60.0%)*
-- **Majority PARTIALLY_CORRECT:** 301 (3.5%)
-- **Majority INCORRECT:** 865 (10.0%)
-- **Mixed (No Majority):** 2,249 (26.0%)
-- **Majority UNANSWERABLE:** 48 (0.6%)
+- **Majority CORRECT:** 5,188 (59.9%)
+    *of which Unanimous CORRECT: 5,188 (59.9%)*
+- **Majority PARTIALLY_CORRECT:** 259 (3.0%)
+    *of which Unanimous PARTIALLY_CORRECT: 259 (3.0%)*
+- **Majority INCORRECT:** 867 (10.0%)
+    *of which Unanimous INCORRECT: 867 (10.0%)*
+- **Mixed (No Majority):** 2,316 (26.7%)
+    *(Mixed results have no consensus by definition)*
+- **Majority UNANSWERABLE:** 29 (0.3%)
+    *of which Unanimous UNANSWERABLE: 29 (0.3%)*
 
 
 ## ⏱️ Performance

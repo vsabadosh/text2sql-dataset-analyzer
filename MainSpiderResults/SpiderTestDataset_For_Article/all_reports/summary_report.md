@@ -20,7 +20,7 @@
 | Query Execution | 2,147 | 0 | 100.00% |
 | Query Syntax | 2,147 | 0 | 100.00% |
 | Schema Validation | 40 | 0 | 90.00% |
-| Semantic Llm Judge | 2,147 | 0 | 70.4% |
+| Semantic Llm Judge | 2,147 | 0 | 65.6% |
 
 
 ## 🗄️ Schema Analysis
@@ -75,17 +75,19 @@
 
 ## 🤖 Semantic LLM Judge Analysis
 
+*Semantic metrics refreshed from the detailed LLM-judge report generated 2025-12-01 19:35:31.*
+
 - **Total Queries Evaluated:** 2,147
-- **Majority CORRECT:** 1,512 (70.4%)
-    *of which Unanimous CORRECT: 1,512 (100.0%)*
-- **Majority PARTIALLY_CORRECT:** 52 (2.4%)
-    *of which Unanimous PARTIALLY_CORRECT: 52 (100.0%)*
-- **Majority INCORRECT:** 174 (8.1%)
-    *of which Unanimous INCORRECT: 174 (100.0%)*
-- **Mixed (No Majority):** 396 (18.5%)
+- **Majority CORRECT:** 1,409 (65.6%)
+    *of which Unanimous CORRECT: 1,409 (65.6%)*
+- **Majority PARTIALLY_CORRECT:** 43 (2.0%)
+    *of which Unanimous PARTIALLY_CORRECT: 43 (2.0%)*
+- **Majority INCORRECT:** 171 (8.0%)
+    *of which Unanimous INCORRECT: 171 (8.0%)*
+- **Mixed (No Majority):** 522 (24.3%)
     *(Mixed results have no consensus by definition)*
-- **Majority UNANSWERABLE:** 13 (0.6%)
-    *of which Unanimous UNANSWERABLE: 13 (100.0%)*
+- **Majority UNANSWERABLE:** 2 (0.1%)
+    *of which Unanimous UNANSWERABLE: 2 (0.1%)*
     
 
 ## ⏱️ Performance
