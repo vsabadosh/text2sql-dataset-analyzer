@@ -22,11 +22,17 @@
 
 ## 🗄️ Schema Analysis
 
+*Schema metrics refreshed from the schema-only rerun generated 2026-08-13 13:25:32.*
+
 - **Total Databases:** 146
-- **Valid Databases:** 110 (75.3%)
+- **Clean Databases:** 110 (75.3%)
+- **Databases with Errors:** 15 (10.3%)
+- **Warnings-only Databases:** 21 (14.4%)
 - **Total Tables:** 793
+- **Empty Tables:** 71
 - **Total Foreign Keys:** 717
-- **Invalid Foreign Keys:** 78
+- **Invalid Foreign Keys:** 46
+- **Databases with FK Data Violations:** 6
 
 
 ## 🤖 Semantic LLM Judge Analysis

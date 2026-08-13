@@ -25,11 +25,17 @@
 
 ## 🗄️ Schema Analysis
 
+*Schema metrics refreshed from the schema-only rerun generated 2026-08-13 13:27:24.*
+
 - **Total Databases:** 40
-- **Valid Databases:** 36 (90.0%)
+- **Clean Databases:** 36 (90.0%)
+- **Databases with Errors:** 3 (7.5%)
+- **Warnings-only Databases:** 1 (2.5%)
 - **Total Tables:** 180
+- **Empty Tables:** 0
 - **Total Foreign Keys:** 146
-- **Invalid Foreign Keys:** 4
+- **Invalid Foreign Keys:** 3
+- **Databases with FK Data Violations:** 1
 
 
 ## 📝 Query Syntax Analysis
