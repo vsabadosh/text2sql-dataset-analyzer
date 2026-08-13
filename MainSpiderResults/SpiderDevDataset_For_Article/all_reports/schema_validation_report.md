@@ -1,32 +1,33 @@
 # Schema Validation Report
 
-**Generated:** 2026-03-09 11:48:08
+**Generated:** 2026-08-13 13:23:39
 
 ## Executive Summary
 
-**Databases:** 20 · **Clean:** 13 (65.0%) · **Fatal Errors:** 0 · **Errors:** 7 · **Warnings:** 0
+**Databases:** 20 · **Clean:** 13 (65.0%) · **Fatal Errors:** 0 · **Errors:** 4 · **Warnings:** 3
 
-**Tables scanned:** 80 · **Empty tables:** 0 · **Total FKs:** 64 · **Invalid FKs:** 7
+**Tables scanned:** 80 · **Empty tables:** 0 · **Total FKs:** 64 · **Invalid FKs:** 2
 
-**Total warnings:** 0 · **DBs with FK data violations:** 3
-
-**Dataset items using DBs with errors:** 350 of 1,034 (33.8%)
-
-**Empty Table Analysis:** 0 used in queries · 0 unused
+**Total warnings:** 5 · **DBs with FK data violations:** 3
 
 **Top issue:** fk_type_mismatch (5)
 
-## ❌ Databases with Errors (7)
+## ❌ Databases with Errors (4)
 
 | Database | Tables | Non-empty | Errors | Warnings | FK Violations |
 |----------|--------|-----------|--------|----------|---------------|
-| car_1 | 6 | 6/6 (100%) | 2 | 0 | 2 |
-| concert_singer | 4 | 4/4 (100%) | 2 | 0 | 0 |
-| employee_hire_evaluation | 4 | 4/4 (100%) | 1 | 0 | 0 |
+| car_1 | 6 | 6/6 (100%) | 1 | 1 | 2 |
 | flight_2 | 3 | 3/3 (100%) | 0 | 0 | 2400 |
-| museum_visit | 3 | 3/3 (100%) | 1 | 0 | 0 |
 | voter_1 | 3 | 3/3 (100%) | 1 | 0 | 0 |
 | wta_1 | 3 | 3/3 (100%) | 0 | 0 | 1 |
+
+## ⚠️ Databases with Warnings Only (3)
+
+| Database | Tables | Non-empty | Warnings | FK Violations |
+|----------|--------|-----------|----------|---------------|
+| concert_singer | 4 | 4/4 (100%) | 2 | 0 |
+| employee_hire_evaluation | 4 | 4/4 (100%) | 1 | 0 |
+| museum_visit | 3 | 3/3 (100%) | 1 | 0 |
 
 ## ✅ Clean Databases (13)
 
@@ -43,44 +44,20 @@
 
 ### Database: car_1
 
-**Status:** ❌ 3 errors · **Non-empty:** 6/6 (100%) · **FK:** N/A · **IC:** 2 violations
+**Status:** ❌ 2 errors, 1 warning · **Non-empty:** 6/6 (100%) · **FK:** N/A · **IC:** 2 violations
 
 **Errors**
 
 ⛔ Found 2 FK data violation(s)
-⛔ Foreign key column types differ: car_makers.Country (TEXT→TEXT) vs countries.CountryId (INTEGER→INTEGER)
 ⛔ Table car_names FK ['Model'] references model_list['Model'] which is not PK/UNIQUE.
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: car_makers.Country (TEXT→TEXT) vs countries.CountryId (INTEGER→INTEGER); review coercion behavior and cross-dialect portability
 
 **Tables (summary)**
 
 Total: 6 · Non-empty: 6 · Empty: 0
-
-
-### Database: concert_singer
-
-**Status:** ❌ 2 errors · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: concert.Stadium_ID (TEXT→TEXT) vs stadium.Stadium_ID (INT→INTEGER)
-⛔ Foreign key column types differ: singer_in_concert.Singer_ID (TEXT→TEXT) vs singer.Singer_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
-
-
-### Database: employee_hire_evaluation
-
-**Status:** ❌ 1 error · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: evaluation.Employee_ID (TEXT→TEXT) vs employee.Employee_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
 
 
 ### Database: flight_2
@@ -90,19 +67,6 @@ Total: 4 · Non-empty: 4 · Empty: 0
 **Errors**
 
 ⛔ Found 2400 FK data violation(s)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: museum_visit
-
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: visit.visitor_ID (TEXT→TEXT) vs visitor.ID (INT→INTEGER)
 
 **Tables (summary)**
 
@@ -129,6 +93,46 @@ Total: 3 · Non-empty: 3 · Empty: 0
 **Errors**
 
 ⛔ Found 1 FK data violation(s)
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: concert_singer
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: concert.Stadium_ID (TEXT→TEXT) vs stadium.Stadium_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: singer_in_concert.Singer_ID (TEXT→TEXT) vs singer.Singer_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
+### Database: employee_hire_evaluation
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: evaluation.Employee_ID (TEXT→TEXT) vs employee.Employee_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
+### Database: museum_visit
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: visit.visitor_ID (TEXT→TEXT) vs visitor.ID (INT→INTEGER); review coercion behavior and cross-dialect portability
 
 **Tables (summary)**
 

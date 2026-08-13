@@ -32,9 +32,10 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
     Validates:
     - Database accessibility
     - Foreign key integrity (4 types of errors)
+    - Non-blocking foreign-key type-family portability warnings
     - Duplicate column names
     
-    Emits structured metrics with evidence for each error type.
+    Emits structured metrics with evidence for each finding type.
     
     Performance:
     - Analyzes each db_id only once (first encounter)
@@ -418,10 +419,15 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                         ))
                         continue
                 
-                # FK is valid (tentatively; may be flipped by type mismatch rule below)
+                # The FK declaration is structurally valid. Declared type-family
+                # differences are retained below as non-blocking portability
+                # warnings because SQLite applies the parent-key affinity during
+                # comparison and does not require identical declared types.
                 fk_valid += 1
 
-                # Check 2e: Type/affinity mismatch between local and parent columns → treat as error
+                # Check 2e: Declared type-family mismatch. This is useful evidence
+                # for cross-dialect portability and coercion review, but it does
+                # not make a SQLite foreign key structurally invalid.
                 try:
                     for lc, pc in zip(local_cols, parent_cols):
                         ltype_raw = local_col_types.get(lc, "")
@@ -432,10 +438,6 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                         lfam = self.db_manager.normalize_type_family(ltype_raw)
                         pfam = self.db_manager.normalize_type_family(ptype_raw)
                         if lfam != pfam:
-                            # Reclassify this FK as invalid due to type mismatch
-                            if fk_valid > 0:
-                                fk_valid -= 1
-                            fk_invalid += 1
                             evidence.fk_type_mismatch.append(
                                 ForeignKeyTypeMismatch(
                                     table=table,
@@ -444,11 +446,13 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                                     parent_columns=parent_cols
                                 )
                             )
-                            stats.errors.append(ErrorDetail(
+                            stats.warnings.append(ErrorDetail(
                                 kind="fk_type_mismatch",
                                 message=(
-                                    f"Foreign key column types differ: {table}.{lc} ({ltype_raw}→{lfam}) "
-                                    f"vs {parent_table}.{pc} ({ptype_raw}→{pfam})"
+                                    f"Foreign key declared type families differ: "
+                                    f"{table}.{lc} ({ltype_raw}→{lfam}) vs "
+                                    f"{parent_table}.{pc} ({ptype_raw}→{pfam}); "
+                                    "review coercion behavior and cross-dialect portability"
                                 )
                             ))
                             # Report once per FK if any pair mismatches

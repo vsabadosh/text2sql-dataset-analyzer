@@ -1,29 +1,30 @@
 # Schema Validation Report
 
-**Generated:** 2026-03-09 11:53:50
+**Generated:** 2026-08-13 13:27:24
 
 ## Executive Summary
 
-**Databases:** 40 · **Clean:** 36 (90.0%) · **Fatal Errors:** 0 · **Errors:** 4 · **Warnings:** 0
+**Databases:** 40 · **Clean:** 36 (90.0%) · **Fatal Errors:** 0 · **Errors:** 3 · **Warnings:** 1
 
-**Tables scanned:** 180 · **Empty tables:** 0 · **Total FKs:** 146 · **Invalid FKs:** 4
+**Tables scanned:** 180 · **Empty tables:** 0 · **Total FKs:** 146 · **Invalid FKs:** 3
 
-**Total warnings:** 0 · **DBs with FK data violations:** 1
-
-**Dataset items using DBs with errors:** 250 of 2,147 (11.6%)
-
-**Empty Table Analysis:** 0 used in queries · 0 unused
+**Total warnings:** 1 · **DBs with FK data violations:** 1
 
 **Top issue:** fk_missing_column (3)
 
-## ❌ Databases with Errors (4)
+## ❌ Databases with Errors (3)
 
 | Database | Tables | Non-empty | Errors | Warnings | FK Violations |
 |----------|--------|-----------|--------|----------|---------------|
 | book_1 | 6 | 6/6 (100%) | 2 | 0 | 0 |
 | car_racing | 4 | 4/4 (100%) | 1 | 0 | 0 |
-| government_shift | 7 | 7/7 (100%) | 1 | 0 | 0 |
 | pilot_1 | 2 | 2/2 (100%) | 0 | 0 | 1 |
+
+## ⚠️ Databases with Warnings Only (1)
+
+| Database | Tables | Non-empty | Warnings | FK Violations |
+|----------|--------|-----------|----------|---------------|
+| government_shift | 7 | 7/7 (100%) | 1 | 0 |
 
 ## ✅ Clean Databases (36)
 
@@ -65,19 +66,6 @@ Total: 6 · Non-empty: 6 · Empty: 0
 Total: 4 · Non-empty: 4 · Empty: 0
 
 
-### Database: government_shift
-
-**Status:** ❌ 1 error · **Non-empty:** 7/7 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: Analytical_Layer.Customers_and_Services_ID (VARCHAR(40)→TEXT) vs Customers_and_Services.Customers_and_Services_ID (INTEGER→INTEGER)
-
-**Tables (summary)**
-
-Total: 7 · Non-empty: 7 · Empty: 0
-
-
 ### Database: pilot_1
 
 **Status:** ❌ 1 error · **Non-empty:** 2/2 (100%) · **FK:** N/A · **IC:** 1 violations
@@ -89,4 +77,17 @@ Total: 7 · Non-empty: 7 · Empty: 0
 **Tables (summary)**
 
 Total: 2 · Non-empty: 2 · Empty: 0
+
+
+### Database: government_shift
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 7/7 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: Analytical_Layer.Customers_and_Services_ID (VARCHAR(40)→TEXT) vs Customers_and_Services.Customers_and_Services_ID (INTEGER→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 7 · Non-empty: 7 · Empty: 0
 

@@ -1,66 +1,62 @@
 # Schema Validation Report
 
-**Generated:** 2026-03-09 11:51:53
+**Generated:** 2026-08-13 13:25:32
 
 ## Executive Summary
 
-**Databases:** 146 · **Clean:** 110 (75.3%) · **Fatal Errors:** 0 · **Errors:** 32 · **Warnings:** 4
+**Databases:** 146 · **Clean:** 110 (75.3%) · **Fatal Errors:** 0 · **Errors:** 15 · **Warnings:** 21
 
-**Tables scanned:** 793 · **Empty tables:** 71 · **Total FKs:** 717 · **Invalid FKs:** 78
+**Tables scanned:** 793 · **Empty tables:** 71 · **Total FKs:** 717 · **Invalid FKs:** 46
 
-**Total warnings:** 9 · **DBs with FK data violations:** 6
-
-**Dataset items using DBs with errors:** 2,155 of 8,659 (24.9%)
-
-**Empty Table Analysis:** 68 used in queries · 3 unused
+**Total warnings:** 41 · **DBs with FK data violations:** 6
 
 **Top issue:** fk_target_not_key (41)
 
-## ❌ Databases with Errors (32)
+## ❌ Databases with Errors (15)
 
 | Database | Tables | Non-empty | Errors | Warnings | FK Violations |
 |----------|--------|-----------|--------|----------|---------------|
-| academic | 15 | 0/15 (0%) | 1 | 1 | 0 |
-| aircraft | 5 | 5/5 (100%) | 2 | 0 | 0 |
 | allergy_1 | 3 | 3/3 (100%) | 0 | 0 | 1 |
-| architecture | 3 | 3/3 (100%) | 2 | 0 | 0 |
 | baseball_1 | 26 | 26/26 (100%) | 20 | 0 | 0 |
-| city_record | 4 | 4/4 (100%) | 1 | 0 | 0 |
 | college_1 | 7 | 7/7 (100%) | 0 | 0 | 2 |
-| company_employee | 3 | 3/3 (100%) | 1 | 0 | 0 |
-| cre_Drama_Workshop_Groups | 18 | 18/18 (100%) | 9 | 0 | 0 |
-| culture_company | 3 | 3/3 (100%) | 2 | 0 | 0 |
 | dorm_1 | 5 | 5/5 (100%) | 3 | 0 | 0 |
 | flight_4 | 3 | 3/3 (100%) | 0 | 0 | 1240 |
 | hospital_1 | 15 | 15/15 (100%) | 0 | 0 | 1 |
 | hr_1 | 7 | 7/7 (100%) | 0 | 0 | 6 |
 | imdb | 16 | 0/16 (0%) | 7 | 1 | 0 |
-| loan_1 | 3 | 3/3 (100%) | 2 | 0 | 0 |
-| machine_repair | 4 | 4/4 (100%) | 1 | 0 | 0 |
-| party_people | 4 | 4/4 (100%) | 1 | 0 | 0 |
-| performance_attendance | 3 | 3/3 (100%) | 2 | 0 | 0 |
-| phone_1 | 3 | 3/3 (100%) | 1 | 0 | 0 |
-| phone_market | 3 | 3/3 (100%) | 1 | 0 | 0 |
-| race_track | 2 | 2/2 (100%) | 1 | 0 | 0 |
+| loan_1 | 3 | 3/3 (100%) | 1 | 1 | 0 |
 | restaurants | 3 | 0/3 (0%) | 1 | 1 | 0 |
 | sakila_1 | 16 | 12/16 (75%) | 0 | 1 | 38273 |
-| school_finance | 3 | 3/3 (100%) | 2 | 0 | 0 |
-| shop_membership | 4 | 4/4 (100%) | 2 | 0 | 0 |
 | soccer_1 | 6 | 6/6 (100%) | 4 | 0 | 0 |
 | store_product | 5 | 5/5 (100%) | 1 | 0 | 0 |
-| student_assessment | 9 | 9/9 (100%) | 1 | 0 | 0 |
 | wine_1 | 3 | 3/3 (100%) | 2 | 0 | 0 |
-| wrestler | 2 | 2/2 (100%) | 1 | 0 | 0 |
 | yelp | 7 | 0/7 (0%) | 7 | 1 | 0 |
 
-## ⚠️ Databases with Warnings Only (4)
+## ⚠️ Databases with Warnings Only (21)
 
 | Database | Tables | Non-empty | Warnings | FK Violations |
 |----------|--------|-----------|----------|---------------|
+| academic | 15 | 0/15 (0%) | 2 | 0 |
+| aircraft | 5 | 5/5 (100%) | 2 | 0 |
+| architecture | 3 | 3/3 (100%) | 2 | 0 |
+| city_record | 4 | 4/4 (100%) | 1 | 0 |
+| company_employee | 3 | 3/3 (100%) | 1 | 0 |
+| cre_Drama_Workshop_Groups | 18 | 18/18 (100%) | 9 | 0 |
+| culture_company | 3 | 3/3 (100%) | 2 | 0 |
 | formula_1 | 13 | 11/13 (85%) | 1 | 0 |
 | geo | 7 | 0/7 (0%) | 1 | 0 |
+| machine_repair | 4 | 4/4 (100%) | 1 | 0 |
 | music_2 | 7 | 0/7 (0%) | 1 | 0 |
+| party_people | 4 | 4/4 (100%) | 1 | 0 |
+| performance_attendance | 3 | 3/3 (100%) | 2 | 0 |
+| phone_1 | 3 | 3/3 (100%) | 1 | 0 |
+| phone_market | 3 | 3/3 (100%) | 1 | 0 |
+| race_track | 2 | 2/2 (100%) | 1 | 0 |
 | scholar | 10 | 0/10 (0%) | 1 | 0 |
+| school_finance | 3 | 3/3 (100%) | 2 | 0 |
+| shop_membership | 4 | 4/4 (100%) | 2 | 0 |
+| student_assessment | 9 | 9/9 (100%) | 1 | 0 |
+| wrestler | 2 | 2/2 (100%) | 1 | 0 |
 
 ## ✅ Clean Databases (110)
 
@@ -75,37 +71,6 @@
 
 ## Detailed Database Reports
 
-### Database: academic
-
-**Status:** ❌ 1 error, 1 warning · **Non-empty:** 0/15 (0%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: publication.cid (TEXT→TEXT) vs conference.cid (INT→INTEGER)
-
-**Warnings**
-
-⚠️ Found 15 empty table(s): "author", "cite", "conference", "domain", "domain_author", "domain_conference", "domain_journal", "domain_keyword", "domain_publication", "journal", "keyword", "organization", "publication", "publication_keyword", "writes"
-
-**Tables (summary)**
-
-Total: 15 · Non-empty: 0 · Empty: 15
-
-
-### Database: aircraft
-
-**Status:** ❌ 2 errors · **Non-empty:** 5/5 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: match.Winning_Pilot (TEXT→TEXT) vs pilot.Pilot_Id (int(11)→INTEGER)
-⛔ Foreign key column types differ: match.Winning_Aircraft (TEXT→TEXT) vs aircraft.Aircraft_ID (int(11)→INTEGER)
-
-**Tables (summary)**
-
-Total: 5 · Non-empty: 5 · Empty: 0
-
-
 ### Database: allergy_1
 
 **Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** 1 violations
@@ -113,20 +78,6 @@ Total: 5 · Non-empty: 5 · Empty: 0
 **Errors**
 
 ⛔ Found 1 FK data violation(s)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: architecture
-
-**Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: bridge.architect_id (INT→INTEGER) vs architect.id (TEXT→TEXT)
-⛔ Foreign key column types differ: mill.architect_id (INT→INTEGER) vs architect.id (TEXT→TEXT)
 
 **Tables (summary)**
 
@@ -165,19 +116,6 @@ Total: 3 · Non-empty: 3 · Empty: 0
 Total: 26 · Non-empty: 26 · Empty: 0
 
 
-### Database: city_record
-
-**Status:** ❌ 1 error · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: hosting_city.Host_City (TEXT→TEXT) vs city.City_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
-
-
 ### Database: college_1
 
 **Status:** ❌ 1 error · **Non-empty:** 7/7 (100%) · **FK:** N/A · **IC:** 2 violations
@@ -189,54 +127,6 @@ Total: 4 · Non-empty: 4 · Empty: 0
 **Tables (summary)**
 
 Total: 7 · Non-empty: 7 · Empty: 0
-
-
-### Database: company_employee
-
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: employment.Company_ID (INT→INTEGER) vs company.Company_ID (REAL→REAL)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: cre_Drama_Workshop_Groups
-
-**Status:** ❌ 9 errors · **Non-empty:** 18/18 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: Bookings.Workshop_Group_ID (VARCHAR(100)→TEXT) vs Drama_Workshop_Groups.Workshop_Group_ID (INTEGER→INTEGER)
-⛔ Foreign key column types differ: Clients.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Customer_Orders.Store_ID (INTEGER→INTEGER) vs Stores.Store_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Customer_Orders.Customer_ID (INTEGER→INTEGER) vs Customers.Customer_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Customers.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Drama_Workshop_Groups.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Order_Items.Product_ID (INTEGER→INTEGER) vs Products.Product_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Performers.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT)
-⛔ Foreign key column types differ: Stores.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT)
-
-**Tables (summary)**
-
-Total: 18 · Non-empty: 18 · Empty: 0
-
-
-### Database: culture_company
-
-**Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: culture_company.movie_id (TEXT→TEXT) vs movie.movie_id (INT→INTEGER)
-⛔ Foreign key column types differ: culture_company.book_club_id (TEXT→TEXT) vs book_club.book_club_id (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
 
 
 ### Database: dorm_1
@@ -318,95 +208,19 @@ Total: 16 · Non-empty: 0 · Empty: 16
 
 ### Database: loan_1
 
-**Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+**Status:** ❌ 1 error, 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
 
 **Errors**
 
 ⛔ Table loan has FK referencing non-existing column(s) ['Cust_ID'] on parent 'customer'.
-⛔ Foreign key column types differ: loan.branch_ID (varchar(3)→TEXT) vs bank.branch_ID (INT→INTEGER)
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: loan.branch_ID (varchar(3)→TEXT) vs bank.branch_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
 
 **Tables (summary)**
 
 Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: machine_repair
-
-**Status:** ❌ 1 error · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: repair_assignment.technician_id (INT→INTEGER) vs technician.technician_id (REAL→REAL)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
-
-
-### Database: party_people
-
-**Status:** ❌ 1 error · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: member.Party_ID (TEXT→TEXT) vs party.Party_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
-
-
-### Database: performance_attendance
-
-**Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: member_attendance.Performance_ID (INT→INTEGER) vs performance.Performance_ID (REAL→REAL)
-⛔ Foreign key column types differ: member_attendance.Member_ID (INT→INTEGER) vs member.Member_ID (TEXT→TEXT)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: phone_1
-
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: phone.screen_mode (TEXT→TEXT) vs screen_mode.Graphics_mode (REAL→REAL)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: phone_market
-
-**Status:** ❌ 1 error · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: phone_market.Phone_ID (TEXT→TEXT) vs phone.Phone_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: race_track
-
-**Status:** ❌ 1 error · **Non-empty:** 2/2 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: race.Track_ID (TEXT→TEXT) vs track.Track_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 2 · Non-empty: 2 · Empty: 0
 
 
 ### Database: restaurants
@@ -443,34 +257,6 @@ Total: 3 · Non-empty: 0 · Empty: 3
 Total: 16 · Non-empty: 12 · Empty: 4
 
 
-### Database: school_finance
-
-**Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: budget.School_id (INT→INTEGER) vs School.School_id (TEXT→TEXT)
-⛔ Foreign key column types differ: endowment.School_id (INT→INTEGER) vs School.School_id (TEXT→TEXT)
-
-**Tables (summary)**
-
-Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: shop_membership
-
-**Status:** ❌ 2 errors · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: membership_register_branch.Branch_ID (TEXT→TEXT) vs branch.Branch_ID (INT→INTEGER)
-⛔ Foreign key column types differ: purchase.Branch_ID (TEXT→TEXT) vs branch.Branch_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 4 · Non-empty: 4 · Empty: 0
-
-
 ### Database: soccer_1
 
 **Status:** ❌ 4 errors · **Non-empty:** 6/6 (100%) · **FK:** N/A · **IC:** ok
@@ -500,19 +286,6 @@ Total: 6 · Non-empty: 6 · Empty: 0
 Total: 5 · Non-empty: 5 · Empty: 0
 
 
-### Database: student_assessment
-
-**Status:** ❌ 1 error · **Non-empty:** 9/9 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: Student_Course_Registrations.course_id (INTEGER→INTEGER) vs Courses.course_id (VARCHAR(100)→TEXT)
-
-**Tables (summary)**
-
-Total: 9 · Non-empty: 9 · Empty: 0
-
-
 ### Database: wine_1
 
 **Status:** ❌ 2 errors · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
@@ -525,19 +298,6 @@ Total: 9 · Non-empty: 9 · Empty: 0
 **Tables (summary)**
 
 Total: 3 · Non-empty: 3 · Empty: 0
-
-
-### Database: wrestler
-
-**Status:** ❌ 1 error · **Non-empty:** 2/2 (100%) · **FK:** N/A · **IC:** ok
-
-**Errors**
-
-⛔ Foreign key column types differ: Elimination.Wrestler_ID (TEXT→TEXT) vs wrestler.Wrestler_ID (INT→INTEGER)
-
-**Tables (summary)**
-
-Total: 2 · Non-empty: 2 · Empty: 0
 
 
 ### Database: yelp
@@ -561,6 +321,109 @@ Total: 2 · Non-empty: 2 · Empty: 0
 **Tables (summary)**
 
 Total: 7 · Non-empty: 0 · Empty: 7
+
+
+### Database: academic
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 0/15 (0%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Found 15 empty table(s): "author", "cite", "conference", "domain", "domain_author", "domain_conference", "domain_journal", "domain_keyword", "domain_publication", "journal", "keyword", "organization", "publication", "publication_keyword", "writes"
+⚠️ Foreign key declared type families differ: publication.cid (TEXT→TEXT) vs conference.cid (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 15 · Non-empty: 0 · Empty: 15
+
+
+### Database: aircraft
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 5/5 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: match.Winning_Pilot (TEXT→TEXT) vs pilot.Pilot_Id (int(11)→INTEGER); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: match.Winning_Aircraft (TEXT→TEXT) vs aircraft.Aircraft_ID (int(11)→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 5 · Non-empty: 5 · Empty: 0
+
+
+### Database: architecture
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: bridge.architect_id (INT→INTEGER) vs architect.id (TEXT→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: mill.architect_id (INT→INTEGER) vs architect.id (TEXT→TEXT); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: city_record
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: hosting_city.Host_City (TEXT→TEXT) vs city.City_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
+### Database: company_employee
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: employment.Company_ID (INT→INTEGER) vs company.Company_ID (REAL→REAL); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: cre_Drama_Workshop_Groups
+
+**Status:** ⚠️ 9 warnings · **Non-empty:** 18/18 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: Bookings.Workshop_Group_ID (VARCHAR(100)→TEXT) vs Drama_Workshop_Groups.Workshop_Group_ID (INTEGER→INTEGER); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Clients.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Customer_Orders.Store_ID (INTEGER→INTEGER) vs Stores.Store_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Customer_Orders.Customer_ID (INTEGER→INTEGER) vs Customers.Customer_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Customers.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Drama_Workshop_Groups.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Order_Items.Product_ID (INTEGER→INTEGER) vs Products.Product_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Performers.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: Stores.Address_ID (INTEGER→INTEGER) vs Addresses.Address_ID (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 18 · Non-empty: 18 · Empty: 0
+
+
+### Database: culture_company
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: culture_company.movie_id (TEXT→TEXT) vs movie.movie_id (INT→INTEGER); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: culture_company.book_club_id (TEXT→TEXT) vs book_club.book_club_id (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
 
 
 ### Database: formula_1
@@ -589,6 +452,19 @@ Total: 13 · Non-empty: 11 · Empty: 2
 Total: 7 · Non-empty: 0 · Empty: 7
 
 
+### Database: machine_repair
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: repair_assignment.technician_id (INT→INTEGER) vs technician.technician_id (REAL→REAL); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
 ### Database: music_2
 
 **Status:** ⚠️ 1 warning · **Non-empty:** 0/7 (0%) · **FK:** N/A · **IC:** ok
@@ -602,6 +478,72 @@ Total: 7 · Non-empty: 0 · Empty: 7
 Total: 7 · Non-empty: 0 · Empty: 7
 
 
+### Database: party_people
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: member.Party_ID (TEXT→TEXT) vs party.Party_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
+### Database: performance_attendance
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: member_attendance.Performance_ID (INT→INTEGER) vs performance.Performance_ID (REAL→REAL); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: member_attendance.Member_ID (INT→INTEGER) vs member.Member_ID (TEXT→TEXT); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: phone_1
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: phone.screen_mode (TEXT→TEXT) vs screen_mode.Graphics_mode (REAL→REAL); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: phone_market
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: phone_market.Phone_ID (TEXT→TEXT) vs phone.Phone_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: race_track
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 2/2 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: race.Track_ID (TEXT→TEXT) vs track.Track_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 2 · Non-empty: 2 · Empty: 0
+
+
 ### Database: scholar
 
 **Status:** ⚠️ 1 warning · **Non-empty:** 0/10 (0%) · **FK:** N/A · **IC:** ok
@@ -613,4 +555,58 @@ Total: 7 · Non-empty: 0 · Empty: 7
 **Tables (summary)**
 
 Total: 10 · Non-empty: 0 · Empty: 10
+
+
+### Database: school_finance
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 3/3 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: budget.School_id (INT→INTEGER) vs School.School_id (TEXT→TEXT); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: endowment.School_id (INT→INTEGER) vs School.School_id (TEXT→TEXT); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 3 · Non-empty: 3 · Empty: 0
+
+
+### Database: shop_membership
+
+**Status:** ⚠️ 2 warnings · **Non-empty:** 4/4 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: membership_register_branch.Branch_ID (TEXT→TEXT) vs branch.Branch_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+⚠️ Foreign key declared type families differ: purchase.Branch_ID (TEXT→TEXT) vs branch.Branch_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 4 · Non-empty: 4 · Empty: 0
+
+
+### Database: student_assessment
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 9/9 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: Student_Course_Registrations.course_id (INTEGER→INTEGER) vs Courses.course_id (VARCHAR(100)→TEXT); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 9 · Non-empty: 9 · Empty: 0
+
+
+### Database: wrestler
+
+**Status:** ⚠️ 1 warning · **Non-empty:** 2/2 (100%) · **FK:** N/A · **IC:** ok
+
+**Warnings**
+
+⚠️ Foreign key declared type families differ: Elimination.Wrestler_ID (TEXT→TEXT) vs wrestler.Wrestler_ID (INT→INTEGER); review coercion behavior and cross-dialect portability
+
+**Tables (summary)**
+
+Total: 2 · Non-empty: 2 · Empty: 0
 

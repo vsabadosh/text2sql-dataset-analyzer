@@ -61,7 +61,7 @@ class MultiplePrimaryKeys(BaseModel):
 
 
 class ForeignKeyTypeMismatch(BaseModel):
-    """FK local vs parent column type/affinity mismatch (treated as error)."""
+    """Non-blocking FK declared type-family portability warning."""
     table: str
     local: List[str]
     parent_table: str
@@ -70,8 +70,8 @@ class ForeignKeyTypeMismatch(BaseModel):
 
 class SchemaEvidence(BaseModel):
     """
-    Structured evidence for all validation errors.
-    Contains examples of each error type found.
+    Structured evidence for all validation findings.
+    Contains examples of each error or warning type found.
     """
     fk_missing_table: List[ForeignKeyMissingTable] = Field(default_factory=list)
     fk_missing_column: List[ForeignKeyMissingColumn] = Field(default_factory=list)
