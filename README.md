@@ -522,7 +522,7 @@ find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 ## License
 
-MIT
+Licensed under the [Apache License 2.0](LICENSE).
 
 ---
 
