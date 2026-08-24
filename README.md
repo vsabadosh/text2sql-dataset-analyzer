@@ -31,7 +31,56 @@ pip install --upgrade --force-reinstall -e ".[dev,progress]"
 
 ```
 
-### Run Pipeline
+### Run the bundled demo
+
+The repository ships a self-contained example, so you can see the pipeline work before
+configuring anything. It analyses 53 Spider items against the `student_assessment`
+SQLite database included in `data_examples/`, needs no API keys and no downloads, and
+finishes in a couple of seconds.
+
+```bash
+text2sql run --config configs/pipeline.mini.ds.example.yaml
+```
+
+It writes a timestamped `my_analysis_<timestamp>/` directory into the current folder,
+holding the annotated dataset, per-analyzer metrics and seven markdown reports. Start
+with `my_analysis_<timestamp>/all_reports/summary_report.md`.
+
+On a fresh checkout the run reports all 53 queries parsed and executed successfully, an
+average antipattern quality score of 97/100, and one schema warning: `Courses.course_id`
+is declared `VARCHAR(100)`, while `Student_Course_Registrations.course_id` referencing it
+is `INTEGER`. That mismatch is genuinely present in Spider, and surfacing exactly this
+kind of defect is what the pipeline is for.
+
+The LLM-as-a-Judge analyzer is switched off in this config, which is why no provider
+credentials are needed. See [LLM-as-a-Judge Configuration](#llm-as-a-judge-configuration)
+to enable it.
+
+### Where the example data comes from
+
+Both halves of the demo are taken from [Spider 1.0](https://yale-lily.github.io/spider),
+the cross-domain Text-to-SQL benchmark from Yale (Yu et al., EMNLP 2018), which spans
+10,181 questions over 5,693 unique SQL queries across 200 databases and 138 domains.
+
+- `data_examples/spider-tiny.jsonl` — 53 question/query pairs from the Spider **training**
+  split. Several questions map to the same SQL, since Spider paraphrases each query.
+- `data_examples/databases/student_assessment/` — the matching Spider database, 9 tables,
+  built from the committed `schema.sql`.
+
+Only this slice ships with the repository, to keep the clone small. Download the full
+dataset — every split and all 200 databases — from the
+[Spider page](https://yale-lily.github.io/spider), unpack it, and point
+`sourceDb.endpoint` at its `database/` directory and `load.params.path` at the split you
+want to analyse.
+
+Spider is distributed under CC BY-SA 4.0, and that license covers the sample bundled here.
+The pipeline code is under [Apache License 2.0](LICENSE).
+
+### Run on your own data
+
+`configs/pipeline.example.yaml` is the full reference configuration. Point
+`sourceDb.endpoint` at your database directory and `load.params.path` at your dataset,
+then:
 
 ```bash
 text2sql run --config configs/pipeline.example.yaml
@@ -522,7 +571,11 @@ find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+The pipeline is licensed under the [Apache License 2.0](LICENSE).
+
+The example data under `data_examples/` is derived from
+[Spider 1.0](https://yale-lily.github.io/spider) (Yu et al., EMNLP 2018) and remains under
+its own CC BY-SA 4.0 license.
 
 ---
 
