@@ -28,14 +28,21 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
     Dialect-agnostic query execution analyzer.
     
     Features:
-    - Executes SELECT queries (adds LIMIT if missing for safety)
+    - Executes read-only queries (adds LIMIT if missing, unless disabled)
     - Tests UPDATE/DELETE/INSERT in transaction with ROLLBACK (no data changes)
     - Blocks destructive operations (DROP, TRUNCATE, etc.)
     - Tracks execution time and row counts
     
     Modes:
-    - select_only: Only execute SELECT (default, safest)
+    - select_only: Only execute read-only queries (default, safest)
     - all: Execute any safe query (UPDATE/DELETE/INSERT in rollback transaction)
+    
+    Read-only covers SELECT together with set operations (UNION, INTERSECT,
+    EXCEPT) and parenthesised selects.
+    
+    safety_limit caps how much work a query is allowed to produce. Set it to
+    null to run queries exactly as written, which is required whenever the
+    result itself is measured rather than just its executability.
     """
     
     name = "query_execution_analyzer"
@@ -46,9 +53,15 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
         db_manager: DbManager,
         enabled: bool,
         mode: str = "select_only",
-        safety_limit: int = 1,
+        safety_limit: int | None = 1,
         timeout_seconds: float = 30.0,
     ) -> None:
+        if safety_limit is not None and safety_limit < 1:
+            raise ValueError(
+                "safety_limit must be >= 1, or null to disable LIMIT injection, "
+                f"got {safety_limit}"
+            )
+
         self.db_manager = db_manager
         self.mode = mode
         self.safety_limit = safety_limit
@@ -160,19 +173,20 @@ class QueryExecutionAnalyzer(AnnotatingAnalyzer):
             # Get dialect from DbManager
             dialect = self.db_manager.get_sqlglot_dialect()
             
-            # Parse query to determine type
+            # Parse query to determine type. exp.Query covers SELECT along with
+            # UNION/INTERSECT/EXCEPT and parenthesised selects; writes are not
+            # exp.Query, so read-only detection stays safe.
             ast = sqlglot.parse_one(sql, read=dialect)
-            is_select = isinstance(ast, exp.Select)
+            is_read_only = isinstance(ast, exp.Query)
             is_mutation = isinstance(ast, (exp.Insert, exp.Update, exp.Delete))
             
             # Mode checks
-            if self.mode == "select_only" and not is_select:
+            if self.mode == "select_only" and not is_read_only:
                 return False, "Only SELECT allowed in select_only mode"
             
-            # Add LIMIT to SELECT queries without one
             query_to_execute = sql
             
-            if is_select and ast.args.get("limit") is None:
+            if is_read_only and self.safety_limit is not None and ast.args.get("limit") is None:
                 try:
                     modified_ast = ast.copy()
                     modified_ast = modified_ast.limit(self.safety_limit)

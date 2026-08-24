@@ -4,8 +4,8 @@ sourceDb:
   # endpoint: "./data_examples/test_database"    # sqlite root folder
   # endpoint: "./data_examples/databases"    # sqlite root folder
   # endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_train_20240627/train_databases
-  # endpoint: /Users/volodyms/projects/LLM/llm_tuning/spiderNew/test_database
-  endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_dev_20240627/dev_databases
+  endpoint: /Users/vsabadosh/projects/PERSONAL/llm_tuning/spiderNew/test_database
+#  endpoint: /Users/volodyms/projects/LLM/llm_tuning/bird_dev_20240627/dev_databases
   # postgresql example:
   # endpoint: "postgresql+psycopg://app:${PG_APP_PASS}@127.0.0.1:5432"
 
@@ -16,7 +16,7 @@ load:
     #  path: data_examples/spider-tiny-10.jsonl
     # path: data_examples/gretel/gretel_train.jsonl
   #  path: data_examples/spider/spider_train.jsonl
-   path: data_examples/gretel/gretel_train.jsonl
+   path: data_examples/spider/all_partition_for_article/spider_test_new.jsonl
 
 # load:
 #   name: hf
@@ -29,28 +29,28 @@ load:
 
 # Progress tracking configuration
 progress:
-  expected_items: 100000        # Optional: Expected number of items for percentage tracking
+  expected_items: 1034        # Optional: Expected number of items for percentage tracking
   show_progress: true         # Optional: Show real-time progress bar (default: true)
 
 # # Spider
-# normalize:
-#   - name: alias_mapper
-#     params:
-#       mapping:
-#         id: id
-#         question: question
-#         sql: query
-#         dbId: db_id
-
-# Gretel
 normalize:
   - name: alias_mapper
     params:
       mapping:
         id: id
-        question: sql_prompt
-        sql: sql
-        schema: sql_context   # важливо: тут DDL/контекст з HF датасету
+        question: question
+        sql: query
+        dbId: db_id
+
+# Gretel
+#normalize:
+#  - name: alias_mapper
+#    params:
+#      mapping:
+#        id: id
+#        question: sql_prompt
+#        sql: sql
+#        schema: sql_context   # важливо: тут DDL/контекст з HF датасету
 # Bird
 # normalize:
 #   - name: alias_mapper
@@ -72,7 +72,7 @@ normalize:
 analyze:
   - name: schema_validation_analyzer
     params:
-      enabled: false
+      enabled: true
 
   - name: query_syntax_analyzer
     params:
@@ -165,8 +165,16 @@ analyze:
 
   - name: query_execution_analyzer
     params:
-      enabled: false
-      mode: all
+      enabled: true
+      mode: all              # select_only (read-only queries) | all (writes run inside a rollback)
+      timeout_seconds: 30.0
+      # Caps how much work a query may produce. Applied only to read-only
+      # queries that do not already carry their own LIMIT.
+      #   <int>  inject LIMIT <int>
+      #   null   run the query exactly as written
+      # Use null whenever the result set itself is measured; an injected LIMIT
+      # makes row counts incomparable between items.
+      safety_limit: null
 
   # LLM-as-a-Judge semantic validation (optional)
   # Uncomment and configure providers to enable semantic validation
@@ -199,7 +207,7 @@ analyze:
       #               API as-is, so new values work without code changes.
       #
       #   ┌──────────────────┬────────────────────────────────────────────────────┐
-      #   │ Provider         │ How "effort" is mapped                            │
+      #   │ Provider         │ How "effort" is mapped                             │
       #   ├──────────────────┼────────────────────────────────────────────────────┤
       #   │ OpenAI           │ reasoning={"effort": effort}                      │
       #   │ (GPT-5.x, o-*)  │ temperature is NOT sent (API rejects it)          │
@@ -289,7 +297,7 @@ analyze:
         #       #   effort: medium
 
 output:
-  dataset_name: GRETEL_TRAIN_NEW_ANTIPATTERN
+  dataset_name: SPIDER_TEST_SCHEMA_ONLY
   # base_dir: "."                        # Root directory for output (default: current directory)
 
   # JSONL Metrics Configuration (optional)

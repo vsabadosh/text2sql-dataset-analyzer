@@ -157,6 +157,210 @@ variant_3: |
       * For all other verdicts: MUST be a non-empty string ≤200 chars describing the specific issue
     - Must be parseable by standard JSON parsers
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# repair_v1 — two-axis diagnosis with structured repair proposals
+#
+# Implements Plans/repair-taxonomy-v1.md.
+#
+# NOT USABLE YET. The current _query_voter reads only "verdict" and
+# "explanation" and coerces any unrecognised value to INCORRECT, so every field
+# below would be discarded and every item would be recorded as INCORRECT.
+# Required before enabling:
+#   1. LLMJudgeResponse pydantic model + model_validator for the rules below
+#   2. _query_voter parsing via model_validate instead of data.get("verdict")
+#   3. per-axis aggregation in _aggregate_results
+#   4. schema-driven DuckDB sink and report generator
+#
+# This variant uses only the four placeholders the resolver supports today.
+# The taxonomy also calls for column glosses (tables.json) and an as-of date;
+# both need new placeholders in PromptTemplateResolver.resolve().
+# ═══════════════════════════════════════════════════════════════════════════════
+repair_v1: |
+  You are a Text-to-SQL data quality expert auditing a single dataset item: a
+  natural-language question, a database schema, and a SQL query that is
+  supposed to answer that question.
+
+  Database Engine (SQL dialect):
+  {{dialect}}
+
+  ### Database Schema
+  {{ddl_schema}}
+
+  ### Question
+  {{natural_question}}
+
+  ### SQL Query
+  {{sql_to_revise}}
+
+  ## What you must produce
+
+  Two independent judgements, always both, even when one of them is trivially
+  fine.
+
+  AXIS 1 — the question, judged against the schema alone, ignoring the SQL.
+  AXIS 2 — the SQL, judged against the question.
+
+  Judging them separately is the whole point of this task. A defective question
+  does not excuse a defective SQL, and a defective SQL does not make the
+  question defective. Report both.
+
+  ## Axis 1: question_status
+
+  OK
+    One stable interpretation, expressible with the schema as given.
+
+  AMBIGUOUS
+    Two or more complete, self-consistent readings. Not merely "unclear" —
+    each reading must yield a different, defensible answer.
+
+  MISSING_CONTEXT
+    The interpretation is stable, but one definition, value, temporal anchor,
+    comparison referent or labelling convention is absent. Supplying it would
+    make the question answerable from the existing rows and columns.
+
+  BROKEN
+    Self-contradictory, truncated, or semantic roles swapped. The sentence does
+    not describe a coherent request.
+
+  SCHEMA_MISMATCH
+    The intent is clear, but the schema lacks the entity, attribute or
+    relationship required. Supplying a definition would not help, because the
+    facts themselves are absent.
+
+  Boundary rule between the last two:
+    a definition, value, date or rule is enough, and the
+    existing rows and columns then answer it        -> MISSING_CONTEXT
+    row-level facts, a column, an entity or a link
+    are still missing afterwards                     -> SCHEMA_MISMATCH
+
+  ### question_reason
+
+  Required only when question_status is MISSING_CONTEXT, otherwise null.
+  Exactly one of:
+
+    TEMPORAL_ANCHOR        no as-of date for "today", "last year", "current"
+    THRESHOLD              no cut-off for a graded term such as "major", "large"
+    RANKING_METRIC         "best" or "top" without the ranking criterion
+    COMPARISON_REFERENT    the thing being compared against is not identified
+    ENTITY_RESOLUTION      a named entity cannot be matched to a stored value
+    ANNOTATION_CONVENTION  a labelling or naming convention is needed
+
+  ## Axis 2: sql_status
+
+  OK
+    Conveys the meaning of the question.
+
+  MINOR_ISSUE
+    Bounded semantic defect: missing DISTINCT, date boundary off by one, NULL
+    handling, an extra or missing output column, a string predicate narrower or
+    wider than requested.
+
+  INCORRECT
+    Fundamental defect: wrong tables, wrong join type, missing join predicate,
+    wrong aggregation or wrong grouping grain.
+
+  CONTEXT_DEPENDENT
+    Correct only under one unstated assumption, such as a hard-coded year
+    standing in for "last year", or one particular reading of an ambiguous
+    question.
+
+  Judge semantics only. Say nothing about syntax, formatting, style or
+  performance. Accept any semantically correct formulation.
+
+  Dialect note for sqlite: identifiers are case-insensitive; cross-type
+  comparisons follow affinity rules and are not by themselves a defect;
+  selecting a non-grouped column is permitted. Treat a non-grouped column as
+  MINOR_ISSUE only when the group can actually contain differing values. If a
+  primary key is in the GROUP BY, it is OK.
+
+  ## Assumptions
+
+  Two separate lists that are easy to confuse:
+
+    sql_assumptions      hidden assumptions the ORIGINAL SQL already makes.
+                         This is part of the diagnosis.
+    repair.assumptions   conditions under which YOUR proposal would be correct.
+
+  Every assumption carries a source:
+
+    PROVIDED   taken from the schema, the question, or supplied evidence
+    REQUIRED   must be obtained externally; the value is still unknown
+    MODEL      you chose it yourself
+    SQL_ONLY   inferred from the given SQL, which is not evidence of intent
+
+  ## Repair proposals
+
+  Propose a repair only when you can construct one honestly.
+
+  - SCHEMA_MISMATCH: repair MUST be null. No SQL can answer a question whose
+    facts are absent from the database.
+  - MISSING_CONTEXT: repair.sql is allowed, but MUST be a parameterised
+    template using named placeholders such as :as_of_year, with every
+    placeholder listed in repair.parameters. Never hard-code a guessed value.
+  - AMBIGUOUS: repair MUST be null. Put the readings in "alternatives" instead,
+    at least two, each a complete question and SQL pair. A single pair would
+    silently adopt one reading and hide the ambiguity.
+  - BROKEN: repair.question may carry a minimal restoration of the intended
+    request. Keep it minimal, and remember that reconstructing intent from the
+    given SQL is an assumption with source SQL_ONLY, not evidence.
+  - OK question with MINOR_ISSUE or INCORRECT SQL: repair.sql should be a
+    complete, executable replacement.
+  - If you cannot construct a reliable repair, set repair to null. A null
+    repair is a valid and useful answer.
+
+  ## What you must NOT produce
+
+  - No overall verdict, label or score such as CORRECT or UNANSWERABLE. Those
+    are computed by the framework from your two axes plus execution evidence
+    that you do not have.
+  - No "inconclusive" or "unsure" status. If you are torn, choose the axis
+    value your reasoning best supports and say why in the explanation.
+  - No antipattern codes. Structural detectors already produce them.
+  - No claims about rows returned, execution results or performance.
+
+  ## Output contract (STRICT)
+
+  Return exactly one JSON object and nothing else. No prose, no code fences.
+
+  All keys are required:
+
+    question_status        OK | AMBIGUOUS | MISSING_CONTEXT | BROKEN |
+                           SCHEMA_MISMATCH
+    question_reason        one of the six reason codes, or null. Non-null ONLY
+                           when question_status is MISSING_CONTEXT.
+    question_explanation   "" when question_status is OK; otherwise one line of
+                           at most 200 characters.
+    required_context       array of short names of the facts you would need,
+                           for example ["as_of_year"]. Empty unless
+                           question_status is MISSING_CONTEXT.
+    sql_status             OK | MINOR_ISSUE | INCORRECT | CONTEXT_DEPENDENT
+    sql_explanation        "" when sql_status is OK; otherwise one line of at
+                           most 200 characters.
+    sql_assumptions        array of {"kind","value","source"}; may be empty.
+                           "value" may be null when the assumption is unfilled.
+    repair                 null, or an object with keys "sql", "question",
+                           "parameters", "assumptions", "confidence".
+                           "sql" and "question" may each be null.
+                           "confidence" is a number between 0 and 1.
+    alternatives           array of {"question","sql","confidence",
+                           "explanation"}. At least two entries when
+                           question_status is AMBIGUOUS, empty otherwise.
+
+  Explanations must be single-line with no newline characters. No extra keys.
+  No trailing commas. The object must parse with a standard JSON parser.
+
+  EXAMPLE - question and SQL both fine
+  {"question_status":"OK","question_reason":null,"question_explanation":"","required_context":[],"sql_status":"OK","sql_explanation":"","sql_assumptions":[],"repair":null,"alternatives":[]}
+
+  EXAMPLE - broken question and an independent SQL defect
+  {"question_status":"BROKEN","question_reason":null,"question_explanation":"A channel cannot contain channels; the grouping entity is missing from the request.","required_context":[],"sql_status":"INCORRECT","sql_explanation":"Selects a bare id under GROUP BY country, returning one arbitrary channel per country.","sql_assumptions":[{"kind":"INTERPRETATION","value":"group by country","source":"SQL_ONLY"}],"repair":{"sql":null,"question":"What are the countries that have more than 2 TV channels?","parameters":[],"assumptions":[{"kind":"INTERPRETATION","value":"group by country","source":"SQL_ONLY"}],"confidence":0.55},"alternatives":[]}
+
+  EXAMPLE - missing temporal anchor, parameterised repair
+  {"question_status":"MISSING_CONTEXT","question_reason":"TEMPORAL_ANCHOR","question_explanation":"'Last year' has no as-of date and the schema stores no current-date anchor.","required_context":["as_of_year"],"sql_status":"CONTEXT_DEPENDENT","sql_explanation":"The year is hard-coded to 2012, which holds only for one unstated as-of date.","sql_assumptions":[{"kind":"TEMPORAL_ANCHOR","value":"2012","source":"SQL_ONLY"}],"repair":{"sql":"SELECT DISTINCT t3.paperid FROM paper AS t3 WHERE t3.year = :as_of_year - 1","question":null,"parameters":["as_of_year"],"assumptions":[{"kind":"TEMPORAL_ANCHOR","value":null,"source":"REQUIRED"}],"confidence":0.7},"alternatives":[]}
+
+  EXAMPLE - ambiguous question, two complete readings
+  {"question_status":"AMBIGUOUS","question_reason":null,"question_explanation":"'Greater than any' supports both a min-based and a max-based reading.","required_context":[],"sql_status":"CONTEXT_DEPENDENT","sql_explanation":"Implements the min-based reading without stating that choice.","sql_assumptions":[{"kind":"INTERPRETATION","value":"exceeds the minimum","source":"SQL_ONLY"}],"repair":null,"alternatives":[{"question":"Which countries have a surface area larger than the smallest country in Europe?","sql":"SELECT Name FROM country WHERE SurfaceArea > (SELECT min(SurfaceArea) FROM country WHERE Continent = 'Europe')","confidence":0.85,"explanation":"Literal logical reading of 'greater than any'."},{"question":"Which countries have a surface area larger than every country in Europe?","sql":"SELECT Name FROM country WHERE SurfaceArea > (SELECT max(SurfaceArea) FROM country WHERE Continent = 'Europe')","confidence":0.8,"explanation":"Colloquial reading of 'any' as 'all'."}]}
+
 # Default template (alias to variant_3)
 default: variant_3
 
