@@ -127,7 +127,16 @@ analyze:
   - name: query_execution_analyzer
     params:
       enabled: true
-      mode: all
+      mode: all              # select_only (read-only queries) | all (writes run inside a rollback)
+      timeout_seconds: 30.0
+      # Caps how much work a query may produce. Applied only to read-only
+      # queries that do not already carry their own LIMIT.
+      #   <int>  inject LIMIT <int>
+      #   null   run the query exactly as written
+      # Kept at null to match pipeline.example.yaml: the code default is 1, and
+      # an injected LIMIT would make this config execute queries differently
+      # from the runs the published results come from.
+      safety_limit: null
 
   # ═══════════════════════════════════════════════════════════════════════════════
   # LLM-as-a-Judge semantic validation (optional)
