@@ -76,11 +76,11 @@ analyze:
 
   - name: query_syntax_analyzer
     params:
-      enabled: false
+      enabled: true
 
   - name: query_antipattern_analyzer
     params:
-      enabled: false
+      enabled: true
       # ═══════════════════════════════════════════════════════════════════════════════
       # ANTIPATTERN SEVERITY LEVELS
       # ═══════════════════════════════════════════════════════════════════════════════
@@ -165,7 +165,7 @@ analyze:
 
   - name: query_execution_analyzer
     params:
-      enabled: false
+      enabled: true
       mode: all              # select_only (read-only queries) | all (writes run inside a rollback)
       timeout_seconds: 30.0
       # Caps how much work a query may produce. Applied only to read-only
