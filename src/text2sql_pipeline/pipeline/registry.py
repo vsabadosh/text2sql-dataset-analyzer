@@ -46,7 +46,14 @@ def get_class(kind: str, name: str) -> Type:
         raise KeyError(f"Unknown {kind} '{name}'. Available: {', '.join(sorted(bucket)) or '—'}")
 
 def _ensure_plugins_loaded() -> None:
-    # Only import if everything is empty (cheap O(1) check)
-    if not (_LOADER_CLASSES or _NORMALIZER_CLASSES or _ANALYZER_CLASSES or _ADAPTER_CLASSES):
-        from text2sql_pipeline.pipeline import import_builtin_plugins
-        import_builtin_plugins()  # idempotent; Python caches imports
+    # Importing a plugin module directly registers only that plugin, so bucket
+    # emptiness cannot stand in for "discovery has run": one direct import
+    # would leave the remaining buckets permanently empty.
+    global _plugins_loaded
+    if _plugins_loaded:
+        return
+
+    # Set before importing: the imported modules reach back into this registry.
+    _plugins_loaded = True
+    from text2sql_pipeline.pipeline import import_builtin_plugins
+    import_builtin_plugins()  # idempotent; Python caches imports
