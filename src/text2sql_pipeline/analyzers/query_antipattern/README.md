@@ -145,7 +145,43 @@ for ap in result.antipatterns:
 - `unsafe_update_delete` - UPDATE/DELETE without WHERE
 - `null_comparison_equals` - `= NULL` instead of `IS NULL`
 - `cartesian_product` - Missing JOIN conditions
-- `missing_group_by` - Aggregates without GROUP BY
+- `missing_group_by` - Aggregate/grouping queries with an undetermined projection
+
+`missing_group_by` is schema-aware when the analyzer can introspect the
+database. Grouping by a whole primary key determines every other column of that
+relation instance, and a guaranteed same-scope inner-join/WHERE equality carries
+that over to the column it equates only when both operands have verified
+compatible comparison semantics (SQLite affinity and collation). Relation
+aliases remain distinct in self-joins; columns embedded in expressions such as
+`GROUP BY id % 2` do not count as the grouped key; equalities inside `CASE`,
+`OR`, `NOT`, or nested queries do not enter the proof. CTEs, derived tables,
+`VALUES`, and lateral sources never inherit a same-named physical table's key.
+
+For SQLite, a declared text/composite primary key is trusted only when the
+analyzed snapshot contains no NULL key component and the actual PK-index
+collation matches the grouped column's declared collation. Schema introspection
+uses `PRAGMA table_xinfo`, so generated columns participate in name binding.
+Duplicate output aliases cannot prove a key. Correlated outer references,
+`SELECT *`, grouping queries without an explicit aggregate, aggregate
+`FILTER`, and SQLite JSON aggregates are handled explicitly.
+
+Controlled Spider runs with this implementation produced 20 findings on Test,
+18 on Dev, and 132 on Train. On Train, holding code and data fixed gives:
+
+- no schema metadata: 629 conservative findings;
+- column catalog only: 605 (24 name-binding uncertainties resolved);
+- column catalog plus verified primary keys: 132 (473 additional FD-based
+  suppressions).
+
+The 497 schema-resolved Train items decompose into 24 binding proofs, 197 direct
+primary-key proofs, and 276 equality proofs with compatible comparison
+semantics. All are a subset of the cases that remained stable across four
+independently shuffled physical database layouts. An additional 26 join cases
+that the earlier implementation suppressed are now retained because the joined
+columns have incompatible affinities; equality in SQLite can then collapse
+distinct textual keys such as `'1'` and `'01'`. These counts are structural
+findings, not a claim that every remaining item is behaviorally
+nondeterministic on the current rows.
 
 ### ⚠️ High (Performance/Correctness)
 - `function_in_where` - Functions on columns in WHERE
@@ -170,7 +206,6 @@ for ap in result.antipatterns:
 ## Testing
 
 ```bash
-pytest tests/test_query_antipattern_detector.py -v
+pytest tests/test_query_antipattern_detector.py \
+       tests/test_query_antipattern_schema_fd.py -v
 ```
-
-All 98 tests passing ✅

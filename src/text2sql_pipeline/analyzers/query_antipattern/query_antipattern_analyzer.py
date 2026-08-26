@@ -52,8 +52,16 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         antipatterns: dict = None,
         penalties: dict = None
     ) -> None:
+        self.db_manager = db_manager
         self.db_dialect = db_manager.get_sqlglot_dialect()
         self.enabled = enabled
+
+        # Introspection is per database and every item of a database repeats it.
+        self._primary_key_cache: dict[str, dict[str, list[str]]] = {}
+        self._table_column_cache: dict[str, dict[str, list[str]]] = {}
+        self._column_comparator_cache: dict[
+            str, dict[str, dict[str, tuple[str, str]]]
+        ] = {}
         
         # Use helper function to select config for dialect
         # This keeps the analyzer itself dialect-agnostic - it just uses a helper
@@ -146,6 +154,135 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             "antipattern_count": None
         })
     
+    def _load_schema_metadata(self, db_id: str) -> None:
+        """Load key and column metadata once for one database.
+
+        For SQLite, a declared TEXT/composite PRIMARY KEY can still contain
+        NULL.  We therefore trust it only when the analyzed snapshot contains
+        no NULL key component.  A database that cannot be introspected or
+        checked yields an empty map, which puts the detector back into the
+        conservative syntactic mode rather than suppressing a real issue.
+        """
+        if (
+            db_id in self._primary_key_cache
+            and db_id in self._table_column_cache
+            and db_id in self._column_comparator_cache
+        ):
+            return
+
+        mapping: dict[str, list[str]] = {}
+        columns: dict[str, list[str]] = {}
+        comparators: dict[str, dict[str, tuple[str, str]]] = {}
+        try:
+            for table in self.db_manager.get_tables(db_id):
+                info = self.db_manager.get_table_info(db_id, table) or {}
+                case_sensitive_catalog = self.db_dialect in {
+                    "postgres",
+                    "postgresql",
+                }
+                table_name = (
+                    str(table)
+                    if case_sensitive_catalog
+                    else str(table).lower()
+                )
+                table_columns = [
+                    column
+                    for column in info.get("columns") or []
+                    if column.get("name") is not None
+                ]
+                columns[table_name] = [
+                    (
+                        str(column["name"])
+                        if case_sensitive_catalog
+                        else str(column["name"]).lower()
+                    )
+                    for column in table_columns
+                ]
+                comparators[table_name] = {}
+                for column in table_columns:
+                    column_name = str(column["name"]).lower()
+                    if self.db_dialect != "sqlite":
+                        continue
+                    raw_collation = column.get("collation")
+                    if raw_collation is None:
+                        continue
+                    family = self.db_manager.normalize_type_family(
+                        str(column.get("type") or "")
+                    )
+                    if family in {
+                        "INTEGER",
+                        "REAL",
+                        "NUMERIC",
+                    }:
+                        family = "NUMERIC"
+                    collation = str(raw_collation).upper()
+                    comparators[table_name][column_name] = (
+                        family,
+                        collation,
+                    )
+                keys = info.get("primary_keys")
+                if keys:
+                    normalized_keys = [
+                        (
+                            str(key)
+                            if case_sensitive_catalog
+                            else str(key).lower()
+                        )
+                        for key in keys
+                    ]
+                    if self.db_dialect == "sqlite":
+                        key_collations = info.get(
+                            "primary_key_collations"
+                        )
+                        column_by_name = {
+                            str(column["name"]).lower(): column
+                            for column in table_columns
+                        }
+                        if not isinstance(key_collations, dict) or any(
+                            key.lower() not in key_collations
+                            or column_by_name.get(key.lower(), {}).get(
+                                "collation"
+                            )
+                            is None
+                            or str(
+                                column_by_name[key.lower()]["collation"]
+                            ).upper()
+                            != str(
+                                key_collations[key.lower()]
+                            ).upper()
+                            for key in normalized_keys
+                        ):
+                            continue
+                        contains_null = self.db_manager.columns_contain_null(
+                            db_id, table, normalized_keys
+                        )
+                        if contains_null is not False:
+                            continue
+                    mapping[table_name] = normalized_keys
+        except Exception:
+            mapping = {}
+            columns = {}
+            comparators = {}
+
+        self._primary_key_cache[db_id] = mapping
+        self._table_column_cache[db_id] = columns
+        self._column_comparator_cache[db_id] = comparators
+
+    def _primary_keys(self, db_id: str) -> dict:
+        """Return verified non-null primary keys for one database."""
+        self._load_schema_metadata(db_id)
+        return self._primary_key_cache[db_id]
+
+    def _table_columns(self, db_id: str) -> dict:
+        """Return columns used to bind unqualified GROUP BY references."""
+        self._load_schema_metadata(db_id)
+        return self._table_column_cache[db_id]
+
+    def _column_comparators(self, db_id: str) -> dict:
+        """Return SQLite affinity/collation signatures for safe equalities."""
+        self._load_schema_metadata(db_id)
+        return self._column_comparator_cache[db_id]
+
     def _analyze_query(self, item: DataItem):
         """
         Detect antipatterns in SQL query.
@@ -165,7 +302,10 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 item.sql, 
                 self.db_dialect,
                 config=self.antipattern_config,
-                penalties=self.penalties_config
+                penalties=self.penalties_config,
+                primary_keys=self._primary_keys(item.dbId),
+                table_columns=self._table_columns(item.dbId),
+                column_comparators=self._column_comparators(item.dbId),
             )
             ok = features.parseable
             return features, stats, tags, ok, None if ok else "Unparseable SQL"

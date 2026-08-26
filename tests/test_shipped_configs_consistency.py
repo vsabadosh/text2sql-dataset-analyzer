@@ -73,3 +73,14 @@ def test_execution_limit_is_pinned_in_both(configs):
         params = _analyzers(cfg)["query_execution_analyzer"]
         assert "safety_limit" in params, f"{name} does not pin safety_limit"
         assert params["safety_limit"] is None, f"{name} injects a LIMIT into measured queries"
+
+
+def test_read_cap_is_pinned_in_both(configs):
+    """
+    The cap decides which items come back truncated, and a truncated item
+    reports a row count that is only a lower bound and carries no fingerprint.
+    Two runs under different caps therefore report different numbers.
+    """
+    for cfg, name in zip(configs, (WORKING, PORTABLE)):
+        params = _analyzers(cfg)["query_execution_analyzer"]
+        assert "read_cap" in params, f"{name} does not pin read_cap"

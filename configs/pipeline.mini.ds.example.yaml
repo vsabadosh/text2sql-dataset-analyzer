@@ -137,6 +137,11 @@ analyze:
       # an injected LIMIT would make this config execute queries differently
       # from the runs the published results come from.
       safety_limit: null
+      # How many rows may be pulled into memory per query. Rows are never
+      # stored: they are reduced to a row count and a fingerprint, then dropped.
+      # Pinned to the same value as pipeline.example.yaml, because a different
+      # cap would truncate different items and change the reported counts.
+      read_cap: 100000
 
   # ═══════════════════════════════════════════════════════════════════════════════
   # LLM-as-a-Judge semantic validation (optional)

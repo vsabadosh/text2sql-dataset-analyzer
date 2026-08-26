@@ -175,6 +175,19 @@ analyze:
       # Use null whenever the result set itself is measured; an injected LIMIT
       # makes row counts incomparable between items.
       safety_limit: null
+      # How many rows may be pulled into memory per query. Rows are never
+      # stored: they are reduced to a row count and a fingerprint, then dropped.
+      #   <int>  stop at <int> rows and mark the result truncated
+      #   null   read every row, however many there are
+      # This is what makes safety_limit=null safe. With neither cap, a query
+      # whose joins produce an unbounded cross product would stall the run.
+      # Truncated results get no fingerprint and no determinism guarantee, so
+      # raise this rather than lower it if items come back TRUNCATED.
+      # 100000 clears Spider's largest reference result (20,312 rows, aan_1)
+      # with room to spare. Cost when the cap is actually reached: about 46 MiB
+      # and 0.25 s for one item, released before the next, so it does not
+      # accumulate across a run.
+      read_cap: 100000
 
   # LLM-as-a-Judge semantic validation (optional)
   # Uncomment and configure providers to enable semantic validation

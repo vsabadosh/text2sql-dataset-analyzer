@@ -3,7 +3,7 @@ from typing import Dict, Optional, Tuple, List, Any
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, Table, create_engine, or_, select
 from sqlalchemy.engine import Engine
 import sqlglot
 from sqlglot import exp
@@ -128,6 +128,50 @@ class DbManager:
     def get_table_info(self, db_id: str, table: str) -> Dict[str, Any]:
         """Get complete information about a table (columns, PKs, FKs)."""
         return self._adapter.get_table_info(db_id, table)
+
+    def columns_contain_null(
+        self,
+        db_id: str,
+        table: str,
+        columns: List[str],
+    ) -> Optional[bool]:
+        """Whether the current table contains NULL in any named column.
+
+        SQLite permits NULL in some declared PRIMARY KEY forms.  Schema-based
+        functional-dependency checks therefore need a snapshot-level guard
+        before treating such a declaration as a non-null relational key.
+
+        ``None`` means the check could not be completed; callers must treat that
+        conservatively rather than assuming the columns are non-null.
+        """
+        if not columns:
+            return None
+
+        adapter_check = getattr(self._adapter, "columns_contain_null", None)
+        if callable(adapter_check):
+            try:
+                result = adapter_check(db_id, table, columns)
+                if result is not None:
+                    return bool(result)
+            except Exception:
+                return None
+
+        try:
+            eng = self.engine(db_id)
+            reflected = Table(table, MetaData(), autoload_with=eng)
+            by_lower = {column.name.lower(): column for column in reflected.columns}
+            key_columns = [by_lower[str(name).lower()] for name in columns]
+            predicate = or_(*(column.is_(None) for column in key_columns))
+            statement = (
+                select(1)
+                .select_from(reflected)
+                .where(predicate)
+                .limit(1)
+            )
+            with eng.connect() as conn:
+                return conn.execute(statement).first() is not None
+        except Exception:
+            return None
     
     def get_sqlglot_dialect(self) -> str:
         """Get the SQL dialect name for sqlglot parsing."""

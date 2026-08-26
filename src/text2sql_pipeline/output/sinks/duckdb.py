@@ -14,6 +14,45 @@ from datetime import datetime
 from ...core.metric import MetricEvent
 from ...core.contracts import MetricsSink
 
+# Single source of truth for the query execution table. The CREATE, the INSERT
+# and the migration of files written by an earlier version all read from here,
+# so column order cannot drift between them.
+QUERY_EXECUTION_COLUMNS: tuple[tuple[str, str], ...] = (
+    # Metadata
+    ("ts", "TIMESTAMP"),
+    ("spec_version", "VARCHAR"),
+    ("dataset_id", "VARCHAR"),
+    ("item_id", "VARCHAR"),
+    ("db_id", "VARCHAR"),
+    # Event identity
+    ("event_type", "VARCHAR"),
+    ("name", "VARCHAR"),
+    # Status
+    ("status", "VARCHAR"),
+    ("success", "BOOLEAN"),
+    ("duration_ms", "DOUBLE"),
+    ("err", "VARCHAR"),
+    # Features
+    ("executed", "BOOLEAN"),
+    ("execution_time_ms", "DOUBLE"),
+    ("row_count", "INTEGER"),
+    ("column_count", "INTEGER"),
+    ("truncated", "BOOLEAN"),
+    ("result_fingerprint", "VARCHAR"),
+    ("order_fingerprint", "VARCHAR"),
+    ("ordered", "BOOLEAN"),
+    ("determinism", "VARCHAR"),
+    ("tie_at_cut", "BOOLEAN"),
+    # Stats
+    ("collect_ms", "DOUBLE"),
+    ("errors", "JSON"),
+    # Tags
+    ("dialect", "VARCHAR"),
+    ("mode", "VARCHAR"),
+    ("safety_limit", "VARCHAR"),
+    ("read_cap", "VARCHAR"),
+)
+
 
 class DuckDBMetricsSink(MetricsSink):
     """
@@ -70,6 +109,8 @@ class DuckDBMetricsSink(MetricsSink):
         
         try:
             self.conn.execute(create_sql)
+            if analyzer_name == "query_execution":
+                self._add_missing_columns(table_name, QUERY_EXECUTION_COLUMNS)
             self._created_tables.add(table_name)
         except Exception as e:
             print(f"Warning: Table creation issue for {table_name}: {e}")
@@ -224,41 +265,37 @@ class DuckDBMetricsSink(MetricsSink):
     
     def _query_execution_table(self, table_name: str) -> str:
         """Schema for query execution metrics."""
+        definitions = ",\n            ".join(
+            f"{name} {sql_type}" for name, sql_type in QUERY_EXECUTION_COLUMNS
+        )
         return f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
-            -- Metadata
-            ts TIMESTAMP,
-            spec_version VARCHAR,
-            dataset_id VARCHAR,
-            item_id VARCHAR,
-            db_id VARCHAR,
-            
-            -- Event identity
-            event_type VARCHAR,
-            name VARCHAR,
-            
-            -- Status
-            status VARCHAR,
-            success BOOLEAN,
-            duration_ms DOUBLE,
-            err VARCHAR,
-            
-            -- Features (execution specific)
-            executed BOOLEAN,
-            execution_time_ms DOUBLE,
-            row_count INTEGER,
-            
-            -- Stats
-            collect_ms DOUBLE,
-            errors JSON,
-            
-            -- Tags
-            dialect VARCHAR,
-            mode VARCHAR,
-            
+            {definitions},
             PRIMARY KEY (dataset_id, item_id, ts)
         )
         """
+
+    def _add_missing_columns(self, table_name: str, columns) -> None:
+        """Widen a table written by an earlier version of the pipeline.
+
+        CREATE TABLE IF NOT EXISTS leaves an existing table untouched, so a
+        reused metrics file would otherwise reject the wider INSERT.
+        """
+        try:
+            existing = {
+                row[1] for row in self.conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+            }
+        except Exception as e:
+            print(f"Warning: cannot inspect {table_name}: {e}")
+            return
+
+        for name, sql_type in columns:
+            if name in existing:
+                continue
+            try:
+                self.conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+            except Exception as e:
+                print(f"Warning: cannot add column {name} to {table_name}: {e}")
     
     def _query_antipattern_table(self, table_name: str) -> str:
         """Schema for query antipattern metrics."""
@@ -609,20 +646,19 @@ class DuckDBMetricsSink(MetricsSink):
     def _insert_query_execution(self, table_name: str, records: list[Dict[str, Any]]) -> None:
         """Insert query execution records."""
         import json
-        
+
+        columns = [name for name, _ in QUERY_EXECUTION_COLUMNS]
+        placeholders = ", ".join("?" for _ in columns)
+        insert_sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+        )
+
         for rec in records:
             features = rec.get("features", {})
             stats = rec.get("stats", {})
             tags = rec.get("tags", {})
-            
-            self.conn.execute(f"""
-                INSERT INTO {table_name} VALUES (
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?
-                )
-            """, [
+
+            self.conn.execute(insert_sql, [
                 rec.get("ts"),
                 rec.get("spec_version"),
                 rec.get("dataset_id"),
@@ -637,10 +673,19 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("executed"),
                 features.get("execution_time_ms"),
                 features.get("row_count"),
+                features.get("column_count"),
+                features.get("truncated"),
+                features.get("result_fingerprint"),
+                features.get("order_fingerprint"),
+                features.get("ordered"),
+                features.get("determinism"),
+                features.get("tie_at_cut"),
                 stats.get("collect_ms"),
                 json.dumps(stats.get("errors", [])),
                 tags.get("dialect"),
-                tags.get("mode")
+                tags.get("mode"),
+                tags.get("safety_limit"),
+                tags.get("read_cap"),
             ])
     
     def _insert_query_antipattern(self, table_name: str, records: list[Dict[str, Any]]) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import duckdb
+import json
 from typing import Dict
 from pathlib import Path
 from datetime import datetime
@@ -32,10 +33,49 @@ except ImportError:
 class MarkdownReportGenerator:
     """Generate markdown reports from DuckDB metrics."""
     
+    ANNOTATED_DATASET = "annotatedOutputDataset.jsonl"
+
     def __init__(self, duckdb_path: str):
         self.duckdb_path = duckdb_path
         self.conn = duckdb.connect(duckdb_path, read_only=True)
         self.available_tables = self._detect_tables()
+        self.item_details = self._load_item_details()
+
+    def _load_item_details(self) -> Dict[str, tuple]:
+        """Question and SQL per item, from the dataset the run wrote alongside
+        this metrics file.
+
+        The metrics tables hold no text at all, so without this the issue
+        reports can name an item but not show what is wrong with it. Missing
+        file is not an error: reports stay usable, just terser.
+        """
+        path = Path(self.duckdb_path).parent / self.ANNOTATED_DATASET
+        if not path.exists():
+            return {}
+
+        details: Dict[str, tuple] = {}
+        try:
+            with path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    item_id = item.get("id")
+                    if item_id is None:
+                        continue
+                    details[str(item_id)] = (item.get("question") or "", item.get("sql") or "")
+        except Exception:
+            return {}
+        return details
+
+    @staticmethod
+    def _cell(text: str, limit: int = 160) -> str:
+        """Collapse text into something a markdown table cell can hold."""
+        if not text:
+            return ""
+        flat = " ".join(str(text).split()).replace("|", "\\|")
+        return flat if len(flat) <= limit else flat[: limit - 1] + "…"
     
     def _detect_tables(self) -> Dict[str, str]:
         """Detect which analyzer tables are available."""
@@ -50,6 +90,17 @@ class MarkdownReportGenerator:
             analyzer_name = table_name.replace("metrics_", "")
             tables[analyzer_name] = table_name
         return tables
+
+    def _table_columns(self, table: str) -> set:
+        """Column names of a metrics table.
+
+        Reports have to tolerate files written by an earlier version of the
+        pipeline, which lack the newer columns entirely.
+        """
+        try:
+            return {row[1] for row in self.conn.execute(f"PRAGMA table_info('{table}')").fetchall()}
+        except Exception:
+            return set()
     
     def generate_full_report(self, output_path: str) -> None:
         """Generate comprehensive markdown report."""
@@ -580,8 +631,93 @@ class MarkdownReportGenerator:
                 lines.append("")
         except Exception as e:
             lines.append(f"*Error: {e}*")
-        
+
+        lines.extend(self._query_execution_result_lines(table))
+
         return "\n".join(lines)
+
+    def _query_execution_result_lines(self, table: str) -> list:
+        """Result-set findings: only available once rows are actually read."""
+        columns = self._table_columns(table)
+        if not {"row_count", "determinism", "truncated"} <= columns:
+            return []
+
+        lines: list = []
+        try:
+            measured, empty, truncated, mean_rows, max_rows = self.conn.execute(f"""
+                SELECT COUNT(row_count),
+                       SUM(CASE WHEN row_count = 0 THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN truncated THEN 1 ELSE 0 END),
+                       AVG(row_count),
+                       MAX(row_count)
+                FROM {table}
+            """).fetchone()
+
+            if not measured:
+                return []
+
+            lines.append("### Result Sets")
+            lines.append("")
+            lines.append(
+                f"- **Measured:** {measured:,} · "
+                f"**Mean rows:** {mean_rows:.1f} · **Max rows:** {max_rows:,}"
+            )
+            empty_share = (empty / measured * 100) if measured else 0
+            lines.append(
+                f"- **Empty results:** {empty:,} ({empty_share:.1f}%) — "
+                "reference SQL returning nothing on its own database"
+            )
+            lines.append(f"- **Truncated at read cap:** {truncated:,}")
+            lines.append("")
+
+            known_labels = (
+                "'DETERMINISTIC', 'SET_UNDEFINED', 'SET_AMBIGUOUS', "
+                "'UNRESOLVED', 'NONDETERMINISTIC_FN', 'TRUNCATED'"
+            )
+            if "tie_at_cut" in columns:
+                determinism_label = (
+                    "CASE "
+                    "WHEN tie_at_cut IS TRUE THEN 'SET_AMBIGUOUS' "
+                    "WHEN tie_at_cut IS FALSE THEN 'DETERMINISTIC' "
+                    f"WHEN determinism IN ({known_labels}) THEN determinism "
+                    "ELSE 'UNRESOLVED' END"
+                )
+            else:
+                determinism_label = (
+                    f"CASE WHEN determinism IN ({known_labels}) "
+                    "THEN determinism ELSE 'UNRESOLVED' END"
+                )
+
+            rows = self.conn.execute(f"""
+                SELECT {determinism_label}, COUNT(*)
+                FROM {table} WHERE row_count IS NOT NULL
+                GROUP BY 1 ORDER BY 2 DESC
+            """).fetchall()
+            if rows:
+                lines.append("| Determinism | Count | Share |")
+                lines.append("|-------------|-------|-------|")
+                for label, count in rows:
+                    lines.append(f"| {label} | {count:,} | {count / measured * 100:.1f}% |")
+                lines.append("")
+                labels = {label for label, _ in rows}
+                if "SET_AMBIGUOUS" in labels:
+                    lines.append(
+                        "`SET_AMBIGUOUS` is measured: rows at the LIMIT boundary were "
+                        "found to share a sort key, so the query does not select a "
+                        "unique answer."
+                    )
+                    lines.append("")
+                if "UNRESOLVED" in labels:
+                    lines.append(
+                        "`UNRESOLVED` is a coverage status: the boundary probe could "
+                        "not safely evaluate the ordered LIMIT. It is not counted as "
+                        "a defect."
+                    )
+                    lines.append("")
+        except Exception as e:
+            lines.append(f"*Error: {e}*")
+
+        return lines
     
     def _generate_query_antipattern(self) -> str:
         table = self.available_tables.get("query_antipattern")
@@ -948,7 +1084,17 @@ class MarkdownReportGenerator:
             
             sections.append(f"## Failed Items ({len(rows)})")
             sections.append("")
-            if rows:
+            if rows and self.item_details:
+                sections.append("| Item ID | DB | Error | Question | SQL |")
+                sections.append("|---------|----|-------|----------|-----|")
+                for item_id, db_id, err in rows:
+                    question, sql = self.item_details.get(str(item_id), ("", ""))
+                    sections.append(
+                        f"| {item_id} | {db_id} | {self._cell(err, 200)} | "
+                        f"{self._cell(question)} | {self._cell(sql, 220)} |"
+                    )
+                sections.append("")
+            elif rows:
                 sections.append("| Item ID | DB | Error |")
                 sections.append("|---------|----|-------|")
                 for item_id, db_id, err in rows:
@@ -959,39 +1105,130 @@ class MarkdownReportGenerator:
                 sections.append("*No failed executions found.*")
                 sections.append("")
             
-            # Top error kinds (simple grouping by prefix keywords)
-            sections.append("## Error Patterns")
-            sections.append("")
-            try:
-                patterns = self.conn.execute(f"""
-                    WITH errs AS (
-                        SELECT LOWER(COALESCE(err,'')) AS e FROM {table} WHERE status='failed'
-                    )
-                    SELECT pattern, cnt FROM (
-                        SELECT 'db not accessible' AS pattern, COUNT(*) AS cnt FROM errs WHERE e LIKE '%db not accessible%'
-                        UNION ALL
-                        SELECT 'execution error' AS pattern, COUNT(*) FROM errs WHERE e LIKE '%execution error%'
-                        UNION ALL
-                        SELECT 'health check failed' AS pattern, COUNT(*) FROM errs WHERE e LIKE '%health check failed%'
-                        UNION ALL
-                        SELECT 'blocked destructive statement' AS pattern, COUNT(*) FROM errs WHERE e LIKE '%blocked destructive%'
-                    ) WHERE cnt > 0 ORDER BY cnt DESC
-                """).fetchall()
-                if patterns:
-                    sections.append("| Pattern | Count |")
-                    sections.append("|---------|-------|")
-                    for pat, cnt in patterns:
-                        sections.append(f"| {pat} | {cnt} |")
-                    sections.append("")
-                else:
-                    sections.append("*No common error patterns detected.*")
-                    sections.append("")
-            except Exception:
-                pass
+            sections.extend(self._execution_error_kind_lines(table))
+            sections.extend(self._execution_result_issue_lines(table))
         except Exception as e:
             sections.append(f"*Error generating report: {e}*")
         
         Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+
+    def _execution_error_kind_lines(self, table: str) -> list:
+        """Failure counts by the kind the analyzer assigned."""
+        sections = ["## Error Kinds", ""]
+        try:
+            rows = self.conn.execute(f"""
+                SELECT json_extract_string(e.value, '$.kind') AS kind, COUNT(*) AS cnt
+                FROM {table} m, LATERAL json_each(m.errors) e
+                GROUP BY 1 ORDER BY 2 DESC
+            """).fetchall()
+        except Exception as e:
+            return sections + [f"*Error: {e}*", ""]
+
+        if not rows:
+            return sections + ["*No execution failures.*", ""]
+
+        sections.append("| Kind | Count |")
+        sections.append("|------|-------|")
+        for kind, count in rows:
+            sections.append(f"| {kind} | {count:,} |")
+        sections.append("")
+        sections.append(
+            "`missing_table` and `missing_column` on reference SQL are schema "
+            "mismatches in the dataset, not infrastructure faults."
+        )
+        sections.append("")
+        return sections
+
+    def _execution_result_issue_lines(self, table: str) -> list:
+        """Successful executions whose result is still suspect."""
+        columns = self._table_columns(table)
+        if not {"row_count", "determinism", "truncated"} <= columns:
+            return []
+
+        checks = [
+            dict(
+                title="Empty Result Sets",
+                where="row_count = 0",
+                note=("The reference SQL runs but matches nothing on its own database. "
+                      "Either the question has no answer in this data, or a literal in "
+                      "the SQL does not occur in the column it filters."),
+            ),
+            dict(
+                title="Truncated Reads",
+                where="truncated",
+                note=("Reading stopped at the read cap, so row_count is a lower bound "
+                      "and no fingerprint was recorded. Raise read_cap to measure these."),
+            ),
+            dict(
+                title="Non-Reproducible Results",
+                where=("determinism IN "
+                       "('SET_AMBIGUOUS', 'SET_UNDEFINED', 'NONDETERMINISTIC_FN')"),
+                note=("Which rows come back is not fixed by the query alone. "
+                      "SET_AMBIGUOUS means rows at the LIMIT boundary share a sort "
+                      "key, so several answers are equally correct and the reference "
+                      "fixes one of them arbitrarily."),
+                extra_column="determinism",
+            ),
+        ]
+
+        sections: list = []
+        clean: list = []
+        for check in checks:
+            lines = self._listing(table, **check)
+            if lines:
+                sections.extend(lines)
+            else:
+                clean.append(check["title"])
+
+        # A check that found nothing is reported by name rather than as an empty
+        # section, so a clean partition cannot be mistaken for a skipped check.
+        if clean:
+            sections.append("## Clean Checks")
+            sections.append("")
+            sections.append("No items found by: " + ", ".join(clean) + ".")
+            sections.append("")
+        return sections
+
+    def _listing(self, table: str, title: str, where: str, note: str,
+                 extra_column: str = "row_count", limit: int = 100) -> list:
+        try:
+            total = self.conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE {where}"
+            ).fetchone()[0]
+        except Exception as e:
+            return [f"## {title}", "", f"*Error: {e}*", ""]
+
+        if not total:
+            return []
+
+        sections = [f"## {title} ({total:,})", "", note, ""]
+
+        rows = self.conn.execute(f"""
+            SELECT item_id, db_id, {extra_column}
+            FROM {table} WHERE {where}
+            ORDER BY TRY_CAST(item_id AS INTEGER) NULLS LAST, item_id
+            LIMIT {limit}
+        """).fetchall()
+
+        if self.item_details:
+            sections.append(f"| Item ID | DB | {extra_column} | Question | SQL |")
+            sections.append("|---------|----|----|----------|-----|")
+            for item_id, db_id, value in rows:
+                question, sql = self.item_details.get(str(item_id), ("", ""))
+                sections.append(
+                    f"| {item_id} | {db_id} | {value} | "
+                    f"{self._cell(question)} | {self._cell(sql, 220)} |"
+                )
+        else:
+            sections.append(f"| Item ID | DB | {extra_column} |")
+            sections.append("|---------|----|----------------|")
+            for item_id, db_id, value in rows:
+                sections.append(f"| {item_id} | {db_id} | {value} |")
+
+        if total > limit:
+            sections.append(f"\n*Showing the first {limit} of {total:,}.*")
+        sections.append("")
+        return sections
 
     def _generate_mixed_consensus_breakdown(self, table: str) -> str:
         """Generate detailed breakdown table of mixed consensus verdict combinations for any number of models."""

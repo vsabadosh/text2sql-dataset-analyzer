@@ -3700,6 +3700,541 @@ class TestCartesianWhereRescueScoping:
         assert result.has_cartesian_product is False
 
 
+class TestGroupByFunctionalDependency:
+    """Grouping by a whole primary key determines the table's other columns.
+
+    Such a column has exactly one value per group, so returning it is legal and
+    reproducible. Without the key map the check cannot know that and stays
+    syntactic, which is why every case here is asserted both ways.
+    """
+
+    CLUB = {"club": ["club_id"], "player": ["player_id"]}
+    REGISTRATIONS = {"student_course_registrations": ["student_id", "course_id"]}
+
+    def test_column_determined_by_the_grouped_key_is_not_reported(self):
+        sql = ("SELECT T1.Name, count(*) FROM club AS T1 "
+               "JOIN player AS T2 ON T1.Club_ID = T2.Club_ID GROUP BY T1.Club_ID")
+        assert detect_antipatterns(sql).has_missing_group_by is True
+        assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is False
+
+    def test_column_from_a_table_whose_key_is_not_grouped_is_still_reported(self):
+        # Grouping by club_id says nothing about which player row is returned.
+        sql = ("SELECT T2.Name, count(*) FROM club AS T1 "
+               "JOIN player AS T2 ON T1.Club_ID = T2.Club_ID GROUP BY T1.Club_ID")
+        assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is True
+
+    def test_grouping_by_a_non_key_column_determines_nothing(self):
+        sql = "SELECT Name, count(*) FROM club GROUP BY Manufacturer"
+        assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is True
+
+    def test_a_partial_composite_key_leaves_the_column_undefined(self):
+        sql = ("SELECT registration_date, count(*) FROM Student_Course_Registrations "
+               "GROUP BY student_id")
+        assert detect_antipatterns(
+            sql, primary_keys=self.REGISTRATIONS
+        ).has_missing_group_by is True
+
+    def test_a_complete_composite_key_determines_the_column(self):
+        sql = ("SELECT registration_date, count(*) FROM Student_Course_Registrations "
+               "GROUP BY student_id, course_id")
+        assert detect_antipatterns(
+            sql, primary_keys=self.REGISTRATIONS
+        ).has_missing_group_by is False
+
+    def test_a_table_absent_from_the_key_map_is_treated_as_unknown(self):
+        sql = "SELECT paper_id, count(*) FROM Citation GROUP BY cited_paper_id"
+        assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is True
+
+    def test_an_empty_key_map_leaves_the_check_syntactic(self):
+        sql = ("SELECT T1.Name, count(*) FROM club AS T1 "
+               "JOIN player AS T2 ON T1.Club_ID = T2.Club_ID GROUP BY T1.Club_ID")
+        assert detect_antipatterns(sql, primary_keys={}).has_missing_group_by is True
+
+    def test_qualifier_and_key_case_do_not_matter(self):
+        sql = ("SELECT c.NAME, count(*) FROM Club AS c "
+               "JOIN player AS p ON c.CLUB_ID = p.Club_ID GROUP BY c.club_id")
+        assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is False
+
+
+class TestGroupByEqualityPropagation:
+    """An inner join equality makes grouping by one side group by the other.
+
+    Datasets routinely group by the join partner's column rather than by the key
+    of the table they project, and treating that as undetermined would report
+    queries that are in fact fully determined.
+    """
+
+    VEHICLE = {"vehicle": ["vehicle_id"], "vehicle_driver": ["driver_id", "vehicle_id"]}
+    BBC = {"program": ["program_id"], "director": ["director_id"]}
+    VEHICLE_COMPARATORS = {
+        "vehicle": {"vehicle_id": ("NUMERIC", "BINARY")},
+        "vehicle_driver": {"vehicle_id": ("NUMERIC", "BINARY")},
+    }
+    BBC_COMPARATORS = {
+        "program": {"director_id": ("NUMERIC", "BINARY")},
+        "director": {"director_id": ("NUMERIC", "BINARY")},
+    }
+
+    def test_grouping_by_the_join_partner_still_determines_the_column(self):
+        sql = ("SELECT T1.vehicle_id, T1.model FROM vehicle AS T1 "
+               "JOIN vehicle_driver AS T2 ON T1.vehicle_id = T2.vehicle_id "
+               "GROUP BY T2.vehicle_id HAVING count(*) = 2")
+        assert detect_antipatterns(sql).has_missing_group_by is True
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.VEHICLE,
+            column_comparators=self.VEHICLE_COMPARATORS,
+        ).has_missing_group_by is False
+
+    def test_propagation_works_in_either_direction(self):
+        sql = ("SELECT t2.name FROM program AS t1 JOIN director AS t2 "
+               "ON t1.director_id = t2.director_id "
+               "GROUP BY t1.director_id ORDER BY count(*) DESC LIMIT 1")
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.BBC,
+            column_comparators=self.BBC_COMPARATORS,
+        ).has_missing_group_by is False
+
+    def test_unknown_comparison_semantics_do_not_propagate(self):
+        sql = (
+            "SELECT T1.model, count(*) FROM vehicle AS T1 "
+            "JOIN vehicle_driver AS T2 "
+            "ON T1.vehicle_id = T2.vehicle_id GROUP BY T2.vehicle_id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.VEHICLE
+        ).has_missing_group_by is True
+
+    def test_mixed_sqlite_affinities_do_not_propagate(self):
+        sql = (
+            "SELECT a.name, count(*) FROM a JOIN b ON b.x = a.id "
+            "GROUP BY b.x"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"]},
+            column_comparators={
+                "a": {"id": ("TEXT", "BINARY")},
+                "b": {"x": ("NUMERIC", "BINARY")},
+            },
+        ).has_missing_group_by is True
+
+    def test_mixed_collations_do_not_propagate(self):
+        sql = (
+            "SELECT a.name, count(*) FROM a JOIN b ON b.x = a.id "
+            "GROUP BY b.x"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"]},
+            column_comparators={
+                "a": {"id": ("TEXT", "BINARY")},
+                "b": {"x": ("TEXT", "NOCASE")},
+            },
+        ).has_missing_group_by is True
+
+    def test_outer_join_does_not_propagate(self):
+        # Unmatched rows are padded with NULL, so the equality does not hold.
+        sql = ("SELECT t2.name, count(*) FROM program AS t1 LEFT JOIN director AS t2 "
+               "ON t1.director_id = t2.director_id GROUP BY t1.director_id")
+        assert detect_antipatterns(sql, primary_keys=self.BBC).has_missing_group_by is True
+
+    def test_equality_under_or_does_not_propagate(self):
+        sql = ("SELECT T1.model, count(*) FROM vehicle AS T1, vehicle_driver AS T2 "
+               "WHERE T1.vehicle_id = T2.vehicle_id OR T1.builder = 'x' "
+               "GROUP BY T2.vehicle_id")
+        assert detect_antipatterns(sql, primary_keys=self.VEHICLE).has_missing_group_by is True
+
+    def test_an_unrelated_equality_does_not_link_the_key(self):
+        sql = ("SELECT T1.model, count(*) FROM vehicle AS T1 JOIN vehicle_driver AS T2 "
+               "ON T1.builder = T2.driver_id GROUP BY T2.vehicle_id")
+        assert detect_antipatterns(sql, primary_keys=self.VEHICLE).has_missing_group_by is True
+
+    def test_columns_sharing_a_name_across_tables_are_not_confused(self):
+        # Grouping vehicle_driver.vehicle_id says nothing about driver.
+        sql = ("SELECT T2.driver_id, count(*) FROM vehicle AS T1 "
+               "JOIN vehicle_driver AS T2 ON T1.vehicle_id = T2.vehicle_id "
+               "GROUP BY T1.vehicle_id")
+        assert detect_antipatterns(sql, primary_keys=self.VEHICLE).has_missing_group_by is True
+
+
+class TestGroupByFunctionalDependencySoundness:
+    """Adversarial regressions for invalid functional-dependency proofs."""
+
+    KEYS = {
+        "users": ["id"],
+        "authors": ["id"],
+        "books": ["id"],
+        "composite_a": ["k1", "k2"],
+        "composite_b": ["x", "y"],
+    }
+    COMPARATORS = {
+        "authors": {"id": ("NUMERIC", "BINARY")},
+        "books": {
+            "id": ("NUMERIC", "BINARY"),
+            "author_id": ("NUMERIC", "BINARY"),
+        },
+        "composite_a": {
+            "k1": ("NUMERIC", "BINARY"),
+            "k2": ("NUMERIC", "BINARY"),
+        },
+        "composite_b": {
+            "x": ("NUMERIC", "BINARY"),
+            "y": ("NUMERIC", "BINARY"),
+        },
+    }
+
+    def test_grouping_by_expression_of_key_does_not_group_key(self):
+        sql = "SELECT name, count(*) FROM users GROUP BY id % 2"
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_grouping_by_key_expression_through_ordinal_still_reports(self):
+        sql = (
+            "SELECT id % 2 AS bucket, name, count(*) "
+            "FROM users GROUP BY 1"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_grouping_by_key_expression_through_alias_still_reports(self):
+        sql = (
+            "SELECT id % 2 AS bucket, name, count(*) "
+            "FROM users GROUP BY bucket"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_self_join_relation_instances_do_not_share_a_key(self):
+        sql = (
+            "SELECT b.name, count(*) FROM users AS a "
+            "CROSS JOIN users AS b GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_schema_qualified_same_named_tables_stay_distinct(self):
+        sql = (
+            "SELECT b.name, count(*) FROM s1.users AS a "
+            "CROSS JOIN s2.users AS b GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_cte_does_not_inherit_same_named_physical_table_key(self):
+        sql = (
+            "WITH users AS (SELECT department_id AS id, name FROM employees) "
+            "SELECT users.name, count(*) FROM users GROUP BY users.id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_derived_table_does_not_inherit_alias_named_table_key(self):
+        sql = (
+            "SELECT users.name, count(*) "
+            "FROM (SELECT department_id AS id, name FROM employees) AS users "
+            "GROUP BY users.id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_equality_inside_case_is_not_propagated(self):
+        sql = (
+            "SELECT a.name, count(*) FROM authors AS a "
+            "JOIN books AS b "
+            "ON CASE WHEN a.id = b.author_id THEN 1 ELSE 1 END = 1 "
+            "GROUP BY b.author_id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_equality_compared_to_false_is_not_propagated(self):
+        sql = (
+            "SELECT a.name, count(*) FROM authors AS a "
+            "CROSS JOIN books AS b WHERE (a.id = b.author_id) = 0 "
+            "GROUP BY b.author_id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_nested_select_equality_does_not_leak_into_outer_scope(self):
+        sql = (
+            "SELECT a.name, count(*) FROM authors AS a "
+            "JOIN books AS b ON a.category = b.category "
+            "WHERE EXISTS (SELECT 1 FROM authors AS a "
+            "JOIN books AS b ON a.id = b.author_id) "
+            "GROUP BY b.author_id"
+        )
+        assert detect_antipatterns(
+            sql, primary_keys=self.KEYS
+        ).has_missing_group_by is True
+
+    def test_tuple_equality_propagates_complete_composite_key(self):
+        sql = (
+            "SELECT a.payload, count(*) FROM composite_a AS a "
+            "JOIN composite_b AS b ON (a.k1, a.k2) = (b.x, b.y) "
+            "GROUP BY b.x, b.y"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            column_comparators=self.COMPARATORS,
+        ).has_missing_group_by is False
+
+    def test_inner_join_using_propagates_key_equality(self):
+        sql = (
+            "SELECT a.name, count(*) FROM authors AS a "
+            "JOIN books AS b USING (id) GROUP BY b.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            column_comparators=self.COMPARATORS,
+        ).has_missing_group_by is False
+
+    def test_duplicate_output_alias_cannot_prove_a_key(self):
+        sql = (
+            "SELECT category AS x, id AS x, payload, count(*) "
+            "FROM users GROUP BY x"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"users": ["id"]},
+            table_columns={
+                "users": ["id", "category", "payload"],
+            },
+        ).has_missing_group_by is True
+
+    def test_values_source_is_not_omitted_from_select_star(self):
+        sql = (
+            "SELECT *, count(*) FROM users AS u "
+            "CROSS JOIN (VALUES (1, 'a'), (2, 'b')) AS v "
+            "GROUP BY u.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"users": ["id"]},
+        ).has_missing_group_by is True
+
+    def test_postgres_quoted_key_does_not_match_unquoted_column(self):
+        sql = 'SELECT payload, count(*) FROM t GROUP BY id'
+        assert detect_antipatterns(
+            sql,
+            dialect="postgres",
+            primary_keys={"t": ["ID"]},
+            table_columns={"t": ["ID", "id", "payload"]},
+        ).has_missing_group_by is True
+
+    def test_correlated_scalar_projection_tracks_outer_bare_column(self):
+        sql = (
+            "SELECT (SELECT t.payload), count(*) "
+            "FROM t GROUP BY t.category"
+        )
+        assert detect_antipatterns(
+            sql,
+            table_columns={"t": ["category", "payload"]},
+        ).has_missing_group_by is True
+
+    def test_correlated_grouped_column_remains_safe(self):
+        sql = (
+            "SELECT (SELECT t.category), count(*) "
+            "FROM t GROUP BY t.category"
+        )
+        assert detect_antipatterns(
+            sql,
+            table_columns={"t": ["category", "payload"]},
+        ).has_missing_group_by is False
+
+    def test_correlated_exists_tracks_outer_ungrouped_key(self):
+        sql = (
+            "SELECT a.category, count(*), "
+            "EXISTS(SELECT 1 FROM books b WHERE b.author_id = a.id) "
+            "FROM authors a GROUP BY a.category"
+        )
+        assert detect_antipatterns(
+            sql,
+            table_columns={
+                "authors": ["id", "category"],
+                "books": ["author_id"],
+            },
+        ).has_missing_group_by is True
+
+    def test_deeply_nested_projection_tracks_outer_ungrouped_key(self):
+        sql = (
+            "SELECT a.category, count(*), "
+            "(SELECT (SELECT title FROM books b "
+            "WHERE b.author_id = a.id LIMIT 1)) "
+            "FROM authors a GROUP BY a.category"
+        )
+        assert detect_antipatterns(
+            sql,
+            table_columns={
+                "authors": ["id", "category"],
+                "books": ["title", "author_id"],
+            },
+        ).has_missing_group_by is True
+
+    def test_schema_qualified_source_uses_unique_bare_metadata(self):
+        sql = (
+            "SELECT u.name, count(*) FROM main.users AS u "
+            "GROUP BY u.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"users": ["id"]},
+        ).has_missing_group_by is False
+
+    def test_attached_schema_does_not_inherit_main_table_metadata(self):
+        sql = (
+            "SELECT u.name, count(*) FROM other.users AS u "
+            "GROUP BY u.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"users": ["id"]},
+        ).has_missing_group_by is True
+
+    def test_direct_key_metadata_is_case_normalized(self):
+        sql = "SELECT u.name, count(*) FROM Users AS u GROUP BY u.ID"
+        assert detect_antipatterns(
+            sql, primary_keys={"Users": ["ID"]}
+        ).has_missing_group_by is False
+
+
+class TestGroupByStarAndSQLiteAggregates:
+    def test_select_star_with_partial_group_by_is_reported(self):
+        sql = "SELECT *, count(*) FROM users GROUP BY department_id"
+        assert detect_antipatterns(
+            sql, primary_keys={"users": ["id"]}
+        ).has_missing_group_by is True
+
+    def test_select_star_grouped_by_full_key_is_determined(self):
+        sql = "SELECT *, count(*) FROM users GROUP BY id"
+        assert detect_antipatterns(
+            sql, primary_keys={"users": ["id"]}
+        ).has_missing_group_by is False
+
+    def test_qualified_star_with_partial_group_by_is_reported(self):
+        sql = "SELECT u.*, count(*) FROM users AS u GROUP BY u.department_id"
+        assert detect_antipatterns(
+            sql, primary_keys={"users": ["id"]}
+        ).has_missing_group_by is True
+
+    def test_qualified_star_grouped_by_full_key_is_determined(self):
+        sql = "SELECT u.*, count(*) FROM users AS u GROUP BY u.id"
+        assert detect_antipatterns(
+            sql, primary_keys={"users": ["id"]}
+        ).has_missing_group_by is False
+
+    def test_total_is_treated_as_an_aggregate(self):
+        sql = "SELECT name, TOTAL(amount) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_group_concat_is_treated_as_an_aggregate(self):
+        sql = "SELECT department_id, GROUP_CONCAT(name) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_json_group_array_is_treated_as_an_aggregate(self):
+        sql = "SELECT name, JSON_GROUP_ARRAY(amount) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_json_group_object_is_treated_as_an_aggregate(self):
+        sql = "SELECT name, JSON_GROUP_OBJECT(id, amount) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_jsonb_group_array_is_treated_as_an_aggregate(self):
+        sql = "SELECT name, JSONB_GROUP_ARRAY(amount) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_jsonb_group_object_is_treated_as_an_aggregate(self):
+        sql = "SELECT name, JSONB_GROUP_OBJECT(id, amount) FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_aggregate_filter_column_is_not_bare(self):
+        sql = (
+            "SELECT category, COUNT(*) FILTER (WHERE status = 'x') "
+            "FROM users GROUP BY category"
+        )
+        assert detect_antipatterns(
+            sql, dialect="postgres"
+        ).has_missing_group_by is False
+
+    def test_window_total_is_not_a_group_aggregate(self):
+        sql = "SELECT name, TOTAL(amount) OVER () FROM users"
+        assert detect_antipatterns(sql).has_missing_group_by is False
+
+    def test_grouping_without_aggregate_still_reports_bare_column(self):
+        sql = "SELECT name FROM users GROUP BY department_id"
+        assert detect_antipatterns(sql).has_missing_group_by is True
+
+    def test_grouping_without_aggregate_accepts_grouped_column(self):
+        sql = "SELECT department_id FROM users GROUP BY department_id"
+        assert detect_antipatterns(sql).has_missing_group_by is False
+
+    def test_grouping_without_aggregate_accepts_key_determined_column(self):
+        sql = "SELECT name FROM users GROUP BY id"
+        assert detect_antipatterns(
+            sql, primary_keys={"users": ["id"]}
+        ).has_missing_group_by is False
+
+
+class TestGroupBySchemaBinding:
+    KEYS = {"authors": ["id"], "books": ["id"], "metrics": ["id"]}
+    COLUMNS = {
+        "authors": ["id", "name", "category"],
+        "books": ["id", "author_id", "title", "category"],
+        "metrics": ["id", "a", "b"],
+    }
+
+    def test_input_column_wins_over_same_named_select_alias(self):
+        sql = "SELECT a AS b, count(*) FROM metrics GROUP BY b"
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ).has_missing_group_by is True
+
+    def test_select_alias_is_used_when_no_input_column_collides(self):
+        sql = "SELECT name AS label, count(*) FROM authors GROUP BY label"
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ).has_missing_group_by is False
+
+    def test_ambiguous_unqualified_projection_is_not_classified_safe(self):
+        sql = (
+            "SELECT id, count(*) FROM authors AS a "
+            "JOIN books AS b ON a.id = b.author_id GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ).has_missing_group_by is True
+
+    def test_schema_unambiguous_projection_binds_to_its_only_source(self):
+        sql = (
+            "SELECT name, count(*) FROM authors AS a "
+            "JOIN books AS b ON a.id = b.author_id GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ).has_missing_group_by is False
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v"])
