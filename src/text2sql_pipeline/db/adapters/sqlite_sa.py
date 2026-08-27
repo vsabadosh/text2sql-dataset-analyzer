@@ -197,19 +197,37 @@ class SQLiteSAAdapter(FileDBAdapterBase):
         """Extract declared column collations; SQLite defaults to BINARY."""
         if not ddl:
             return None
+
+        def conservative_fallback() -> Dict[str, str] | None:
+            # SQLite has no other column-collation declaration syntax. When
+            # COLLATE is absent, BINARY is still proven even if sqlglot cannot
+            # represent the rest of the DDL. Otherwise the semantics are
+            # unknown and must not be guessed.
+            return (
+                None
+                if re.search(r"\bCOLLATE\b", ddl, flags=re.IGNORECASE)
+                else {}
+            )
+
         try:
             ast = sqlglot.parse_one(ddl, read="sqlite")
         except Exception:
             # Some Spider DDL is accepted by SQLite but not by sqlglot (for
-            # example, adjacent FOREIGN KEY clauses without commas). SQLite
-            # has no other column-collation declaration syntax, so absence of
-            # the COLLATE token still proves that every column uses BINARY.
-            if not re.search(r"\bCOLLATE\b", ddl, flags=re.IGNORECASE):
-                return {}
-            return None
+            # example, adjacent FOREIGN KEY clauses without commas).
+            return conservative_fallback()
+
+        if not isinstance(ast, exp.Create):
+            # sqlglot may accept unsupported SQLite syntax by returning a
+            # generic Command instead of raising. Treat that silent fallback
+            # exactly like a parse failure.
+            return conservative_fallback()
+
+        columns = list(ast.find_all(exp.ColumnDef))
+        if not columns:
+            return conservative_fallback()
 
         result: Dict[str, str] = {}
-        for column in ast.find_all(exp.ColumnDef):
+        for column in columns:
             name = str(column.name).lower()
             for constraint in column.args.get("constraints") or []:
                 kind = constraint.args.get("kind")

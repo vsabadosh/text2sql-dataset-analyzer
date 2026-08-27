@@ -285,6 +285,16 @@ def test_unparseable_sqlite_ddl_without_collate_defaults_to_binary(
     ) is None
 
 
+def test_unstructured_sqlite_ddl_with_collate_stays_unknown():
+    """A silent sqlglot Command fallback must not invent BINARY collation."""
+    ddl = (
+        "CREATE TABLE t(id INTEGER, value TEXT COLLATE NOCASE, "
+        "PRIMARY KEY(id)) WITHOUT ROWID"
+    )
+
+    assert SQLiteSAAdapter._column_collations(ddl) is None
+
+
 def test_analyzer_passes_declared_nullability_to_not_in_detector(tmp_path):
     manager = _sqlite_manager(
         tmp_path,
@@ -575,6 +585,44 @@ def test_analyzer_rejects_distinct_proof_across_mismatched_collations(tmp_path):
         )
     )
 
+    assert result.has_redundant_distinct is False
+
+
+def test_unstructured_ddl_cannot_enable_an_unsound_distinct_proof(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE driver(
+            id INTEGER,
+            lookup TEXT COLLATE NOCASE,
+            PRIMARY KEY(id)
+        ) WITHOUT ROWID;
+        CREATE TABLE dim(code TEXT PRIMARY KEY);
+        INSERT INTO driver VALUES (1, 'x');
+        INSERT INTO dim VALUES ('x'), ('X');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+    query = (
+        "SELECT DISTINCT d.id FROM driver AS d "
+        "JOIN dim AS m ON d.lookup = m.code"
+    )
+
+    conn = sqlite3.connect(tmp_path / "fixture" / "fixture.sqlite")
+    try:
+        with_distinct = conn.execute(query).fetchall()
+        without_distinct = conn.execute(
+            query.replace("SELECT DISTINCT", "SELECT", 1)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    result, *_ = analyzer._analyze_query(
+        DataItem(id="without-rowid", dbId="fixture", sql=query)
+    )
+
+    assert len(with_distinct) == 1
+    assert len(without_distinct) == 2
     assert result.has_redundant_distinct is False
 
 

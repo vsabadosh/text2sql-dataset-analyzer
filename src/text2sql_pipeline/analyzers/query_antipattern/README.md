@@ -141,6 +141,27 @@ for ap in result.antipatterns:
 
 ## Antipattern Categories
 
+### Evidence scope: static schema vs snapshot
+
+`Schema-aware` does not always mean data-independent. The current
+`missing_group_by` and `redundant_distinct` integrations may accept a declared
+SQLite text/composite primary key after verifying that its columns contain no
+NULL in the analyzed database snapshot. Such a proof is valid for auditing that
+frozen dataset, but SQLite still permits a future schema-valid state with
+multiple NULL key values. It must therefore be described as
+`schema_plus_snapshot`, not as a universal static guarantee.
+
+`not_in_nullable` deliberately does not use this snapshot check: it suppresses a
+finding only from static schema or query evidence, such as declared `NOT NULL`,
+SQLite's non-null rowid alias, or a predicate that rejects NULL. Execution
+signals such as LIMIT ties and result fingerprints are data-dependent by design
+and form a separate evidence level.
+
+The planned decision trace will expose these distinctions as machine-readable
+evidence levels: `schema_static`, `schema_plus_snapshot`, and `execution`. Until
+then, schema-aware counts must not be interpreted as if every decision held for
+all possible database contents.
+
 ### 🔴 Critical (Data Correctness)
 - `unsafe_update_delete` - UPDATE/DELETE without WHERE
 - `null_comparison_equals` - `= NULL` instead of `IS NULL`
@@ -272,17 +293,21 @@ Duplicate elimination by an enclosing set operation is intentionally outside
 this schema-focused rule and remains a conservative false negative.
 
 Both proofs are validated for SQLite, the dialect every shipped configuration
-and every measurement below uses. They assume the catalog names exactly the
-columns a star expands and that an unqualified table name resolves to the
-introspected table, so a virtual table's hidden columns are excluded from the
-catalog. Engines that break either assumption are outside the validated scope:
+and every measurement below uses. The analyzer deliberately maintains two
+catalogs: the binding catalog contains every addressable column, including a
+virtual table's hidden columns, while the star-expansion catalog excludes
+columns that `SELECT *` does not project. The proofs assume those catalogs
+accurately describe the relation resolved by an unqualified table name. Engines
+that break either assumption are outside the validated scope:
 PostgreSQL can multiply projected rows through a set-returning function in the
 SELECT list, and `search_path`, table inheritance, and table functions can bind
 a name to a relation other than the introspected one; DuckDB's `* EXCLUDE` and
 `* REPLACE` change what a star projects. Running the schema-aware proofs against
 those engines requires closing these gaps first.
 
-Controlled Spider runs, holding code and data fixed:
+Three-way Spider comparison. The first row reproduces the published syntax-only
+implementation; the remaining two hold current code and data fixed while
+varying the supplied metadata:
 
 | Metadata level | Dev | Test | Train | Total |
 | --- | --- | --- | --- | --- |
@@ -291,12 +316,14 @@ Controlled Spider runs, holding code and data fixed:
 | column catalog plus verified keys | 0 | 12 | 145 | 157 |
 
 The 157 schema-aware findings split into 124 grouping proofs and 33 key proofs.
-Every one of the 71 distinct queries behind them was executed with and without
-its reported DISTINCT: the row counts matched in all 71 cases, with no
-contradiction. Of the five distinct queries the published rule reported and this
-implementation withdraws, one is wrong on data (`hr_1`, above) and four are
-merely unproven — their projections happen to be unique on the current snapshot,
-but no declared key or join cardinality guarantees it.
+Of the key proofs, 19 use statically non-null keys and 14 rely on a nullable
+SQLite key being NULL-free in the frozen Spider snapshot. Every one of the 71
+distinct queries behind all findings was executed with and without its reported
+DISTINCT: the row counts matched in all 71 cases, with no contradiction. Of the
+five distinct queries the published rule reported and this implementation
+withdraws, one is wrong on data (`hr_1`, above) and four are merely unproven —
+their projections happen to be unique on the current snapshot, but no declared
+key or join cardinality guarantees it.
 
 ## Files
 

@@ -47,7 +47,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_offset_without_order_by: bool = False  # OFFSET without ORDER BY (undefined result)
     
     # Medium severity (configurable per dialect)
-    has_redundant_distinct: bool = False       # DISTINCT with GROUP BY
+    has_redundant_distinct: bool = False       # DISTINCT proven redundant
     has_correlated_subquery: bool = False      # correlated subquery
     has_select_star: bool = False              # SELECT *
     has_select_in_exists: bool = False         # SELECT * or column in EXISTS

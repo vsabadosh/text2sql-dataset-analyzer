@@ -2210,7 +2210,10 @@ class MarkdownReportGenerator:
                 WHERE has_distinct = true AND has_group_by = true AND parseable = true AND status != 'skipped'
             """).fetchone()[0]
             share = round(distinct_group * 100.0 / total_queries, 1)
-            lines.append(f"| DISTINCT with GROUP BY | {distinct_group:,} | {share}% | Redundant pattern |")
+            lines.append(
+                f"| DISTINCT with GROUP BY | {distinct_group:,} | {share}% | "
+                "Co-occurrence; redundancy requires a projected-key proof |"
+            )
             
             lines.append("")
             

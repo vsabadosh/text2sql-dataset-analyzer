@@ -2590,10 +2590,11 @@ class TestRedundantDistinctSchemaAware:
 
         assert self._detect(sql).has_redundant_distinct is True
 
-    def test_left_join_into_a_key_preserves_the_grain(self):
+    @pytest.mark.parametrize("join", ["LEFT JOIN", "LEFT OUTER JOIN"])
+    def test_left_join_into_a_key_preserves_the_grain(self, join):
         sql = (
             "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2 "
-            "LEFT JOIN Sailors AS T1 ON T1.sid = T2.sid"
+            f"{join} Sailors AS T1 ON T1.sid = T2.sid"
         )
 
         assert self._detect(sql).has_redundant_distinct is True
@@ -2644,8 +2645,28 @@ class TestRedundantDistinctSchemaAware:
 
         assert self._detect(sql).has_redundant_distinct is True
 
-    def test_aggregate_without_group_by_is_left_to_the_grouping_rule(self):
-        sql = "SELECT DISTINCT COUNT(*) FROM Sailors"
+    def test_schema_qualified_star_covers_the_key(self):
+        sql = "SELECT DISTINCT main.Sailors.* FROM main.Sailors"
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_star_does_not_cover_a_key_it_does_not_expand(self):
+        sql = "SELECT DISTINCT T1.* FROM Sailors AS T1"
+
+        result = self._detect(
+            sql,
+            star_expanded_columns={"sailors": ["name", "age"]},
+        )
+
+        assert result.has_redundant_distinct is False
+
+    def test_aggregate_without_group_by_is_outside_the_key_proof(self):
+        sql = "SELECT DISTINCT sid, COUNT(*) FROM Sailors"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_having_without_group_by_is_outside_the_key_proof(self):
+        sql = "SELECT DISTINCT sid FROM Sailors HAVING COUNT(*) > 1"
 
         assert self._detect(sql).has_redundant_distinct is False
 

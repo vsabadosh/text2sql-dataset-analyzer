@@ -9,7 +9,7 @@ This module detects common SQL antipatterns and code smells:
 - Functions in WHERE clause (index prevention)
 - NOT IN with nullable columns (correctness)
 - Leading wildcard LIKE (index prevention)
-- Redundant DISTINCT with GROUP BY (performance)
+- DISTINCT proven redundant by grouping or schema keys (performance)
 - Correlated subqueries (performance)
 - SELECT * (maintainability, performance)
 - SELECT columns in EXISTS (cosmetic)
@@ -172,9 +172,10 @@ def detect_antipatterns(
             for table, columns in column_comparators.items()
         }
 
-    # PostgreSQL quoted identifiers are case-sensitive, while this detector's
-    # catalog keys are currently normalized case-insensitively. Never use that
-    # lossy catalog for an FD proof in a query that contains quoted names.
+    # PostgreSQL quoted identifiers are case-sensitive, while several schema
+    # catalogs are normalized case-insensitively. Disable guarantees that
+    # depend on those lossy catalogs; projection/grouping binders separately
+    # reject quoted column references before making an FD proof.
     if (dialect or "").lower() in {"postgres", "postgresql"}:
         query_has_quoted_name = any(
             isinstance(identifier, exp.Identifier)
@@ -239,6 +240,7 @@ def _analyze_ast(
         column_nullability: Optional table -> column -> nullable boolean
         column_comparators: Optional verified comparison signatures
         quoted_identifier_proofs_safe: Whether case-folded binding is sound
+        star_expanded_columns: Optional table -> columns projected by SELECT *
     """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
@@ -2191,9 +2193,9 @@ def _projected_columns(
         if not isinstance(base, exp.Column):
             continue
         if isinstance(base.this, exp.Star):
-            qualifier = (base.table or "").lower()
-            if qualifier in sources:
-                starred.add(qualifier)
+            binding = _resolve_column(base.table, "", sources)
+            if binding is not None:
+                starred.add(binding[0])
             continue
 
         # Catalog keys are case-folded. Exact serialized-expression matching
@@ -2217,17 +2219,20 @@ def _projection_pins_key(
     resolved: Set[Tuple[str, str]],
     starred: Set[str],
     unqualified_star: bool,
+    sources: Dict[str, Optional[str]],
+    star_expanded_columns: Optional[Dict[str, List[str]]],
     equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
 ) -> bool:
     """Whether the projection carries every component of one relation's key."""
-    return (
-        unqualified_star
-        or source in starred
-        or all(
-            (key := (source, column.lower())) in resolved
-            or bool(equated.get(key, set()) & resolved)
-            for column in key_columns
+    star_covers_source = unqualified_star or source in starred
+    return all(
+        (key := (source, column.lower())) in resolved
+        or bool(equated.get(key, set()) & resolved)
+        or (
+            star_covers_source
+            and _column_in_catalog(key, sources, star_expanded_columns)
         )
+        for column in key_columns
     )
 
 
@@ -2348,7 +2353,12 @@ def _joins_preserve_grain(
     for join in select.args.get("joins") or []:
         side = str(join.args.get("side") or "").upper()
         kind = str(join.args.get("kind") or "").upper()
-        if side not in {"", "LEFT"} or kind not in {"", "INNER"}:
+        if (side, kind) not in {
+            ("", ""),
+            ("", "INNER"),
+            ("LEFT", ""),
+            ("LEFT", "OUTER"),
+        }:
             return False
 
         joined = _extract_join_source_name(join.this)
@@ -2429,7 +2439,7 @@ def _detect_redundant_distinct(
     star_expanded_columns: Optional[Dict[str, List[str]]] = None,
 ) -> None:
     """
-    Detect a top-level DISTINCT that cannot remove any row.
+    Detect a SELECT-level DISTINCT that cannot remove any row.
 
     Two independent proofs are accepted:
 
@@ -2463,8 +2473,7 @@ def _detect_redundant_distinct(
         )
 
     for select in ast.find_all(exp.Select):
-        # Only DISTINCT that applies to the whole SELECT; a GROUP BY inside a
-        # nested subquery says nothing about this level.
+        # Inspect DISTINCT attached to this SELECT, not one inside an aggregate.
         top_level_distinct = select.args.get("distinct")
         if not isinstance(top_level_distinct, exp.Distinct):
             continue
@@ -2532,8 +2541,9 @@ def _detect_redundant_distinct(
             _has_non_window_aggregate_not_in_subquery(item)
             for item in select.expressions or []
         ):
-            # An aggregate without GROUP BY collapses to a single row; that is
-            # a different proposition and belongs to the grouping rule.
+            # HAVING or a non-window aggregate without GROUP BY changes
+            # cardinality independently of the projected relation key. This
+            # key-based proof intentionally leaves those cases unresolved.
             continue
         if any(table is None for table in sources.values()) or not sources:
             # Derived tables and CTEs carry no declared key at this level.
@@ -2557,6 +2567,8 @@ def _detect_redundant_distinct(
             resolved_projection,
             starred_sources,
             unqualified_star,
+            sources,
+            star_expanded_columns,
             equated,
         ):
             continue
