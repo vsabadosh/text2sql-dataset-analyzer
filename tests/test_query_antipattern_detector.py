@@ -803,6 +803,419 @@ class TestNotInNullableAntipattern:
         
         assert result.has_not_in_nullable is True
 
+    def test_declared_nullable_projection_is_flagged(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is True
+        finding = next(
+            item for item in result.antipatterns
+            if item.pattern == "not_in_nullable"
+        )
+        assert "output is nullable" in finding.message
+
+    def test_declared_not_null_projection_is_suppressed(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_snapshot_verified_primary_key_is_not_a_static_non_null_proof(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders)",
+            primary_keys={"orders": ["user_id"]},
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_is_not_null_filter_suppresses_nullable_projection(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders WHERE user_id IS NOT NULL)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_comparison_filter_suppresses_nullable_projection(self):
+        result = detect_antipatterns(
+            "SELECT Title FROM Movies WHERE Code NOT IN "
+            "(SELECT Movie FROM MovieTheaters WHERE Movie != 'null')",
+            table_columns={"movietheaters": ["movie"]},
+            column_nullability={"movietheaters": {"movie": True}},
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_partial_or_filter_does_not_prove_non_null(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders "
+            "WHERE user_id IS NOT NULL OR active = 1)",
+            table_columns={"orders": ["user_id", "active"]},
+            column_nullability={
+                "orders": {"user_id": True, "active": False}
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_parenthesized_not_in_is_still_analyzed(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE "
+            "NOT (id IN (SELECT user_id FROM orders))",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_scalar_subquery_in_not_in_value_list_is_analyzed(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(1, 2, (SELECT max(user_id) FROM orders))",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        # MAX over an empty input returns NULL even when its argument is
+        # declared NOT NULL, so the expression projection must fail closed.
+        assert result.has_not_in_nullable is True
+
+    def test_non_null_scalar_subquery_stays_conservative_when_it_can_be_empty(
+        self,
+    ):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(1, 2, (SELECT user_id FROM orders))",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_wrapped_scalar_subquery_in_value_list_is_analyzed(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(1, 2, (SELECT user_id FROM orders) + 0)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    @pytest.mark.parametrize("operator", ["AND", "OR"])
+    def test_in_subquery_under_negated_compound_predicate_is_analyzed(
+        self,
+        operator,
+    ):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE NOT "
+            f"(active = 1 {operator} id IN "
+            "(SELECT user_id FROM orders))",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_double_negation_does_not_turn_in_into_not_in(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE NOT NOT "
+            "(id IN (SELECT user_id FROM orders))",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_not_exists_does_not_negate_in_inside_its_query_scope(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE NOT EXISTS "
+            "(SELECT 1 FROM orders WHERE user_id IN "
+            "(SELECT user_id FROM blocked))",
+            table_columns={
+                "orders": ["user_id"],
+                "blocked": ["user_id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True},
+                "blocked": {"user_id": True},
+            },
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_nested_not_in_does_not_prove_nullable_column_non_null(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT o.user_id FROM orders o "
+            "WHERE o.user_id NOT IN "
+            "(SELECT b.user_id FROM blocked b))",
+            table_columns={
+                "orders": ["user_id"],
+                "blocked": ["user_id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True},
+                "blocked": {"user_id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_quantified_comparison_does_not_prove_column_non_null(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT o.user_id FROM orders o "
+            "WHERE o.user_id <> ALL "
+            "(SELECT b.user_id FROM blocked b))",
+            dialect="postgres",
+            table_columns={
+                "orders": ["user_id"],
+                "blocked": ["user_id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True},
+                "blocked": {"user_id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_quoted_identifier_binding_remains_conservative(self):
+        result = detect_antipatterns(
+            'SELECT 1 WHERE 1 NOT IN '
+            '(SELECT "X" FROM t WHERE x IS NOT NULL)',
+            dialect="postgres",
+            table_columns={"t": ["x"]},
+            column_nullability={"t": {"x": False}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_inner_join_equality_rejects_null_projected_operand(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT o.user_id FROM orders o "
+            "JOIN users u ON o.user_id = u.id)",
+            table_columns={
+                "orders": ["user_id"],
+                "users": ["id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True},
+                "users": {"id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is False
+
+    def test_inner_join_does_not_clean_unrelated_nullable_projection(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT o.manager_id FROM orders o "
+            "JOIN users u ON o.user_id = u.id)",
+            table_columns={
+                "orders": ["user_id", "manager_id"],
+                "users": ["id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True, "manager_id": True},
+                "users": {"id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_union_is_safe_only_when_every_branch_is_non_null(self):
+        sql = (
+            "SELECT AirportName FROM Airports WHERE AirportCode NOT IN "
+            "(SELECT SourceAirport FROM Flights "
+            "UNION SELECT DestAirport FROM Flights)"
+        )
+        table_columns = {
+            "flights": ["sourceairport", "destairport"]
+        }
+
+        safe = detect_antipatterns(
+            sql,
+            table_columns=table_columns,
+            column_nullability={
+                "flights": {
+                    "sourceairport": False,
+                    "destairport": False,
+                }
+            },
+        )
+        unsafe = detect_antipatterns(
+            sql,
+            table_columns=table_columns,
+            column_nullability={
+                "flights": {
+                    "sourceairport": False,
+                    "destairport": True,
+                }
+            },
+        )
+
+        assert safe.has_not_in_nullable is False
+        assert unsafe.has_not_in_nullable is True
+
+    def test_group_by_preserves_projected_column_nullability(self):
+        sql = (
+            "SELECT avg(longitude) FROM station WHERE id NOT IN "
+            "(SELECT station_id FROM status GROUP BY station_id "
+            "HAVING max(bikes_available) > 10)"
+        )
+        result = detect_antipatterns(
+            sql,
+            table_columns={
+                "status": ["station_id", "bikes_available"]
+            },
+            column_nullability={
+                "status": {
+                    "station_id": True,
+                    "bikes_available": True,
+                }
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    @pytest.mark.parametrize(
+        "grouping",
+        [
+            "ROLLUP(user_id)",
+            "CUBE(user_id)",
+            "GROUPING SETS ((user_id), ())",
+        ],
+    )
+    def test_grouping_extensions_can_synthesize_null(
+        self,
+        grouping,
+    ):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            f"(SELECT user_id FROM orders GROUP BY {grouping})",
+            dialect="postgres",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_outer_join_remains_conservative(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT u.id FROM orders o "
+            "LEFT JOIN users u ON o.user_id = u.id)",
+            table_columns={
+                "orders": ["user_id"],
+                "users": ["id"],
+            },
+            column_nullability={
+                "orders": {"user_id": False},
+                "users": {"id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_anti_join_remains_conservative(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT a.x FROM a ANTI JOIN b ON a.x = b.x)",
+            dialect="duckdb",
+            table_columns={"a": ["x"], "b": ["x"]},
+            column_nullability={
+                "a": {"x": True},
+                "b": {"x": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_cte_source_remains_conservative(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(WITH ids AS (SELECT user_id FROM orders) "
+            "SELECT user_id FROM ids)",
+            table_columns={
+                "orders": ["user_id"],
+                "users": ["id"],
+            },
+            column_nullability={
+                "orders": {"user_id": False},
+                "users": {"id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_correlated_subquery_remains_conservative(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users u WHERE u.id NOT IN "
+            "(SELECT o.user_id FROM orders o "
+            "WHERE o.account_id = u.account_id)",
+            table_columns={
+                "orders": ["user_id", "account_id"],
+                "users": ["id", "account_id"],
+            },
+            column_nullability={
+                "orders": {"user_id": False, "account_id": False},
+                "users": {"id": False, "account_id": False},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_tuple_not_in_remains_conservative(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users u WHERE (u.a, u.b) NOT IN "
+            "(SELECT p.a, p.b FROM pairs p)",
+            table_columns={"pairs": ["a", "b"]},
+            column_nullability={
+                "pairs": {"a": False, "b": False}
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+
+    def test_multiple_not_in_sites_flag_if_any_site_is_nullable(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM safe_orders) "
+            "AND manager_id NOT IN "
+            "(SELECT manager_id FROM assignments)",
+            table_columns={
+                "safe_orders": ["user_id"],
+                "assignments": ["manager_id"],
+            },
+            column_nullability={
+                "safe_orders": {"user_id": False},
+                "assignments": {"manager_id": True},
+            },
+        )
+
+        assert result.has_not_in_nullable is True
+        assert sum(
+            item.pattern == "not_in_nullable"
+            for item in result.antipatterns
+        ) == 1
+
 
 class TestLimitWithoutOrderByAntipattern:
     """Test LIMIT without ORDER BY antipattern detection."""

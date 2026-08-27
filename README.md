@@ -267,6 +267,15 @@ Detects 13 SQL antipatterns with configurable severity and dialect-specific rule
 | **MEDIUM** | `function_in_where`, `correlated_subquery`, `leading_wildcard_like` |
 | **LOW** | `select_star`, `redundant_distinct`, `select_in_exists` |
 
+`not_in_nullable` is schema-aware: it is suppressed only when the subquery
+output is statically proven non-null by DDL, a dialect guarantee such as
+SQLite's `INTEGER PRIMARY KEY` rowid alias, or a guaranteed null-rejecting
+predicate. Snapshot-only PK evidence is deliberately insufficient. Scalar
+subqueries in value lists remain conservative because an empty scalar
+subquery evaluates to `NULL`; wrapped forms and `IN` nested under negated
+`AND`/`OR` predicates are also covered. Unsupported shapes or unavailable
+schema retain the conservative warning.
+
 Quality score: `100 - sum(penalty * count_per_severity)`. Quality levels: excellent / good / fair / poor.
 
 ### 4. Query Execution Analyzer

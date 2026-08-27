@@ -88,10 +88,32 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                             else None
                         ),
                         "hidden": int(row[6]) if len(row) > 6 else 0,
+                        # "nullable" mirrors the DDL, while this flag also
+                        # carries guarantees SQLite enforces without declaring
+                        # them. Static analyses need the latter; renderers that
+                        # reproduce the schema need the former.
+                        "static_non_null": bool(row[3]),
                     }
                     columns.append(col)
                     if col["pk"]:
                         primary_keys.append(col["name"])
+
+                rowid_primary_key = self._rowid_alias_primary_key(
+                    conn,
+                    table,
+                    primary_keys,
+                    columns,
+                )
+                if rowid_primary_key is not None:
+                    for column in columns:
+                        if (
+                            str(column.get("name", "")).lower()
+                            == rowid_primary_key
+                        ):
+                            # SQLite replaces a NULL inserted into a rowid
+                            # alias with a generated integer.
+                            column["static_non_null"] = True
+                            break
 
                 primary_key_collations = self._primary_key_collations(
                     conn,
@@ -127,6 +149,46 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                 }
         finally:
             engine.dispose()
+
+    def _rowid_alias_primary_key(
+        self,
+        conn,
+        table: str,
+        primary_keys: List[str],
+        columns: List[Dict[str, Any]],
+    ) -> str | None:
+        """Return the statically non-null INTEGER PRIMARY KEY rowid alias."""
+        if len(primary_keys) != 1:
+            return None
+        key = str(primary_keys[0]).lower()
+        column = next(
+            (
+                item
+                for item in columns
+                if str(item.get("name", "")).lower() == key
+            ),
+            None,
+        )
+        if (
+            column is None
+            or str(column.get("type") or "").strip().upper() != "INTEGER"
+        ):
+            return None
+
+        try:
+            indexes = conn.exec_driver_sql(
+                f"PRAGMA index_list({self._qident(table)})"
+            ).fetchall()
+        except Exception:
+            return None
+        if any(
+            len(row) > 3 and str(row[3]).lower() == "pk"
+            for row in indexes
+        ):
+            # INTEGER PRIMARY KEY DESC is backed by an ordinary index and,
+            # unlike the rowid alias form, can store a real NULL.
+            return None
+        return key
 
     @staticmethod
     def _column_collations(

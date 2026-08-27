@@ -126,7 +126,7 @@ analyze:
             - cartesian_product              # Missing JOIN condition (exponential result explosion)
           high:
             # ⚠️  SUBTLE SEMANTIC TRAPS (correct in some cases, wrong in others)
-            - not_in_nullable                # `NOT IN (subquery)` when subquery can return NULL → always false
+            - not_in_nullable                # Schema-aware: RHS may return NULL, or non-nullness cannot be proved
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
             - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
@@ -149,7 +149,7 @@ analyze:
             - cartesian_product              # Missing JOIN condition
           
           high:
-            - not_in_nullable                # `NOT IN` with nullable subquery
+            - not_in_nullable                # Schema-aware nullable/unknown `NOT IN` subquery output
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by         # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
           medium:

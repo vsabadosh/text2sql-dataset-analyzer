@@ -188,6 +188,49 @@ nondeterministic on the current rows.
 - `not_in_nullable` - NOT IN with nullable subquery
 - `leading_wildcard_like` - `LIKE '%pattern'`
 
+`not_in_nullable` keeps its public identifier for compatibility, but its
+implementation is now schema-aware. It reports a training-time correctness
+risk when the single value projected by a `NOT IN` subquery is declared
+nullable, or when the analyzer cannot prove it non-null. It is suppressed only
+by a concrete static proof: declared `NOT NULL`, a dialect guarantee such as
+SQLite's `INTEGER PRIMARY KEY` rowid alias, or a guaranteed null-rejecting
+predicate such as `IS NOT NULL`, an ordinary comparison, or an inner-join
+equality on the projected column. A primary key that is merely free of NULLs
+in the current SQLite snapshot is not treated as a static proof.
+
+`UNION` is safe only when every branch is proven non-null. `GROUP BY` preserves
+the nullability of a directly projected grouping column; it does not remove the
+NULL group. `ROLLUP`, `CUBE`, and `GROUPING SETS` remain conservative because
+they can synthesize NULL subtotal keys. Outer joins, CTE/derived sources,
+correlated or tuple forms, expression projections, ambiguous binding, and
+missing schema remain conservative findings. Scalar subqueries mixed with
+literal values remain conservative even when their projected column is
+declared `NOT NULL`: an empty scalar subquery itself evaluates to `NULL`.
+Wrapped scalar forms and `IN` expressions nested under negated `AND`/`OR`
+predicates are also detected; double negation and `NOT EXISTS` query scopes do
+not create false `NOT IN` candidates. Explicit `NULL` in a literal list remains
+under `null_comparison_equals`. The detector does not inspect current result
+rows: the rule assesses whether the SQL pattern is safe training supervision
+for all data allowed by the available schema.
+
+The old syntax-only reports counted every `NOT IN (subquery)`: Dev 46, Test 74,
+Train 228. Controlled runs with the schema-aware implementation retain Dev 23,
+Test 44, and Train 155. The suppressions are fully proof-backed:
+
+- Dev: 23 suppressed — 17 declared `NOT NULL` and 6 null-rejecting
+  predicates;
+- Test: 30 suppressed — 24 declared `NOT NULL` and 6 null-rejecting
+  predicates;
+- Train: 73 suppressed — 64 declared `NOT NULL`, 6 SQLite rowid primary
+  keys, and 3 null-rejecting predicates.
+
+Every retained Spider item has a statically nullable projection; none needed
+the conservative unknown fallback. A read-only audit also confirmed that none
+of the suppressed RHS subqueries emitted NULL on the analyzed snapshots. The
+historical counts therefore remain useful as a consistently measured
+syntax-level upper bound, but they are not directly interchangeable with the
+refined metric.
+
 ### 🔵 Medium / Low (Configurable)
 - `redundant_distinct` - DISTINCT with GROUP BY
 - `correlated_subquery` - Correlated subqueries

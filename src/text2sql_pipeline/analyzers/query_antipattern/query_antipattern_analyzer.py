@@ -59,6 +59,9 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         # Introspection is per database and every item of a database repeats it.
         self._primary_key_cache: dict[str, dict[str, list[str]]] = {}
         self._table_column_cache: dict[str, dict[str, list[str]]] = {}
+        self._column_nullability_cache: dict[
+            str, dict[str, dict[str, bool]]
+        ] = {}
         self._column_comparator_cache: dict[
             str, dict[str, dict[str, tuple[str, str]]]
         ] = {}
@@ -166,12 +169,14 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         if (
             db_id in self._primary_key_cache
             and db_id in self._table_column_cache
+            and db_id in self._column_nullability_cache
             and db_id in self._column_comparator_cache
         ):
             return
 
         mapping: dict[str, list[str]] = {}
         columns: dict[str, list[str]] = {}
+        nullability: dict[str, dict[str, bool]] = {}
         comparators: dict[str, dict[str, tuple[str, str]]] = {}
         try:
             for table in self.db_manager.get_tables(db_id):
@@ -198,6 +203,17 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                     )
                     for column in table_columns
                 ]
+                nullability[table_name] = {}
+                for column in table_columns:
+                    raw_nullable = self._semantic_nullability(column)
+                    if raw_nullable is None:
+                        continue
+                    column_name = (
+                        str(column["name"])
+                        if case_sensitive_catalog
+                        else str(column["name"]).lower()
+                    )
+                    nullability[table_name][column_name] = raw_nullable
                 comparators[table_name] = {}
                 for column in table_columns:
                     column_name = str(column["name"]).lower()
@@ -262,11 +278,27 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         except Exception:
             mapping = {}
             columns = {}
+            nullability = {}
             comparators = {}
 
         self._primary_key_cache[db_id] = mapping
         self._table_column_cache[db_id] = columns
+        self._column_nullability_cache[db_id] = nullability
         self._column_comparator_cache[db_id] = comparators
+
+    @staticmethod
+    def _semantic_nullability(column: dict) -> bool | None:
+        """Whether a column may hold NULL in any schema-valid database state.
+
+        Adapters that enforce constraints beyond the declared DDL, such as
+        SQLite's rowid alias, report them through ``static_non_null``.  The
+        declared value is used when no such flag is published.
+        """
+        static_non_null = column.get("static_non_null")
+        if isinstance(static_non_null, bool):
+            return not static_non_null
+        raw_nullable = column.get("nullable")
+        return raw_nullable if isinstance(raw_nullable, bool) else None
 
     def _primary_keys(self, db_id: str) -> dict:
         """Return verified non-null primary keys for one database."""
@@ -277,6 +309,11 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         """Return columns used to bind unqualified GROUP BY references."""
         self._load_schema_metadata(db_id)
         return self._table_column_cache[db_id]
+
+    def _column_nullability(self, db_id: str) -> dict:
+        """Return declared per-column nullability for static SQL checks."""
+        self._load_schema_metadata(db_id)
+        return self._column_nullability_cache[db_id]
 
     def _column_comparators(self, db_id: str) -> dict:
         """Return SQLite affinity/collation signatures for safe equalities."""
@@ -305,6 +342,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 penalties=self.penalties_config,
                 primary_keys=self._primary_keys(item.dbId),
                 table_columns=self._table_columns(item.dbId),
+                column_nullability=self._column_nullability(item.dbId),
                 column_comparators=self._column_comparators(item.dbId),
             )
             ok = features.parseable

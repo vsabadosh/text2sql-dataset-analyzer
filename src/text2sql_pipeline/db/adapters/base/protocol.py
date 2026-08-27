@@ -31,6 +31,9 @@ class SAAdapter(Protocol):
         Returns:
             {
                 "columns": [{"name": str, "type": str, "nullable": bool, "pk": bool, "unique": bool}, ...],
+                    "nullable" reflects the declared DDL. An adapter may add an
+                    optional "static_non_null": bool for constraints the engine
+                    enforces without declaring them.
                 "primary_keys": [str, ...],
                 "foreign_keys": [{"local": [str], "parent_table": str, "parent_columns": [str]}, ...]
             }
