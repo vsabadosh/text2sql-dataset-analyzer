@@ -102,7 +102,7 @@ analyze:
             - leading_wildcard_like          # `LIKE '%pattern'` forces full table scan
           low:
             - select_star                    # `SELECT *` (common in research datasets, avoided in production)
-            - redundant_distinct             # DISTINCT with GROUP BY (duplicate elimination already guaranteed)
+            - redundant_distinct             # Schema-aware: DISTINCT proven unable to remove a row (GROUP BY key or primary key already projected)
             - select_in_exists               # `SELECT col` in EXISTS; columns are ignored, use SELECT 1 for clarity
 
         postgresql:
@@ -121,7 +121,7 @@ analyze:
             - leading_wildcard_like          # Full table scan pattern
           low:
             - select_star                    # Style preference (acceptable in Text2SQL)
-            - redundant_distinct             # DISTINCT + GROUP BY redundancy
+            - redundant_distinct             # Schema-aware: DISTINCT proven redundant by a projected key
             - select_in_exists               # Wasteful column selection in EXISTS
 
   - name: query_execution_analyzer

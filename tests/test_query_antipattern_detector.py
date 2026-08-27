@@ -2439,6 +2439,451 @@ class TestRedundantDistinctAntipattern:
         assert result.has_redundant_distinct is False
         assert not any(ap.pattern == "redundant_distinct" for ap in result.antipatterns)
 
+    def test_distinct_not_flagged_when_group_key_is_partly_projected(self):
+        """A dropped key component lets two groups collapse into one row."""
+        sql = (
+            "SELECT DISTINCT department_id FROM employees "
+            "GROUP BY department_id, manager_id HAVING COUNT(employee_id) >= 4"
+        )
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+
+    def test_distinct_not_flagged_when_only_an_aggregate_is_projected(self):
+        """Two groups may share a count, so DISTINCT still removes rows."""
+        sql = (
+            "SELECT DISTINCT COUNT(*) FROM cite "
+            "GROUP BY citingpaperid HAVING COUNT(*) > 10"
+        )
+        result = detect_antipatterns(sql)
+
+        assert result.has_redundant_distinct is False
+
+    def test_distinct_not_flagged_for_non_key_column_of_grouped_table(self):
+        """Grouping by a key does not make a projected name unique."""
+        sql = (
+            "SELECT DISTINCT p.product_name FROM products AS p "
+            "JOIN order_items AS oi ON oi.product_id = p.product_id "
+            "GROUP BY p.product_id"
+        )
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"products": ["product_id"], "order_items": ["order_item_id"]},
+            table_columns={
+                "products": ["product_id", "product_name"],
+                "order_items": ["order_item_id", "product_id"],
+            },
+        )
+
+        assert result.has_redundant_distinct is False
+
+
+class TestRedundantDistinctSchemaAware:
+    """Schema-backed proofs that a top-level DISTINCT cannot remove a row."""
+
+    PRIMARY_KEYS = {
+        "sailors": ["sid"],
+        "reserves": ["sid", "bid", "day"],
+        "items": ["item"],
+        "goods": ["id"],
+    }
+    TABLE_COLUMNS = {
+        "sailors": ["sid", "name", "age"],
+        "reserves": ["sid", "bid", "day"],
+        "items": ["item", "label"],
+        "goods": ["id", "flavor", "price"],
+    }
+    COMPARATORS = {
+        "sailors": {"sid": ("INTEGER", "BINARY"), "name": ("TEXT", "BINARY"),
+                    "age": ("INTEGER", "BINARY")},
+        "reserves": {"sid": ("INTEGER", "BINARY"), "bid": ("INTEGER", "BINARY"),
+                     "day": ("TEXT", "BINARY")},
+        "items": {"item": ("INTEGER", "BINARY"), "label": ("TEXT", "BINARY")},
+        "goods": {"id": ("INTEGER", "BINARY"), "flavor": ("TEXT", "BINARY"),
+                  "price": ("INTEGER", "BINARY")},
+    }
+
+    def _detect(self, sql, **overrides):
+        kwargs = dict(
+            primary_keys=self.PRIMARY_KEYS,
+            table_columns=self.TABLE_COLUMNS,
+            column_comparators=self.COMPARATORS,
+        )
+        kwargs.update(overrides)
+        return detect_antipatterns(sql, dialect="sqlite", **kwargs)
+
+    def test_column_binding_resolves_an_unqualified_group_key(self):
+        """``GROUP BY item`` binds to the only table that owns the column."""
+        sql = (
+            "SELECT DISTINCT T1.item FROM items AS T1 "
+            "JOIN goods AS T2 ON T1.item = T2.id "
+            "WHERE T2.flavor = 'Chocolate' GROUP BY item"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+        assert detect_antipatterns(sql).has_redundant_distinct is False
+
+    def test_join_equality_carries_the_group_key_into_the_projection(self):
+        """``T1.sid = T2.sid`` makes projecting either side equivalent."""
+        sql = (
+            "SELECT DISTINCT T1.name, T1.sid FROM Sailors AS T1 "
+            "JOIN Reserves AS T2 ON T1.sid = T2.sid "
+            "GROUP BY T2.sid HAVING COUNT(*) > 1"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+        assert detect_antipatterns(sql).has_redundant_distinct is False
+
+    def test_projected_primary_key_makes_distinct_redundant(self):
+        """Every row already differs once the key is in the projection."""
+        sql = "SELECT DISTINCT sid FROM Sailors WHERE age > 20"
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_projected_key_is_not_proven_without_schema(self):
+        """The syntax-only mode must stay exactly as published."""
+        sql = "SELECT DISTINCT sid FROM Sailors WHERE age > 20"
+
+        assert detect_antipatterns(sql).has_redundant_distinct is False
+
+    def test_extra_projected_columns_do_not_break_the_proof(self):
+        sql = "SELECT DISTINCT id, price FROM goods WHERE price < 10"
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_non_key_projection_is_left_alone(self):
+        """Two sailors may share a name, so DISTINCT does real work."""
+        sql = "SELECT DISTINCT name FROM Sailors WHERE age > 20"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_partial_composite_key_is_not_enough(self):
+        sql = "SELECT DISTINCT sid, bid FROM Reserves"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_complete_composite_key_is_enough(self):
+        sql = "SELECT DISTINCT sid, bid, day FROM Reserves"
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_key_wrapped_in_an_expression_proves_nothing(self):
+        """``sid + 0`` is not guaranteed to stay injective."""
+        sql = "SELECT DISTINCT sid + 0 FROM Sailors"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_fan_out_join_keeps_distinct_meaningful(self):
+        """Joining on a non-key column repeats the driving rows."""
+        sql = (
+            "SELECT DISTINCT T1.sid FROM Sailors AS T1 "
+            "JOIN Reserves AS T2 ON T1.sid = T2.sid"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_join_matched_on_the_complete_key_preserves_the_grain(self):
+        sql = (
+            "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2 "
+            "JOIN Sailors AS T1 ON T1.sid = T2.sid"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_left_join_into_a_key_preserves_the_grain(self):
+        sql = (
+            "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2 "
+            "LEFT JOIN Sailors AS T1 ON T1.sid = T2.sid"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_cross_join_is_never_grain_preserving(self):
+        sql = "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2, Sailors AS T1"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    @pytest.mark.parametrize("join", ["RIGHT JOIN", "FULL JOIN"])
+    def test_outer_join_towards_the_driving_side_breaks_the_grain(self, join):
+        """Only the join kind differs from the LEFT JOIN proof above.
+
+        These pad unmatched rows of the *driving* side with NULLs, so several
+        output rows carry the same all-NULL key and collapse. DISTINCT is doing
+        real work even though the join still matches a complete key.
+        """
+        sql = (
+            "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2 "
+            f"{join} Sailors AS T1 ON T1.sid = T2.sid"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_equality_inside_the_joined_relation_does_not_pin_its_key(self):
+        """``T1.sid = T1.sid`` restricts nothing per driving row."""
+        sql = (
+            "SELECT DISTINCT T2.sid, T2.bid, T2.day FROM Reserves AS T2 "
+            "JOIN Sailors AS T1 ON T1.sid = T1.sid"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_derived_table_source_has_no_declared_key(self):
+        sql = (
+            "SELECT DISTINCT s.sid FROM (SELECT sid FROM Sailors) AS s"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_unknown_table_is_not_assumed_to_have_a_key(self):
+        sql = "SELECT DISTINCT sid FROM unknown_table"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_qualified_star_covers_the_key(self):
+        sql = "SELECT DISTINCT T1.* FROM Sailors AS T1 WHERE age > 20"
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_aggregate_without_group_by_is_left_to_the_grouping_rule(self):
+        sql = "SELECT DISTINCT COUNT(*) FROM Sailors"
+
+        assert self._detect(sql).has_redundant_distinct is False
+
+    def test_distinct_on_is_a_different_proposition(self):
+        """``DISTINCT ON`` keeps one row per key and is never reported here."""
+        sql = "SELECT DISTINCT ON (name) name, sid FROM sailors"
+        result = detect_antipatterns(
+            sql,
+            dialect="postgres",
+            primary_keys={"sailors": ["sid"]},
+            table_columns={"sailors": ["sid", "name", "age"]},
+        )
+
+        assert result.has_redundant_distinct is False
+
+    @pytest.mark.parametrize(
+        ("sql", "dialect"),
+        [
+            (
+                "SELECT DISTINCT x = 'A' FROM t GROUP BY x = 'a'",
+                "sqlite",
+            ),
+            (
+                "SELECT DISTINCT a AS b FROM t GROUP BY b",
+                "sqlite",
+            ),
+            (
+                'SELECT DISTINCT "A" FROM t GROUP BY "a"',
+                "postgres",
+            ),
+            (
+                "SELECT DISTINCT a, b FROM t GROUP BY a, b WITH ROLLUP",
+                "mysql",
+            ),
+        ],
+    )
+    def test_unsafe_grouping_proofs_are_rejected(self, sql, dialect):
+        result = detect_antipatterns(sql, dialect=dialect)
+
+        assert result.has_redundant_distinct is False
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT DISTINCT x = 'A' FROM t GROUP BY x = 'A'",
+            'SELECT DISTINCT "A" FROM t GROUP BY "A"',
+        ],
+    )
+    def test_exact_grouping_expression_is_still_proved(self, sql):
+        dialect = "postgres" if '"' in sql else "sqlite"
+
+        assert detect_antipatterns(
+            sql, dialect=dialect
+        ).has_redundant_distinct is True
+
+    def test_output_alias_is_proved_only_when_catalog_excludes_collision(self):
+        sql = "SELECT DISTINCT a AS b FROM t GROUP BY b"
+
+        safe = detect_antipatterns(sql, table_columns={"t": ["a"]})
+        collision = detect_antipatterns(
+            sql, table_columns={"t": ["a", "b"]}
+        )
+
+        assert safe.has_redundant_distinct is True
+        assert collision.has_redundant_distinct is False
+
+    def test_mismatched_join_comparators_do_not_preserve_grain(self):
+        sql = (
+            "SELECT DISTINCT d.id FROM driver AS d "
+            "JOIN dim AS m ON d.lookup = m.code"
+        )
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"driver": ["id"], "dim": ["code"]},
+            table_columns={
+                "driver": ["id", "lookup"],
+                "dim": ["code"],
+            },
+            column_comparators={
+                "driver": {
+                    "id": ("NUMERIC", "BINARY"),
+                    "lookup": ("TEXT", "NOCASE"),
+                },
+                "dim": {"code": ("TEXT", "BINARY")},
+            },
+        )
+
+        assert result.has_redundant_distinct is False
+
+    def test_future_join_source_cannot_pin_a_key(self):
+        sql = (
+            "SELECT DISTINCT a.id FROM a "
+            "JOIN b ON b.id = c.x "
+            "JOIN c ON c.id = b.y"
+        )
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["id"], "c": ["id"]},
+            table_columns={
+                "a": ["id"],
+                "b": ["id", "y"],
+                "c": ["id", "x"],
+            },
+            column_comparators={
+                table: {
+                    column: ("NUMERIC", "BINARY")
+                    for column in columns
+                }
+                for table, columns in {
+                    "a": ["id"],
+                    "b": ["id", "y"],
+                    "c": ["id", "x"],
+                }.items()
+            },
+        )
+
+        assert result.has_redundant_distinct is False
+
+    def test_multiway_join_must_pin_each_key_from_an_available_source(self):
+        sql = (
+            "SELECT DISTINCT a.id FROM a "
+            "JOIN b ON b.id = a.b_id "
+            "JOIN c ON c.id = b.c_id"
+        )
+        columns = {
+            "a": ["id", "b_id"],
+            "b": ["id", "c_id"],
+            "c": ["id"],
+        }
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["id"], "c": ["id"]},
+            table_columns=columns,
+            column_comparators={
+                table: {
+                    column: ("NUMERIC", "BINARY")
+                    for column in table_column_names
+                }
+                for table, table_column_names in columns.items()
+            },
+        )
+
+        assert result.has_redundant_distinct is True
+
+    def test_unqualified_star_does_not_expose_raw_using_columns(self):
+        sql = (
+            "SELECT DISTINCT * FROM a JOIN b USING (x) GROUP BY b.x"
+        )
+        result = detect_antipatterns(
+            sql,
+            table_columns={"a": ["x"], "b": ["x"]},
+            column_comparators={
+                "a": {"x": ("TEXT", "NOCASE")},
+                "b": {"x": ("TEXT", "BINARY")},
+            },
+        )
+
+        assert result.has_redundant_distinct is False
+
+    @pytest.mark.parametrize(
+        "group_key",
+        ["rowid", "_rowid_", "oid", "random()", "order_line.rowid"],
+    )
+    def test_star_does_not_cover_a_key_outside_the_catalog(self, group_key):
+        """A star expands declared columns; a pseudo-column splits rows anyway.
+
+        ``GROUP BY rowid`` keeps every physical row, so DISTINCT over ``*``
+        still collapses duplicates and is doing real work.
+        """
+        sql = f"SELECT DISTINCT * FROM order_line GROUP BY {group_key}"
+        result = detect_antipatterns(
+            sql,
+            table_columns={"order_line": ["order_id", "product", "qty"]},
+        )
+
+        assert result.has_redundant_distinct is False
+
+    def test_qualified_star_does_not_cover_a_pseudo_column(self):
+        sql = "SELECT DISTINCT t.* FROM order_line AS t GROUP BY t.rowid"
+        result = detect_antipatterns(
+            sql,
+            table_columns={"order_line": ["order_id", "product", "qty"]},
+        )
+
+        assert result.has_redundant_distinct is False
+
+    def test_star_covers_a_declared_group_key(self):
+        sql = "SELECT DISTINCT * FROM order_line GROUP BY qty"
+        result = detect_antipatterns(
+            sql,
+            table_columns={"order_line": ["order_id", "product", "qty"]},
+        )
+
+        assert result.has_redundant_distinct is True
+
+    def test_star_proves_nothing_without_a_catalog(self):
+        """Star coverage is unverifiable when the columns are unknown."""
+        sql = "SELECT DISTINCT * FROM order_line GROUP BY qty"
+
+        assert detect_antipatterns(sql).has_redundant_distinct is False
+
+    def test_using_complete_join_key_preserves_grain(self):
+        sql = (
+            "SELECT DISTINCT r.sid, r.bid, r.day FROM reserves AS r "
+            "JOIN sailors AS s USING (sid)"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+
+    def test_natural_join_complete_key_preserves_grain(self):
+        sql = "SELECT DISTINCT a.id FROM a NATURAL JOIN b"
+        columns = {"a": ["id", "payload"], "b": ["id", "label"]}
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["id"]},
+            table_columns=columns,
+            column_comparators={
+                table: {
+                    column: (
+                        "NUMERIC" if column == "id" else "TEXT",
+                        "BINARY",
+                    )
+                    for column in table_column_names
+                }
+                for table, table_column_names in columns.items()
+            },
+        )
+
+        assert result.has_redundant_distinct is True
+
+    def test_window_aggregate_does_not_block_a_projected_key_proof(self):
+        sql = (
+            "SELECT DISTINCT sid, COUNT(*) OVER () AS total "
+            "FROM sailors"
+        )
+
+        assert self._detect(sql).has_redundant_distinct is True
+
 
 class TestSelectInExistsAntipattern:
     """Test SELECT in EXISTS antipattern detection."""

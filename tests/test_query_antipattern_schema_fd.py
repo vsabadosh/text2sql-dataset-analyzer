@@ -1,5 +1,7 @@
 import sqlite3
 
+import pytest
+
 from text2sql_pipeline.analyzers.query_antipattern.query_antipattern_analyzer import (
     QueryAntipatternAnalyzer,
 )
@@ -116,6 +118,77 @@ def test_sqlite_generated_columns_are_present_for_alias_binding(tmp_path):
         column_comparators=analyzer._column_comparators("fixture"),
     )
     assert result.has_missing_group_by is True
+
+
+def _fts5_available() -> bool:
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("CREATE VIRTUAL TABLE probe USING fts5(body)")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        connection.close()
+
+
+@pytest.mark.skipif(not _fts5_available(), reason="SQLite build has no FTS5")
+def test_sqlite_hidden_columns_are_left_out_of_the_star_catalog(tmp_path):
+    """A star must not appear to cover a key it never projects.
+
+    ``rank`` puts every physical row in its own group while ``*`` projects only
+    ``body``, so DISTINCT still collapses the two identical output rows.
+    """
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE VIRTUAL TABLE docs USING fts5(body, content='');
+        INSERT INTO docs(rowid, body) VALUES (1, 'alpha'), (2, 'alpha alpha');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+    columns = analyzer._table_columns("fixture")
+    star_columns = analyzer._star_expanded_columns("fixture")
+
+    # Hidden columns still bind, so they stay in the binding catalog.
+    assert columns["docs"] == ["body", "docs", "rank"]
+    assert star_columns["docs"] == ["body"]
+
+    result = detect_antipatterns(
+        "SELECT DISTINCT * FROM docs WHERE docs = 'alpha' GROUP BY rank",
+        primary_keys=analyzer._primary_keys("fixture"),
+        table_columns=columns,
+        column_comparators=analyzer._column_comparators("fixture"),
+        star_expanded_columns=star_columns,
+    )
+
+    assert result.has_redundant_distinct is False
+
+
+@pytest.mark.skipif(not _fts5_available(), reason="SQLite build has no FTS5")
+def test_sqlite_hidden_column_still_binds_for_other_rules(tmp_path):
+    """Narrowing the star catalog must not unbind a name for the other rules.
+
+    The projection is the GROUP BY key here, so nothing is arbitrary and
+    ``missing_group_by`` has nothing to report.
+    """
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE VIRTUAL TABLE ft USING fts5(title, body);
+        INSERT INTO ft(title, body) VALUES ('alpha', 'one'), ('alpha', 'two');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    result = detect_antipatterns(
+        "SELECT rank, COUNT(*) FROM ft WHERE ft = 'alpha' GROUP BY rank",
+        primary_keys=analyzer._primary_keys("fixture"),
+        table_columns=analyzer._table_columns("fixture"),
+        column_comparators=analyzer._column_comparators("fixture"),
+        star_expanded_columns=analyzer._star_expanded_columns("fixture"),
+    )
+
+    assert result.has_missing_group_by is False
 
 
 def test_sqlite_mixed_affinity_join_cannot_propagate_key(tmp_path):
@@ -407,3 +480,123 @@ def test_nullability_metadata_reuses_the_schema_cache(tmp_path, monkeypatch):
     analyzer._column_comparators("fixture")
 
     assert calls == [("fixture", "values_table")]
+
+
+def test_analyzer_proves_redundant_distinct_from_the_catalog(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE sailors(sid INTEGER PRIMARY KEY, name TEXT, age INTEGER);
+        INSERT INTO sailors VALUES (1, 'Ada', 40), (2, 'Ada', 35);
+
+        CREATE TABLE reserves(sid INTEGER, bid INTEGER, day TEXT,
+                              PRIMARY KEY(sid, bid, day));
+        INSERT INTO reserves VALUES (1, 7, '2026-01-01'), (1, 8, '2026-01-02');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    key_projected, *_ = analyzer._analyze_query(
+        DataItem(
+            id="key-projected",
+            dbId="fixture",
+            sql="SELECT DISTINCT sid FROM sailors WHERE age > 20",
+        )
+    )
+    non_key_projected, *_ = analyzer._analyze_query(
+        DataItem(
+            id="non-key-projected",
+            dbId="fixture",
+            sql="SELECT DISTINCT name FROM sailors WHERE age > 20",
+        )
+    )
+    fan_out, *_ = analyzer._analyze_query(
+        DataItem(
+            id="fan-out",
+            dbId="fixture",
+            sql=(
+                "SELECT DISTINCT s.sid FROM sailors AS s "
+                "JOIN reserves AS r ON r.sid = s.sid"
+            ),
+        )
+    )
+
+    assert key_projected.has_redundant_distinct is True
+    assert non_key_projected.has_redundant_distinct is False
+    assert fan_out.has_redundant_distinct is False
+
+
+def test_snapshot_nullable_key_is_not_used_to_prove_redundant_distinct(tmp_path):
+    """A key that admits NULL cannot guarantee one row per projected value."""
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE unsafe_key(id TEXT PRIMARY KEY, payload TEXT);
+        INSERT INTO unsafe_key VALUES (NULL, 'first'), (NULL, 'second');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    result, *_ = analyzer._analyze_query(
+        DataItem(
+            id="unsafe-key",
+            dbId="fixture",
+            sql="SELECT DISTINCT id FROM unsafe_key",
+        )
+    )
+
+    assert analyzer._primary_keys("fixture") == {}
+    assert result.has_redundant_distinct is False
+
+
+def test_analyzer_rejects_distinct_proof_across_mismatched_collations(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE driver(
+            id INTEGER PRIMARY KEY,
+            lookup TEXT COLLATE NOCASE
+        );
+        CREATE TABLE dim(code TEXT COLLATE BINARY PRIMARY KEY);
+        INSERT INTO driver VALUES (1, 'x');
+        INSERT INTO dim VALUES ('x'), ('X');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    result, *_ = analyzer._analyze_query(
+        DataItem(
+            id="collation-mismatch",
+            dbId="fixture",
+            sql=(
+                "SELECT DISTINCT d.id FROM driver AS d "
+                "JOIN dim AS m ON d.lookup = m.code"
+            ),
+        )
+    )
+
+    assert result.has_redundant_distinct is False
+
+
+def test_analyzer_proves_using_join_on_the_joined_primary_key(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE child(child_id INTEGER PRIMARY KEY, parent_id INTEGER);
+        CREATE TABLE parent(parent_id INTEGER PRIMARY KEY);
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    result, *_ = analyzer._analyze_query(
+        DataItem(
+            id="using-key",
+            dbId="fixture",
+            sql=(
+                "SELECT DISTINCT c.child_id FROM child AS c "
+                "JOIN parent AS p USING (parent_id)"
+            ),
+        )
+    )
+
+    assert result.has_redundant_distinct is True

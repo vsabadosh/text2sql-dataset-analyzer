@@ -59,6 +59,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         # Introspection is per database and every item of a database repeats it.
         self._primary_key_cache: dict[str, dict[str, list[str]]] = {}
         self._table_column_cache: dict[str, dict[str, list[str]]] = {}
+        self._star_column_cache: dict[str, dict[str, list[str]]] = {}
         self._column_nullability_cache: dict[
             str, dict[str, dict[str, bool]]
         ] = {}
@@ -169,6 +170,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         if (
             db_id in self._primary_key_cache
             and db_id in self._table_column_cache
+            and db_id in self._star_column_cache
             and db_id in self._column_nullability_cache
             and db_id in self._column_comparator_cache
         ):
@@ -176,6 +178,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
 
         mapping: dict[str, list[str]] = {}
         columns: dict[str, list[str]] = {}
+        star_columns: dict[str, list[str]] = {}
         nullability: dict[str, dict[str, bool]] = {}
         comparators: dict[str, dict[str, tuple[str, str]]] = {}
         try:
@@ -196,12 +199,13 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                     if column.get("name") is not None
                 ]
                 columns[table_name] = [
-                    (
-                        str(column["name"])
-                        if case_sensitive_catalog
-                        else str(column["name"]).lower()
-                    )
+                    self._catalog_name(column, case_sensitive_catalog)
                     for column in table_columns
+                ]
+                star_columns[table_name] = [
+                    self._catalog_name(column, case_sensitive_catalog)
+                    for column in table_columns
+                    if not self._is_hidden_from_star(column)
                 ]
                 nullability[table_name] = {}
                 for column in table_columns:
@@ -278,13 +282,33 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         except Exception:
             mapping = {}
             columns = {}
+            star_columns = {}
             nullability = {}
             comparators = {}
 
         self._primary_key_cache[db_id] = mapping
         self._table_column_cache[db_id] = columns
+        self._star_column_cache[db_id] = star_columns
         self._column_nullability_cache[db_id] = nullability
         self._column_comparator_cache[db_id] = comparators
+
+    @staticmethod
+    def _catalog_name(column: dict, case_sensitive: bool) -> str:
+        """Return a column name in the casing the detector's catalogs use."""
+        name = str(column["name"])
+        return name if case_sensitive else name.lower()
+
+    @staticmethod
+    def _is_hidden_from_star(column: dict) -> bool:
+        """Whether ``SELECT *`` skips this column.
+
+        SQLite reports a virtual table's hidden columns, such as FTS5's ``rank``
+        and its table-name column, through ``PRAGMA table_xinfo``.  They bind
+        like any other column, so they belong in the binding catalog, but a
+        star never expands them and must not appear to cover them.  Generated
+        columns use other flag values and are expanded normally.
+        """
+        return int(column.get("hidden") or 0) == 1
 
     @staticmethod
     def _semantic_nullability(column: dict) -> bool | None:
@@ -309,6 +333,11 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         """Return columns used to bind unqualified GROUP BY references."""
         self._load_schema_metadata(db_id)
         return self._table_column_cache[db_id]
+
+    def _star_expanded_columns(self, db_id: str) -> dict:
+        """Return the columns SELECT * projects, excluding hidden ones."""
+        self._load_schema_metadata(db_id)
+        return self._star_column_cache[db_id]
 
     def _column_nullability(self, db_id: str) -> dict:
         """Return declared per-column nullability for static SQL checks."""
@@ -344,6 +373,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 table_columns=self._table_columns(item.dbId),
                 column_nullability=self._column_nullability(item.dbId),
                 column_comparators=self._column_comparators(item.dbId),
+                star_expanded_columns=self._star_expanded_columns(item.dbId),
             )
             ok = features.parseable
             return features, stats, tags, ok, None if ok else "Unparseable SQL"

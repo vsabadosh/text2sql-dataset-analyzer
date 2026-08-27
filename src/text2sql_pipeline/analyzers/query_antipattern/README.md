@@ -232,10 +232,71 @@ syntax-level upper bound, but they are not directly interchangeable with the
 refined metric.
 
 ### 🔵 Medium / Low (Configurable)
-- `redundant_distinct` - DISTINCT with GROUP BY
+- `redundant_distinct` - A top-level DISTINCT that cannot remove any row
 - `correlated_subquery` - Correlated subqueries
 - `select_star` - SELECT *
 - `select_in_exists` - SELECT columns in EXISTS
+
+`redundant_distinct` keeps its public identifier, but it no longer equates
+"DISTINCT together with GROUP BY" with redundancy. Grouping makes the *key*
+unique, not the projection: `SELECT DISTINCT department_id FROM employees GROUP
+BY department_id, manager_id` returns 15 rows without DISTINCT and 5 with it on
+Spider's `hr_1`. The rule now accepts two independent proofs.
+
+The grouping proof requires the projection to carry the complete GROUP BY key,
+either as the same expression or through a column the query forces it to equal.
+This reuses the `missing_group_by` machinery, so unqualified keys bind through
+the column catalog and inner-join equalities transfer a key across relations
+only under compatible comparison semantics. A projection that drops a key
+component, or that projects only aggregates, is left alone. Expression matching
+normalizes only unquoted identifiers, and output aliases require a catalog that
+excludes an input-column collision. A star covers a key only when the catalog
+declares that column, because a star expands declared columns and a key such as
+SQLite's `rowid` or PostgreSQL's `ctid` splits rows the star projects
+identically. `ROLLUP`, `CUBE`, `GROUPING SETS`, and an unqualified star over
+merged `USING`/`NATURAL` columns do not produce a proof either.
+
+The key proof applies when there is no GROUP BY: the projection must carry the
+complete primary key of the leading relation, and no join may multiply its rows.
+A join preserves the grain only when the joined relation is matched on its
+complete key from an already available source using compatible affinity and
+collation, so each driving row finds at most one partner. Unambiguous
+`USING`/`NATURAL` key matches are supported; circular matches through future
+sources, `CROSS`, `RIGHT`, and `FULL` joins, and joins on a non-key column never
+qualify. Window aggregates preserve this proof because the projected key still
+makes every row unique. Derived tables, CTEs, unknown tables, `DISTINCT ON`,
+keys wrapped in expressions, and non-window aggregates without GROUP BY all
+fall back to no finding. As in `missing_group_by`, a declared SQLite key is
+trusted only when the analyzed snapshot has no NULL key component.
+Duplicate elimination by an enclosing set operation is intentionally outside
+this schema-focused rule and remains a conservative false negative.
+
+Both proofs are validated for SQLite, the dialect every shipped configuration
+and every measurement below uses. They assume the catalog names exactly the
+columns a star expands and that an unqualified table name resolves to the
+introspected table, so a virtual table's hidden columns are excluded from the
+catalog. Engines that break either assumption are outside the validated scope:
+PostgreSQL can multiply projected rows through a set-returning function in the
+SELECT list, and `search_path`, table inheritance, and table functions can bind
+a name to a relation other than the introspected one; DuckDB's `* EXCLUDE` and
+`* REPLACE` change what a star projects. Running the schema-aware proofs against
+those engines requires closing these gaps first.
+
+Controlled Spider runs, holding code and data fixed:
+
+| Metadata level | Dev | Test | Train | Total |
+| --- | --- | --- | --- | --- |
+| none (published syntax-only rule) | 0 | 4 | 131 | 135 |
+| none (projection-coverage required) | 0 | 0 | 120 | 120 |
+| column catalog plus verified keys | 0 | 12 | 145 | 157 |
+
+The 157 schema-aware findings split into 124 grouping proofs and 33 key proofs.
+Every one of the 71 distinct queries behind them was executed with and without
+its reported DISTINCT: the row counts matched in all 71 cases, with no
+contradiction. Of the five distinct queries the published rule reported and this
+implementation withdraws, one is wrong on data (`hr_1`, above) and four are
+merely unproven — their projections happen to be unique on the current snapshot,
+but no declared key or join cardinality guarantees it.
 
 ## Files
 
