@@ -93,6 +93,7 @@ def run_pipeline(config_path: str) -> str:
             "query_structure_profile": True,
             "table_coverage": True,
             "query_quality": True,
+            "question_sql_consistency": True,
         }
 
     if reports_cfg.get("enabled", False) and os.path.exists(output.duckdb_path):

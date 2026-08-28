@@ -48,7 +48,8 @@ def test_both_configs_declare_the_same_analyzers(configs):
 @pytest.mark.parametrize(
     "analyzer",
     ["schema_validation_analyzer", "query_syntax_analyzer",
-     "query_antipattern_analyzer", "query_execution_analyzer", "semantic_llm_analyzer"],
+     "question_sql_consistency_analyzer", "query_antipattern_analyzer",
+     "query_execution_analyzer", "semantic_llm_analyzer"],
 )
 def test_analyzer_params_match(configs, analyzer):
     working, portable = configs

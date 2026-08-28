@@ -53,6 +53,51 @@ QUERY_EXECUTION_COLUMNS: tuple[tuple[str, str], ...] = (
     ("read_cap", "VARCHAR"),
 )
 
+# Single source of truth for the question-SQL consistency table, mirroring the
+# query execution definition above.
+QUESTION_SQL_CONSISTENCY_COLUMNS: tuple[tuple[str, str], ...] = (
+    # Metadata
+    ("ts", "TIMESTAMP"),
+    ("spec_version", "VARCHAR"),
+    ("dataset_id", "VARCHAR"),
+    ("item_id", "VARCHAR"),
+    ("db_id", "VARCHAR"),
+    # Event identity
+    ("event_type", "VARCHAR"),
+    ("name", "VARCHAR"),
+    # Status
+    ("status", "VARCHAR"),
+    ("success", "BOOLEAN"),
+    ("duration_ms", "DOUBLE"),
+    ("err", "VARCHAR"),
+    # Features
+    ("parseable", "BOOLEAN"),
+    ("question_present", "BOOLEAN"),
+    ("applicable_rules", "INTEGER"),
+    ("supported_count", "INTEGER"),
+    ("contradicted_count", "INTEGER"),
+    ("unresolved_count", "INTEGER"),
+    # All rule/status/reason dimensions, independent of emit_supported.
+    ("rule_records", "JSON"),
+    # Compact all-obligation stream used by corpus-level report discriminators.
+    # Unlike findings, this retains SUPPORTED records when emit_supported=false.
+    ("corpus_records", "JSON"),
+    # Emitted findings. SUPPORTED findings are present only when the analyzer
+    # runs with emit_supported, so the counters above stay the totals.
+    ("findings", "JSON"),
+    ("findings_emitted", "INTEGER"),
+    # Stats
+    ("collect_ms", "DOUBLE"),
+    ("parser", "VARCHAR"),
+    ("errors", "JSON"),
+    # Tags
+    ("dialect", "VARCHAR"),
+    ("language", "VARCHAR"),
+    ("analyzer_version", "VARCHAR"),
+    ("context_available", "VARCHAR"),
+    ("emit_supported", "VARCHAR"),
+)
+
 
 class DuckDBMetricsSink(MetricsSink):
     """
@@ -100,6 +145,7 @@ class DuckDBMetricsSink(MetricsSink):
             "query_syntax": lambda: self._query_syntax_table(table_name),
             "query_execution": lambda: self._query_execution_table(table_name),
             "query_antipattern": lambda: self._query_antipattern_table(table_name),
+            "question_sql_consistency": lambda: self._question_sql_consistency_table(table_name),
             "semantic_llm_judge": lambda: self._semantic_llm_judge_table(table_name),
         }
         
@@ -111,6 +157,8 @@ class DuckDBMetricsSink(MetricsSink):
             self.conn.execute(create_sql)
             if analyzer_name == "query_execution":
                 self._add_missing_columns(table_name, QUERY_EXECUTION_COLUMNS)
+            elif analyzer_name == "question_sql_consistency":
+                self._add_missing_columns(table_name, QUESTION_SQL_CONSISTENCY_COLUMNS)
             self._created_tables.add(table_name)
         except Exception as e:
             print(f"Warning: Table creation issue for {table_name}: {e}")
@@ -363,6 +411,18 @@ class DuckDBMetricsSink(MetricsSink):
         )
         """
     
+    def _question_sql_consistency_table(self, table_name: str) -> str:
+        """Schema for deterministic question-SQL consistency metrics."""
+        definitions = ",\n            ".join(
+            f"{name} {sql_type}" for name, sql_type in QUESTION_SQL_CONSISTENCY_COLUMNS
+        )
+        return f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            {definitions},
+            PRIMARY KEY (dataset_id, item_id, ts)
+        )
+        """
+
     def _semantic_llm_judge_table(self, table_name: str) -> str:
         """Schema for semantic LLM judge metrics."""
         return f"""
@@ -411,7 +471,12 @@ class DuckDBMetricsSink(MetricsSink):
         """
     
     def _generic_table(self, table_name: str) -> str:
-        """Generic schema for unknown analyzers."""
+        """Generic schema for unknown analyzers.
+
+        No primary key: an unknown analyzer may emit dataset-level events
+        without item_id, and DuckDB rejects both NULL key values and keys
+        defined over an expression such as COALESCE(item_id, db_id).
+        """
         return f"""
         CREATE TABLE IF NOT EXISTS {table_name} (
             -- Metadata
@@ -434,9 +499,7 @@ class DuckDBMetricsSink(MetricsSink):
             -- Flexible storage
             features JSON,
             stats JSON,
-            tags JSON,
-            
-            PRIMARY KEY (dataset_id, COALESCE(item_id, db_id), ts)
+            tags JSON
         )
         """
     
@@ -486,6 +549,8 @@ class DuckDBMetricsSink(MetricsSink):
                 self._insert_query_execution(table_name, self._batches[table_name])
             elif analyzer_name == "query_antipattern":
                 self._insert_query_antipattern(table_name, self._batches[table_name])
+            elif analyzer_name == "question_sql_consistency":
+                self._insert_question_sql_consistency(table_name, self._batches[table_name])
             elif analyzer_name == "semantic_llm_judge":
                 self._insert_semantic_llm_judge(table_name, self._batches[table_name])
             else:
@@ -755,6 +820,60 @@ class DuckDBMetricsSink(MetricsSink):
                 tags.get("dialect")
             ])
     
+    def _insert_question_sql_consistency(self, table_name: str, records: list[Dict[str, Any]]) -> None:
+        """Insert deterministic question-SQL consistency records."""
+        import json
+
+        columns = [name for name, _ in QUESTION_SQL_CONSISTENCY_COLUMNS]
+        placeholders = ", ".join("?" for _ in columns)
+        insert_sql = (
+            f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
+        )
+
+        for rec in records:
+            features = rec.get("features", {})
+            stats = rec.get("stats", {})
+            tags = rec.get("tags", {})
+            findings = features.get("findings", [])
+
+            self.conn.execute(insert_sql, [
+                # Metadata
+                rec.get("ts"),
+                rec.get("spec_version"),
+                rec.get("dataset_id"),
+                rec.get("item_id"),
+                rec.get("db_id"),
+                # Event identity
+                rec.get("event_type"),
+                rec.get("name"),
+                # Status
+                rec.get("status"),
+                rec.get("success"),
+                rec.get("duration_ms"),
+                rec.get("err"),
+                # Features
+                features.get("parseable"),
+                features.get("question_present"),
+                features.get("applicable_rules"),
+                features.get("supported_count"),
+                features.get("contradicted_count"),
+                features.get("unresolved_count"),
+                json.dumps(features.get("rule_records", [])),
+                json.dumps(features.get("corpus_records", [])),
+                json.dumps(findings),
+                len(findings),
+                # Stats
+                stats.get("collect_ms"),
+                stats.get("parser"),
+                json.dumps(stats.get("errors", [])),
+                # Tags
+                tags.get("dialect"),
+                tags.get("language"),
+                tags.get("analyzer_version"),
+                tags.get("context_available"),
+                tags.get("emit_supported"),
+            ])
+
     def _insert_semantic_llm_judge(self, table_name: str, records: list[Dict[str, Any]]) -> None:
         """Insert semantic LLM judge records."""
         import json

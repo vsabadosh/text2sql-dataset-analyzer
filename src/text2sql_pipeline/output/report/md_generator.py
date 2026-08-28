@@ -3,6 +3,7 @@
 from __future__ import annotations
 import duckdb
 import json
+import re
 from typing import Dict
 from pathlib import Path
 from datetime import datetime
@@ -1227,6 +1228,922 @@ class MarkdownReportGenerator:
 
         if total > limit:
             sections.append(f"\n*Showing the first {limit} of {total:,}.*")
+        sections.append("")
+        return sections
+
+    def generate_question_sql_consistency_report(self, output_path: str) -> None:
+        """Generate detailed report for deterministic question-SQL consistency."""
+        table = self.available_tables.get("question_sql_consistency")
+        if not table:
+            Path(output_path).write_text(
+                "# Question-SQL Consistency Report\n\n"
+                "No question-SQL consistency metrics available.",
+                encoding="utf-8"
+            )
+            return
+
+        sections: list[str] = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        sections.append(f"# Question-SQL Consistency Report\n\n**Generated:** {now}")
+        sections.append("")
+
+        try:
+            sections.extend(self._consistency_summary_lines(table))
+            sections.extend(self._consistency_rule_lines(table))
+            sections.extend(self._consistency_reason_code_lines(table))
+            sections.extend(self._consistency_evidence_axis_lines(table))
+            sections.extend(self._consistency_findings_lines(
+                table,
+                "CONTRADICTED",
+                "Contradictions",
+                ("Question and SQL carry incompatible obligations. A MAPPING target "
+                 "means the analyzer proved the two sides disagree without claiming "
+                 "which one is wrong."),
+            ))
+            sections.extend(self._consistency_findings_lines(
+                table,
+                "UNRESOLVED",
+                "Unresolved Obligations",
+                ("An SQL obligation the question neither licenses nor contradicts. "
+                 "Silence is not a defect: settling these needs external evidence "
+                 "such as database values, dataset evidence or a curation decision."),
+            ))
+            sections.extend(self._consistency_recurrence_lines(table))
+            sections.extend(self._consistency_twin_lines(table))
+            sections.extend(self._consistency_question_lexical_lines(table))
+            sections.extend(self._consistency_assumption_lines(table))
+            sections.extend(self._consistency_not_analyzed_lines(table))
+        except Exception as e:
+            sections.append(f"*Error generating report: {e}*")
+
+        Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+
+    def _consistency_summary_lines(self, table: str) -> list:
+        """How much of the partition the analyzer could judge, and how it ruled."""
+        row = self.conn.execute(f"""
+            SELECT
+                COUNT(*),
+                SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'errors' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN contradicted_count > 0 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN unresolved_count > 0 THEN 1 ELSE 0 END),
+                COALESCE(SUM(supported_count), 0),
+                COALESCE(SUM(contradicted_count), 0),
+                COALESCE(SUM(unresolved_count), 0),
+                COALESCE(SUM(findings_emitted), 0),
+                COALESCE(AVG(collect_ms), 0)
+            FROM {table}
+        """).fetchone()
+
+        (total, skipped, errors, items_contradicted, items_unresolved,
+         supported, contradicted, unresolved, emitted, avg_ms) = row
+        total = total or 0
+        skipped = skipped or 0
+        errors = errors or 0
+        analyzed = total - skipped - errors
+
+        sections = ["## Summary", ""]
+        sections.append(
+            f"- **Total Items:** {total:,} · **Analyzed:** {analyzed:,} · "
+            f"**Skipped:** {skipped:,} · **Errors:** {errors:,}"
+        )
+        if analyzed:
+            sections.append(
+                f"- **Items With Contradictions:** {items_contradicted or 0:,} "
+                f"({(items_contradicted or 0) / analyzed * 100:.1f}%) · "
+                f"**With Unresolved:** {items_unresolved or 0:,} "
+                f"({(items_unresolved or 0) / analyzed * 100:.1f}%)"
+            )
+        sections.append(
+            f"- **Verdicts:** CONTRADICTED {contradicted:,} · "
+            f"UNRESOLVED {unresolved:,} · SUPPORTED {supported:,}"
+        )
+        sections.append(
+            f"- **Findings Emitted:** {emitted:,} · **Avg Detection:** {avg_ms:.2f} ms"
+        )
+        sections.append("")
+
+        flags = {
+            str(value).lower()
+            for (value,) in self.conn.execute(
+                f"SELECT DISTINCT emit_supported FROM {table} "
+                "WHERE emit_supported IS NOT NULL"
+            ).fetchall()
+        }
+        if flags and "true" not in flags:
+            sections.append(
+                "SUPPORTED verdicts are counted but not emitted as findings "
+                "(`emit_supported: false`), so the per-item sections list "
+                "contradictions and unresolved obligations only."
+            )
+            sections.append("")
+        return sections
+
+    def _consistency_rule_lines(self, table: str) -> list:
+        """Which rules fired, and with which verdicts."""
+        sections = ["## Verdicts by Rule", ""]
+        verdict_rows = self.conn.execute(f"""
+            SELECT json_extract_string(r.value, '$.rule_id') AS rule_id,
+                   json_extract_string(r.value, '$.status') AS status,
+                   COUNT(*) AS findings
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.rule_records, '[]'::JSON)) r
+            GROUP BY 1, 2
+        """).fetchall()
+
+        if not verdict_rows:
+            return sections + ["*No findings emitted.*", ""]
+
+        item_rows = self.conn.execute(f"""
+            SELECT json_extract_string(r.value, '$.rule_id') AS rule_id,
+                   COUNT(DISTINCT m.item_id) AS items
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.rule_records, '[]'::JSON)) r
+            GROUP BY 1
+        """).fetchall()
+        items = dict(item_rows)
+
+        by_rule: Dict[str, Dict[str, int]] = {}
+        for rule_id, status, findings in verdict_rows:
+            by_rule.setdefault(rule_id, {})[status] = findings
+
+        sections.append("| Rule | Items | CONTRADICTED | UNRESOLVED | SUPPORTED |")
+        sections.append("|------|-------|--------------|------------|-----------|")
+        for rule_id in sorted(by_rule):
+            verdicts = by_rule[rule_id]
+            sections.append(
+                f"| {rule_id} | {items.get(rule_id, 0):,} | "
+                f"{verdicts.get('CONTRADICTED', 0):,} | "
+                f"{verdicts.get('UNRESOLVED', 0):,} | "
+                f"{verdicts.get('SUPPORTED', 0):,} |"
+            )
+        sections.append("")
+        sections.append(
+            "These totals use compact rule records and therefore include SUPPORTED "
+            "verdicts even when per-item supported findings are hidden."
+        )
+        sections.append("")
+        return sections
+
+    def _consistency_reason_code_lines(self, table: str) -> list:
+        """Reason codes with their verdict, target and evidence strength."""
+        from text2sql_pipeline.analyzers.question_sql_consistency.consistency_registry import (
+            describe_reason_code,
+        )
+
+        sections = ["## Reason Codes", ""]
+        rows = self.conn.execute(f"""
+            SELECT json_extract_string(r.value, '$.reason_code') AS reason_code,
+                   json_extract_string(r.value, '$.status') AS status,
+                   json_extract_string(r.value, '$.target') AS target,
+                   json_extract_string(r.value, '$.strength') AS strength,
+                   COUNT(*) AS findings,
+                   COUNT(DISTINCT m.item_id) AS items
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.rule_records, '[]'::JSON)) r
+            GROUP BY 1, 2, 3, 4
+            ORDER BY 5 DESC
+        """).fetchall()
+
+        if not rows:
+            return sections + ["*No findings emitted.*", ""]
+
+        sections.append(
+            "| Reason Code | Verdict | Target | Strength | Findings | Items | Meaning |"
+        )
+        sections.append(
+            "|-------------|---------|--------|----------|----------|-------|---------|"
+        )
+        for reason_code, status, target, strength, findings, items in rows:
+            sections.append(
+                f"| {reason_code} | {status} | {target} | {strength} | "
+                f"{findings:,} | {items:,} | "
+                f"{self._cell(describe_reason_code(reason_code), 180)} |"
+            )
+        sections.append("")
+        return sections
+
+    def _consistency_evidence_axis_lines(self, table: str) -> list:
+        """Show which channel licensed obligations, including hidden support."""
+        rows = self.conn.execute(f"""
+            SELECT json_extract_string(r.value, '$.status') AS status,
+                   json_extract_string(r.value, '$.literal_kind') AS literal_kind,
+                   CAST(json_extract(r.value, '$.evidence_sources') AS VARCHAR)
+                       AS evidence_sources
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.corpus_records, '[]'::JSON)) r
+        """).fetchall()
+        sections = ["## Evidence Licensing Axis", ""]
+        if not rows:
+            return sections + ["*No literal obligation records available.*", ""]
+
+        parsed = []
+        for status, literal_kind, raw_sources in rows:
+            try:
+                sources = set(json.loads(raw_sources or "[]"))
+            except (TypeError, json.JSONDecodeError):
+                sources = set()
+            parsed.append((status, literal_kind, sources))
+
+        def counts(records: list) -> tuple[int, int, int, int, int]:
+            supported = [
+                row for row in records if row[0] == "SUPPORTED"
+            ]
+            by_question = sum(
+                "QUESTION_TEXT" in sources for _, _, sources in supported
+            )
+            by_evidence = sum(
+                "DATASET_EVIDENCE" in sources for _, _, sources in supported
+            )
+            evidence_only = sum(
+                "DATASET_EVIDENCE" in sources
+                and "QUESTION_TEXT" not in sources
+                for _, _, sources in supported
+            )
+            by_manifest = sum(
+                "CONTEXT_MANIFEST" in sources for _, _, sources in supported
+            )
+            return (
+                len(records),
+                by_question,
+                by_evidence,
+                evidence_only,
+                by_manifest,
+            )
+
+        numeric = [
+            row for row in parsed if row[1] in {"number", "year"}
+        ]
+        sections.append(
+            "| Scope | Obligations | Licensed by Question | "
+            "Licensed by Dataset Evidence | Evidence Only | Context Manifest |"
+        )
+        sections.append(
+            "|-------|-------------|----------------------|"
+            "-----------------------------|---------------|------------------|"
+        )
+        for label, records in (("All literals", parsed), ("Numeric", numeric)):
+            total, question, evidence, evidence_only, manifest = counts(records)
+            share = f"{evidence_only / total * 100:.1f}%" if total else "0.0%"
+            sections.append(
+                f"| {label} | {total:,} | {question:,} | {evidence:,} | "
+                f"{evidence_only:,} ({share}) | {manifest:,} |"
+            )
+        sections.extend(
+            [
+                "",
+                "Licensing follows question → dataset evidence → context manifest. "
+                "`Evidence Only` therefore measures obligations that a Spider-style "
+                "question–SQL pair cannot explain.",
+                "",
+            ]
+        )
+        return sections
+
+    def _consistency_findings_lines(self, table: str, status: str, title: str,
+                                    note: str, limit: int = 100) -> list:
+        """Per-item findings of one verdict, with the provenance behind each."""
+        total = self.conn.execute(f"""
+            SELECT COUNT(*)
+            FROM {table} m, LATERAL json_each(m.findings) f
+            WHERE json_extract_string(f.value, '$.status') = '{status}'
+        """).fetchone()[0]
+
+        if not total:
+            return [f"## {title} (0)", "", "*None found.*", ""]
+
+        rows = self.conn.execute(f"""
+            SELECT m.item_id,
+                   m.db_id,
+                   json_extract_string(f.value, '$.reason_code'),
+                   json_extract_string(f.value, '$.details.question_value'),
+                   json_extract_string(f.value, '$.details.sql_value'),
+                   json_extract_string(f.value, '$.sql_locations[0]'),
+                   json_extract_string(f.value, '$.question_spans[0].text'),
+                   json_extract_string(f.value, '$.message')
+            FROM {table} m, LATERAL json_each(m.findings) f
+            WHERE json_extract_string(f.value, '$.status') = '{status}'
+            ORDER BY TRY_CAST(m.item_id AS INTEGER) NULLS LAST, m.item_id
+            LIMIT {limit}
+        """).fetchall()
+
+        sections = [f"## {title} ({total:,})", "", note, ""]
+        sections.append(
+            "| Item ID | DB | Reason | Question Evidence | SQL Obligation | Question |"
+        )
+        sections.append(
+            "|---------|----|--------|-------------------|----------------|----------|"
+        )
+        for (item_id, db_id, reason_code, question_value, sql_value,
+             sql_location, span_text, message) in rows:
+            question, _ = self.item_details.get(str(item_id), ("", ""))
+            evidence = question_value or span_text or ""
+            obligation = sql_location or (f"= {sql_value}" if sql_value else "")
+            sections.append(
+                f"| {item_id} | {db_id} | {reason_code} | "
+                f"{self._cell(evidence, 60)} | {self._cell(obligation, 70)} | "
+                f"{self._cell(question or message, 140)} |"
+            )
+        if total > limit:
+            sections.append(f"\n*Showing the first {limit} of {total:,}.*")
+        sections.append("")
+        return sections
+
+    def _consistency_recurrence_lines(self, table: str, limit: int = 50) -> list:
+        """Apply corpus gates to compact records, including hidden support."""
+        rows = self.conn.execute(f"""
+            SELECT m.item_id,
+                   m.dataset_id,
+                   m.db_id,
+                   json_extract_string(r.value, '$.status') AS status,
+                   json_extract_string(r.value, '$.reason_code') AS reason_code,
+                   json_extract_string(r.value, '$.predicate_role') AS role,
+                   json_extract_string(r.value, '$.table_name') AS table_name,
+                   json_extract_string(r.value, '$.column_name') AS column_name,
+                   json_extract_string(r.value, '$.operator') AS operator,
+                   json_extract_string(r.value, '$.sql_value') AS sql_value,
+                   json_extract_string(r.value, '$.question_evidence') AS question_evidence,
+                   CAST(json_extract(r.value, '$.evidence_sources') AS VARCHAR)
+                       AS evidence_sources
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.corpus_records, '[]'::JSON)) r
+        """).fetchall()
+
+        sections = ["## Corpus-Level Discriminators", ""]
+        if not rows:
+            return sections + ["*No corpus obligation records available.*", ""]
+
+        threshold_items: Dict[tuple, set] = {}
+        threshold_values: Dict[tuple, set] = {}
+        for (
+            item_id,
+            dataset_id,
+            db_id,
+            _,
+            reason_code,
+            role,
+            table_name,
+            column,
+            operator,
+            value,
+            _,
+            _,
+        ) in rows:
+            if reason_code != "IMPLICIT_THRESHOLD_UNLICENSED":
+                continue
+            role_key = (
+                dataset_id or "",
+                db_id or "",
+                table_name or "",
+                column or role or "",
+                operator or "",
+            )
+            value_key = (*role_key, value or "")
+            threshold_items.setdefault(value_key, set()).add(str(item_id))
+            threshold_values.setdefault(role_key, set()).add(value or "")
+
+        sections.extend(["### Hidden-Threshold Recurrence", ""])
+        if threshold_items:
+            sections.append(
+                "| DB | Table | Column/Role | Op | Threshold | Occurrences | "
+                "Distinct Thresholds | Reading |"
+            )
+            sections.append(
+                "|----|-------|-------------|----|-----------|-------------|"
+                "---------------------|---------|"
+            )
+            ordered_thresholds = sorted(
+                threshold_items.items(),
+                key=lambda row: (-len(row[1]), row[0]),
+            )
+            for (
+                dataset_id,
+                db_id,
+                table_name,
+                role,
+                operator,
+                value,
+            ), item_ids in ordered_thresholds[:limit]:
+                occurrences = len(item_ids)
+                distinct = len(
+                    threshold_values[
+                        (dataset_id, db_id, table_name, role, operator)
+                    ]
+                )
+                reading = (
+                    "stable benchmark convention"
+                    if distinct == 1 and occurrences > 1
+                    else (
+                        "internally variable; review"
+                        if distinct > 1
+                        else "single unresolved instance"
+                    )
+                )
+                sections.append(
+                    f"| {db_id} | {self._cell(table_name, 30) or '—'} | "
+                    f"{self._cell(role, 40)} | {operator} | "
+                    f"{self._cell(value, 25)} | {occurrences:,} | {distinct:,} | "
+                    f"{reading} |"
+                )
+        else:
+            sections.append("*No hidden qualitative thresholds found.*")
+        sections.extend(
+            [
+                "",
+                "Recurrence documents an implicit benchmark convention; it does "
+                "not prove that the threshold is semantically correct.",
+                "",
+            ]
+        )
+
+        peer_stats: Dict[tuple, dict] = {}
+        for (
+            item_id,
+            dataset_id,
+            db_id,
+            status,
+            reason_code,
+            role,
+            table_name,
+            column,
+            operator,
+            value,
+            _,
+            raw_sources,
+        ) in rows:
+            try:
+                sources = set(json.loads(raw_sources or "[]"))
+            except (TypeError, json.JSONDecodeError):
+                sources = set()
+            key = (
+                str(dataset_id or ""),
+                str(db_id or ""),
+                str(table_name or "").casefold(),
+                str(column or role or "").casefold(),
+                str(operator or ""),
+                str(value or "").casefold(),
+            )
+            stats = peer_stats.setdefault(
+                key,
+                {
+                    "role": column or role or "",
+                    "table_name": table_name or "",
+                    "operator": operator or "",
+                    "value": value or "",
+                    "licensed_items": set(),
+                    "candidate_items": set(),
+                },
+            )
+            if status == "SUPPORTED" and "QUESTION_TEXT" in sources:
+                stats["licensed_items"].add(str(item_id))
+            if reason_code == "UNREQUESTED_FILTER":
+                stats["candidate_items"].add(str(item_id))
+
+        candidate_rows = [
+            (key, stats)
+            for key, stats in peer_stats.items()
+            if stats["candidate_items"]
+        ]
+        def passes_filter_gate(stats: dict) -> bool:
+            return (
+                bool(stats["table_name"])
+                and len(stats["candidate_items"]) == 1
+                and len(stats["licensed_items"]) >= 3
+            )
+
+        confirmed = [
+            (key, stats)
+            for key, stats in candidate_rows
+            if passes_filter_gate(stats)
+        ]
+
+        sections.extend(
+            [f"### Corpus-Confirmed Unrequested Filters ({len(confirmed):,})", ""]
+        )
+        if confirmed:
+            sections.append(
+                "| Item ID | DB | Table | Column/Role | Op | Value | "
+                "Question-Licensed Peers | Question |"
+            )
+            sections.append(
+                "|---------|----|-------|-------------|----|-------|"
+                "--------------------------|----------|"
+            )
+            for (_, db_id, _, _, _, _), stats in sorted(
+                confirmed,
+                key=lambda row: (-len(row[1]["licensed_items"]), row[0]),
+            )[:limit]:
+                item_id = sorted(stats["candidate_items"])[0]
+                question, _ = self.item_details.get(item_id, ("", ""))
+                sections.append(
+                    f"| {item_id} | {db_id} | "
+                    f"{self._cell(stats['table_name'], 30)} | "
+                    f"{self._cell(stats['role'], 40)} | {stats['operator']} | "
+                    f"{self._cell(stats['value'], 30)} | "
+                    f"{len(stats['licensed_items']):,} | "
+                    f"{self._cell(question, 120)} |"
+                )
+        else:
+            sections.append("*No candidate passed the licensed-peer gate.*")
+        sections.extend(
+            [
+                "",
+                "Promotion requires exactly one unlicensed candidate and at least "
+                "three distinct question-licensed peers for the same dataset, "
+                "database, source table, column, operator and literal. This corpus "
+                "verdict does not alter streaming counters.",
+                "",
+            ]
+        )
+
+        if candidate_rows:
+            sections.extend(["### Unrequested-Filter Candidates", ""])
+            sections.append(
+                "| DB | Table | Column/Role | Op | Value | Candidates | "
+                "Question-Licensed Peers | Gate |"
+            )
+            sections.append(
+                "|----|-------|-------------|----|-------|------------|"
+                "--------------------------|------|"
+            )
+            for (_, db_id, _, _, _, _), stats in sorted(
+                candidate_rows,
+                key=lambda row: (
+                    -len(row[1]["licensed_items"]),
+                    row[0],
+                ),
+            )[:limit]:
+                passed = passes_filter_gate(stats)
+                sections.append(
+                    f"| {db_id} | {self._cell(stats['table_name'], 30) or '—'} | "
+                    f"{self._cell(stats['role'], 40)} | {stats['operator']} | "
+                    f"{self._cell(stats['value'], 30)} | "
+                    f"{len(stats['candidate_items']):,} | "
+                    f"{len(stats['licensed_items']):,} | "
+                    f"{'confirmed' if passed else 'unresolved'} |"
+                )
+            sections.append("")
+        sections.append("")
+        return sections
+
+    def _consistency_twin_lines(self, table: str, limit: int = 50) -> list:
+        """Contradictions settled by a paraphrase that shares the same gold SQL.
+
+        Benchmarks like Spider contain groups of items with identical gold SQL and
+        differently worded questions. When one paraphrase spells the SQL literal
+        and another is one edit away, the dataset settles the disagreement on its
+        own: no database access and no external knowledge needed.
+        """
+        if not self.item_details:
+            return []
+
+        rows = self.conn.execute(f"""
+            SELECT m.item_id,
+                   m.db_id,
+                   json_extract_string(f.value, '$.reason_code'),
+                   json_extract_string(f.value, '$.details.question_value'),
+                   json_extract_string(f.value, '$.details.sql_value')
+            FROM {table} m, LATERAL json_each(m.findings) f
+            WHERE json_extract_string(f.value, '$.status') = 'CONTRADICTED'
+              AND json_extract_string(f.value, '$.details.sql_value') IS NOT NULL
+            ORDER BY TRY_CAST(m.item_id AS INTEGER) NULLS LAST, m.item_id
+        """).fetchall()
+        if not rows:
+            return []
+
+        item_databases = dict(
+            self.conn.execute(f"SELECT item_id, db_id FROM {table}").fetchall()
+        )
+        groups: Dict[tuple[str, str], list] = {}
+        for item_id, (question, sql) in self.item_details.items():
+            if sql:
+                key = (
+                    str(item_databases.get(item_id) or ""),
+                    self._sql_group_key(sql),
+                )
+                groups.setdefault(key, []).append((item_id, question))
+
+        confirmed: list = []
+        inverted: list = []
+        for item_id, db_id, reason_code, question_value, sql_value in rows:
+            question, sql = self.item_details.get(str(item_id), ("", ""))
+            if not sql:
+                continue
+            twins = [
+                (twin_id, twin_question)
+                for twin_id, twin_question in groups.get(
+                    (str(db_id or ""), self._sql_group_key(sql)), []
+                )
+                if twin_id != str(item_id) and twin_question != question
+            ]
+            if not twins:
+                continue
+            licensing = [
+                twin for twin in twins if self._licenses_literal(twin[1], sql_value)
+            ]
+            record = (item_id, db_id, reason_code, question_value, sql_value,
+                      licensing[0] if licensing else twins[0])
+            (confirmed if licensing else inverted).append(record)
+
+        if not confirmed and not inverted:
+            return []
+
+        sections = [
+            f"## Identical-SQL Peer Corroboration "
+            f"({len(confirmed) + len(inverted):,})",
+            "",
+        ]
+        sections.append(
+            "Items whose gold SQL is shared with a differently worded question. "
+            "The peer can corroborate an already detected mismatch, but identical "
+            "SQL alone does not prove that the questions are paraphrases."
+        )
+        sections.append("")
+
+        if confirmed:
+            sections.append(
+                f"### Peer-Corroborated Question-Side Candidates "
+                f"({len(confirmed):,})"
+            )
+            sections.append("")
+            sections.append(
+                "The peer spells the SQL literal, allowing for singular and plural, "
+                "which supports question-side attribution. It becomes proof only "
+                "when dataset metadata declares a trusted paraphrase group."
+            )
+            sections.append("")
+            sections.append("| Item ID | DB | SQL Value | Question Value | Twin | Twin Question |")
+            sections.append("|---------|----|-----------|----------------|------|---------------|")
+            for item_id, db_id, _, question_value, sql_value, twin in confirmed[:limit]:
+                sections.append(
+                    f"| {item_id} | {db_id} | {self._cell(sql_value, 30)} | "
+                    f"{self._cell(question_value, 30)} | {twin[0]} | "
+                    f"{self._cell(twin[1], 120)} |"
+                )
+            if len(confirmed) > limit:
+                sections.append(f"\n*Showing the first {limit} of {len(confirmed):,}.*")
+            sections.append("")
+
+        if inverted:
+            sections.append(f"### Anomalous SQL Literals ({len(inverted):,})")
+            sections.append("")
+            sections.append(
+                "No paraphrase in the group spells the SQL literal, so the unusual "
+                "value sits on the SQL side. Whether the database itself holds that "
+                "spelling cannot be decided from the text, which is why the verdict "
+                "targets the mapping rather than one side. These are candidates for "
+                "a database value check, not for rewriting the question."
+            )
+            sections.append("")
+            sections.append("| Item ID | DB | SQL Value | Question Value | Twin Question |")
+            sections.append("|---------|----|-----------|----------------|---------------|")
+            for item_id, db_id, _, question_value, sql_value, twin in inverted[:limit]:
+                sections.append(
+                    f"| {item_id} | {db_id} | {self._cell(sql_value, 30)} | "
+                    f"{self._cell(question_value, 30)} | {self._cell(twin[1], 120)} |"
+                )
+            if len(inverted) > limit:
+                sections.append(f"\n*Showing the first {limit} of {len(inverted):,}.*")
+            sections.append("")
+        return sections
+
+    def _consistency_question_lexical_lines(
+        self,
+        table: str,
+        limit: int = 100,
+    ) -> list:
+        """Combine per-item SQL-identifier and corpus-level twin typo evidence."""
+        if not self.item_details:
+            return []
+
+        from text2sql_pipeline.analyzers.question_sql_consistency import (
+            detect_paraphrase_twin_typos,
+        )
+
+        item_rows = self.conn.execute(
+            f"SELECT item_id, db_id, dialect FROM {table}"
+        ).fetchall()
+        item_databases = {
+            str(item_id): str(db_id or "") for item_id, db_id, _ in item_rows
+        }
+        item_dialects = {
+            str(item_id): str(dialect or "sqlite")
+            for item_id, _, dialect in item_rows
+        }
+
+        ast_rows = self.conn.execute(f"""
+            SELECT m.item_id,
+                   m.db_id,
+                   json_extract_string(f.value, '$.details.question_token'),
+                   json_extract_string(f.value, '$.details.expected_token'),
+                   json_extract_string(f.value, '$.details.sql_identifier')
+            FROM {table} m, LATERAL json_each(m.findings) f
+            WHERE json_extract_string(f.value, '$.reason_code')
+                  = 'QUESTION_TOKEN_SQL_IDENTIFIER_NEAR_MISS'
+        """).fetchall()
+        records: Dict[tuple[str, str], dict] = {}
+        for item_id, db_id, token, expected, identifier in ast_rows:
+            key = (str(item_id), str(token or "").casefold())
+            records[key] = {
+                "item_id": str(item_id),
+                "db_id": str(db_id or ""),
+                "token": token or "",
+                "expected": expected or "",
+                "identifier": identifier or "",
+                "twin_id": "",
+                "twin_question": "",
+                "evidence": "SQL identifier",
+            }
+
+        groups: Dict[tuple[str, str], list[tuple[str, str]]] = {}
+        for item_id, (question, sql) in self.item_details.items():
+            if not sql:
+                continue
+            key = (
+                item_databases.get(item_id, ""),
+                self._sql_group_key(sql),
+            )
+            groups.setdefault(key, []).append((item_id, question))
+
+        for item_id, (question, sql) in self.item_details.items():
+            if not sql:
+                continue
+            group = groups.get(
+                (item_databases.get(item_id, ""), self._sql_group_key(sql)),
+                [],
+            )
+            twins = [
+                (twin_id, twin_question)
+                for twin_id, twin_question in group
+                if twin_id != item_id and twin_question != question
+            ]
+            if not twins:
+                continue
+            findings = detect_paraphrase_twin_typos(
+                question,
+                sql,
+                twins,
+                dialect=item_dialects.get(item_id, "sqlite"),
+            )
+            for finding in findings:
+                token = finding.details.get("question_token", "")
+                key = (item_id, str(token).casefold())
+                twin_id = str(finding.details.get("twin_item_id", ""))
+                existing = records.get(key)
+                if existing:
+                    existing["evidence"] = "SQL identifier + peer"
+                    existing["twin_id"] = twin_id
+                    existing["twin_question"] = finding.details.get(
+                        "twin_question", ""
+                    )
+                    continue
+                records[key] = {
+                    "item_id": item_id,
+                    "db_id": item_databases.get(item_id, ""),
+                    "token": token,
+                    "expected": finding.details.get("expected_token", ""),
+                    "identifier": "",
+                    "twin_id": twin_id,
+                    "twin_question": finding.details.get("twin_question", ""),
+                    "evidence": "Identical-SQL peer",
+                }
+
+        if not records:
+            return []
+
+        ordered = sorted(
+            records.values(),
+            key=lambda row: (
+                int(row["item_id"]) if row["item_id"].isdigit() else 10**18,
+                row["item_id"],
+                str(row["token"]).casefold(),
+            ),
+        )
+        ast_count = sum(
+            row["evidence"] in {"SQL identifier", "SQL identifier + peer"}
+            for row in ordered
+        )
+        peer_count = sum(
+            row["evidence"] in {"Identical-SQL peer", "SQL identifier + peer"}
+            for row in ordered
+        )
+        both_count = sum(
+            row["evidence"] == "SQL identifier + peer" for row in ordered
+        )
+
+        sections = [f"## Question Lexical Integrity ({len(ordered):,})", ""]
+        sections.append(
+            "Question-side spelling defects are proven only by identifiers used "
+            "by the same gold SQL. Identical-SQL peers provide an additional "
+            "corpus candidate signal unless the dataset explicitly declares a "
+            "trusted paraphrase group."
+        )
+        sections.append("")
+        sections.append(
+            f"- **SQL identifier evidence:** {ast_count:,} · "
+            f"**Identical-SQL peer candidates:** {peer_count:,} · "
+            f"**Identifier findings with peer support:** {both_count:,}"
+        )
+        sections.append("")
+        sections.append(
+            "| Item ID | DB | Question Token | Expected | Evidence | SQL Identifier | Twin | Question |"
+        )
+        sections.append(
+            "|---------|----|----------------|----------|----------|----------------|------|----------|"
+        )
+        for row in ordered[:limit]:
+            question, _ = self.item_details.get(row["item_id"], ("", ""))
+            sections.append(
+                f"| {row['item_id']} | {row['db_id']} | "
+                f"{self._cell(row['token'], 30)} | "
+                f"{self._cell(row['expected'], 30)} | {row['evidence']} | "
+                f"{self._cell(row['identifier'], 40) or '—'} | "
+                f"{row['twin_id'] or '—'} | {self._cell(question, 120)} |"
+            )
+        if len(ordered) > limit:
+            sections.append(
+                f"\n*Showing the first {limit} of {len(ordered):,}.*"
+            )
+        sections.append("")
+        sections.append(
+            "The per-item analyzer searches only table and column identifiers used "
+            "by the current gold SQL, not the full database schema. Twin-only rows "
+            "are corpus-derived report evidence and therefore do not alter the "
+            "streaming metric counters."
+        )
+        sections.append("")
+        return sections
+
+    @staticmethod
+    def _sql_group_key(sql: str) -> str:
+        """Collapse a gold query so paraphrases of one query group together."""
+        return " ".join(sql.split()).rstrip(";")
+
+    @staticmethod
+    def _licenses_literal(question: str, value: str) -> bool:
+        """Apply the detector's exact string-naming semantics to twin evidence."""
+        from text2sql_pipeline.analyzers.question_sql_consistency.consistency_detector import (
+            find_string_value_spans,
+        )
+
+        if not question or not value:
+            return False
+        return bool(find_string_value_spans(question, value))
+
+    def _consistency_assumption_lines(self, table: str) -> list:
+        """Assumptions the findings declared, so each verdict stays auditable."""
+        sections = ["## Declared Assumptions", ""]
+        rows = self.conn.execute(f"""
+            SELECT json_extract_string(a.value, '$.code') AS code,
+                   ANY_VALUE(json_extract_string(a.value, '$.description')) AS description,
+                   COUNT(*) AS findings
+            FROM {table} m,
+                 LATERAL json_each(m.findings) f,
+                 LATERAL json_each(json_extract(f.value, '$.assumptions')) a
+            GROUP BY 1
+            ORDER BY 3 DESC
+        """).fetchall()
+
+        if not rows:
+            return sections + ["*No findings declared assumptions.*", ""]
+
+        sections.append("| Assumption | Findings | Meaning |")
+        sections.append("|------------|----------|---------|")
+        for code, description, findings in rows:
+            sections.append(f"| {code} | {findings:,} | {self._cell(description, 180)} |")
+        sections.append("")
+        sections.append(
+            "Every assumption is machine-readable and travels with the finding, so a "
+            "verdict can be re-audited against the assumption that produced it."
+        )
+        sections.append("")
+        return sections
+
+    def _consistency_not_analyzed_lines(self, table: str) -> list:
+        """Items the analyzer declined to judge, and why."""
+        rows = self.conn.execute(f"""
+            SELECT status, err, COUNT(*) AS cnt
+            FROM {table}
+            WHERE status IN ('skipped', 'errors')
+            GROUP BY 1, 2
+            ORDER BY 3 DESC
+        """).fetchall()
+
+        if not rows:
+            return []
+
+        sections = ["## Not Analyzed", ""]
+        sections.append(
+            "Cross-modal evidence never gates the pipeline: an item the analyzer "
+            "cannot judge is skipped, and an internal failure is reported as an "
+            "error, neither of which marks the item as defective."
+        )
+        sections.append("")
+        sections.append("| Status | Reason | Items |")
+        sections.append("|--------|--------|-------|")
+        for status, err, count in rows:
+            sections.append(f"| {status} | {self._cell(err, 180)} | {count:,} |")
         sections.append("")
         return sections
 

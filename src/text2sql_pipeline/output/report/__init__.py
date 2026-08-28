@@ -52,6 +52,14 @@ def generate_query_quality_report(duckdb_path: str, output_path: str) -> None:
     finally:
         gen.close()
 
+def generate_question_sql_consistency_report(duckdb_path: str, output_path: str) -> None:
+    """Generate Question-SQL Consistency Report."""
+    gen = MarkdownReportGenerator(duckdb_path)
+    try:
+        gen.generate_question_sql_consistency_report(output_path)
+    finally:
+        gen.close()
+
 def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None) -> None:
     """Generate analysis reports from DuckDB metrics based on configuration.
 
@@ -77,6 +85,7 @@ def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None)
             "query_structure_profile": True,
             "table_coverage": True,
             "query_quality": True,
+            "question_sql_consistency": True,
         }
 
     # Check if reports are enabled
@@ -98,6 +107,7 @@ def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None)
         ("query_structure_profile", "query_structure_profile_report.md", "generating Query Structure Profile report", generate_query_structure_profile_report),
         ("table_coverage", "table_coverage_report.md", "generating Table Coverage report", generate_table_coverage_report),
         ("query_quality", "query_quality_report.md", "generating Query Quality report", generate_query_quality_report),
+        ("question_sql_consistency", "question_sql_consistency_report.md", "generating Question-SQL Consistency report", generate_question_sql_consistency_report),
     ]
 
     # Generate only enabled reports
@@ -121,6 +131,7 @@ __all__ = [
     "generate_query_structure_profile_report",
     "generate_table_coverage_report",
     "generate_query_quality_report",
+    "generate_question_sql_consistency_report",
     "generate_all_reports",
 ]
 

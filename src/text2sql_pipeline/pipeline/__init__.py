@@ -14,6 +14,7 @@ def import_builtin_plugins() -> None:
     # ANALYZERS
     import text2sql_pipeline.analyzers.schema_validation.schema_validation_analyzer
     import text2sql_pipeline.analyzers.query_syntax.query_syntax_analyzer
+    import text2sql_pipeline.analyzers.question_sql_consistency.question_sql_consistency_analyzer
     import text2sql_pipeline.analyzers.query_execution.query_execution_analyzer
     import text2sql_pipeline.analyzers.query_antipattern.query_antipattern_analyzer
     import text2sql_pipeline.analyzers.llm_as_a_judge.semantic_llm_analyzer

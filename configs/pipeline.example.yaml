@@ -78,6 +78,23 @@ analyze:
     params:
       enabled: true
 
+  # Deterministic relation checks between the question, optional context, and gold SQL.
+  - name: question_sql_consistency_analyzer
+    params:
+      enabled: true
+      language: en
+      rules:
+        - literal_alignment
+        - question_lexical_integrity
+        - temporal_anchor_provenance
+      emit_supported: false
+      context:
+        evidence_keys: [evidence]
+        reference_datetime_keys: [reference_datetime, as_of_date]
+        value_aliases_file: null
+        # Per-item metadata may also provide context.column_domains,
+        # e.g. {is_buyer: [0, 1]}, to confirm boolean encodings.
+
   - name: query_antipattern_analyzer
     params:
       enabled: true
@@ -333,4 +350,5 @@ output:
     query_structure_profile: true     # Query structure analysis
     table_coverage: true              # Table usage coverage
     query_quality: true               # Quality assessment
+    question_sql_consistency: true    # Deterministic question-SQL findings
   
