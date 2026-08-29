@@ -148,6 +148,15 @@ REASON_CODE_NOTES: dict[str, str] = {
         "An explicit comparison cue is bound to one SQL predicate with the same "
         "value, but SQL uses an incompatible operator."
     ),
+    "COMPARISON_BOUNDARY_EVIDENCE_QUESTION_CONFLICT": (
+        "The question cue and explicit affirmative dataset evidence prescribe "
+        "different boundaries, while SQL follows the dataset evidence. The "
+        "finding targets the benchmark mapping rather than SQL."
+    ),
+    "COMPARISON_BOUNDARY_EVIDENCE_CONVENTION_UNRESOLVED": (
+        "An interpretation-sensitive question cue conflicts with an explicit "
+        "dataset boundary convention that SQL follows, so the analyzer abstains."
+    ),
     "COMPARISON_BOUNDARY_ROLE_UNRESOLVED": (
         "A comparison cue and value do not bind to exactly one SQL predicate "
         "role, so the analyzer abstains instead of guessing."
@@ -173,7 +182,7 @@ REASON_CODE_NOTES: dict[str, str] = {
     ),
     "COMPARISON_RANGE_MATCH": (
         "An explicit natural-language range is realized with the endpoint "
-        "semantics declared by its cue; bare 'until' uses an exclusive upper bound."
+        "semantics declared by its supported cue."
     ),
     "COMPARISON_RANGE_CONFLICT": (
         "An explicit natural-language range is bound to SQL, but at least one "
@@ -195,7 +204,7 @@ REASON_CODE_NOTES: dict[str, str] = {
         "through OR, NOT BETWEEN, EXCEPT or another scope."
     ),
     "COMPARISON_RANGE_MODIFIER_UNRESOLVED": (
-        "The range carries an endpoint modifier outside the v1 allowlist, so "
+        "The range carries an unsupported or convention-sensitive endpoint, so "
         "inclusivity is not guessed."
     ),
     "COMPARISON_BOOLEAN_CONTEXT_UNRESOLVED": (

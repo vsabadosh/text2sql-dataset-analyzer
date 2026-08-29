@@ -4,6 +4,7 @@ import pytest
 
 from text2sql_pipeline.analyzers.question_sql_consistency import (
     ConsistencyStatus,
+    ContextManifest,
     detect_consistency,
 )
 from text2sql_pipeline.analyzers.question_sql_consistency.consistency_registry import (
@@ -744,7 +745,7 @@ def test_other_ordinal_role_names_also_abstain(column):
     assert _finding(features, "COMPARISON_ORDINAL_POLARITY_UNRESOLVED")
 
 
-def test_until_range_allows_exclusive_upper_boundary():
+def test_bare_until_range_abstains_without_endpoint_convention():
     features = detect_consistency(
         "Show result scores from 10 until 20.",
         "SELECT * FROM result WHERE score >= 10 AND score < 20",
@@ -752,7 +753,109 @@ def test_until_range_allows_exclusive_upper_boundary():
         emit_supported=True,
     )
 
-    assert _finding(features, "COMPARISON_RANGE_MATCH")
+    assert features.supported_count == 0
+    assert features.contradicted_count == 0
+    assert _finding(features, "COMPARISON_RANGE_MODIFIER_UNRESOLVED")
+
+
+def test_bare_until_range_abstains_when_evidence_uses_inclusive_endpoint():
+    features = detect_consistency(
+        "Show episodes from episode 1 until 10.",
+        "SELECT * FROM episode WHERE episode BETWEEN 1 AND 10",
+        context=ContextManifest(
+            evidence_texts=[
+                "from episode 1 until 10 refers to episode >= 1 AND episode <= 10"
+            ]
+        ),
+        rules=["comparison_boundary_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.supported_count == 0
+    assert features.contradicted_count == 0
+    assert _finding(features, "COMPARISON_RANGE_MODIFIER_UNRESOLVED")
+
+
+def test_sql_matching_explicit_evidence_retargets_question_conflict():
+    features = detect_consistency(
+        "Show movies with at least 200 audience votes.",
+        "SELECT * FROM movie WHERE list_movie_number > 200",
+        context=ContextManifest(
+            evidence_texts=[
+                "at least 200 audience votes refers to list_movie_number > 200"
+            ]
+        ),
+        rules=["comparison_boundary_alignment"],
+    )
+
+    finding = _finding(
+        features, "COMPARISON_BOUNDARY_EVIDENCE_QUESTION_CONFLICT"
+    )
+    assert finding.status == ConsistencyStatus.CONTRADICTED
+    assert finding.target.value == "MAPPING"
+    assert {source.value for source in finding.evidence_sources} == {
+        "QUESTION_TEXT",
+        "DATASET_EVIDENCE",
+        "SQL_AST",
+    }
+
+
+def test_since_strictness_conflict_with_evidence_abstains():
+    features = detect_consistency(
+        "Show publications since 1980.",
+        "SELECT * FROM publication WHERE year > 1980",
+        context=ContextManifest(evidence_texts=["year > 1980"]),
+        rules=["comparison_boundary_alignment"],
+        emit_supported=True,
+    )
+
+    finding = _finding(
+        features, "COMPARISON_BOUNDARY_EVIDENCE_CONVENTION_UNRESOLVED"
+    )
+    assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert finding.target.value == "MAPPING"
+
+
+def test_evidence_between_retargets_open_interval_question_conflict():
+    features = detect_consistency(
+        "Show movies with popularity more than 400 but less than 500.",
+        "SELECT * FROM movie WHERE movie_popularity BETWEEN 400 AND 500",
+        context=ContextManifest(
+            evidence_texts=[
+                "popularity between 400 and 500 refers to "
+                "movie_popularity BETWEEN 400 AND 500"
+            ]
+        ),
+        rules=["comparison_boundary_alignment"],
+    )
+
+    findings = [
+        finding
+        for finding in features.findings
+        if finding.reason_code
+        == "COMPARISON_BOUNDARY_EVIDENCE_QUESTION_CONFLICT"
+    ]
+    assert findings
+    assert all(finding.target.value == "MAPPING" for finding in findings)
+
+
+def test_boundary_evidence_requires_the_full_predicate_role():
+    features = detect_consistency(
+        "Show movies with at least 50 ratings.",
+        "SELECT * FROM movie WHERE movie_rating > 50",
+        context=ContextManifest(
+            evidence_texts=["movie_popularity > 50"]
+        ),
+        rules=["comparison_boundary_alignment"],
+    )
+
+    finding = _finding(features, "COMPARISON_BOUNDARY_CONFLICT")
+    assert finding.target.value == "SQL"
+    assert not any(
+        candidate.reason_code
+        == "COMPARISON_BOUNDARY_EVIDENCE_QUESTION_CONFLICT"
+        for candidate in features.findings
+    )
 
 
 def test_until_inclusive_marker_remains_unresolved_in_v1():
@@ -956,7 +1059,7 @@ def test_temporal_evidence_is_not_dropped_when_boundary_rule_is_enabled():
 
     assert _finding(features, "COMPARISON_BOUNDARY_MATCH")
     assert any(
-        finding.reason_code == "TEMPORAL_OPERATOR_ALIGNMENT_DEFERRED"
+        finding.reason_code == "EXPLICIT_TEMPORAL_VALUE_MATCH"
         for finding in features.findings
     )
 

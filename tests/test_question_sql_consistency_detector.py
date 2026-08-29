@@ -1350,6 +1350,182 @@ def test_coordinated_year_endpoint_inherits_explicit_temporal_range():
     assert features.supported_count == 2
 
 
+@pytest.mark.parametrize(
+    "question,sql",
+    [
+        (
+            "How many concerts occurred in year 2014 or 2015?",
+            "SELECT count(*) FROM concert WHERE year = 2014 OR year = 2015",
+        ),
+        (
+            "Find students who took classes in the years of 2009 and 2010.",
+            "SELECT * FROM takes WHERE year = 2009 OR year = 2010",
+        ),
+        (
+            "Compare orders shipped in each month of 1995 and 1996.",
+            (
+                "SELECT SUM(CASE WHEN year = 1995 THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN year = 1996 THEN 1 ELSE 0 END) FROM orders"
+            ),
+        ),
+        (
+            "Show singers whose birth year is either 1948 or 1949.",
+            "SELECT * FROM singer WHERE birth_year = 1948 OR birth_year = 1949",
+        ),
+        (
+            "Show directors with a movie in either 1999 or 2000.",
+            "SELECT * FROM movie WHERE year = 1999 OR year = 2000",
+        ),
+        (
+            "Show vehicles with model years in either 2013 2014.",
+            "SELECT * FROM vehicle WHERE model_year = 2013 OR model_year = 2014",
+        ),
+    ],
+)
+def test_coordinated_year_sets_do_not_create_competing_values(question, sql):
+    features = detect_consistency(
+        question,
+        sql,
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.supported_count == 2
+
+
+def test_coordinated_dates_compare_normalized_value_keys():
+    features = detect_consistency(
+        "Which day was windier, 2012/1/1 or 2012/1/2?",
+        (
+            "SELECT CASE WHEN SUM(CASE WHEN date = '2012-01-01' THEN speed END) "
+            "> SUM(CASE WHEN date = '2012-01-02' THEN speed END) "
+            "THEN 'first' ELSE 'second' END FROM weather"
+        ),
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.supported_count == 2
+
+
+def test_enumerated_interior_year_is_part_of_an_explicit_range():
+    features = detect_consistency(
+        "Show graduates from 2011 to 2013.",
+        "SELECT * FROM graduates WHERE year IN (2011, 2012, 2013)",
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.supported_count == 2
+
+
+@pytest.mark.parametrize(
+    "question,sql",
+    [
+        (
+            "Show cards issued after the year 1996.",
+            "SELECT * FROM card WHERE issued >= '1997-01-01'",
+        ),
+        (
+            "Show ratings made after the year 2011.",
+            "SELECT * FROM rating WHERE created_at >= '2012-01-01'",
+        ),
+    ],
+)
+def test_after_complete_year_matches_successor_date_boundary(question, sql):
+    features = detect_consistency(
+        question,
+        sql,
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_MATCH")
+
+
+def test_inclusive_year_range_matches_exclusive_successor_boundary():
+    features = detect_consistency(
+        "Show indicators from 1968 to 1970.",
+        "SELECT * FROM indicator WHERE year >= 1968 AND year < 1971",
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+
+
+def test_within_year_range_matches_exclusive_successor_boundary():
+    features = detect_consistency(
+        "Show papers within the year of 2001 to 2010.",
+        "SELECT * FROM paper WHERE year >= 2001 AND year < 2011",
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+
+
+def test_inclusive_successor_operator_does_not_fake_half_open_equivalence():
+    features = detect_consistency(
+        "Show users from the year of 2005 to 2014.",
+        "SELECT * FROM users WHERE start_year >= 2005 AND start_year <= 2015",
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT").status == (
+        ConsistencyStatus.CONTRADICTED
+    )
+
+
+@pytest.mark.parametrize(
+    "question,sql",
+    [
+        (
+            "Which day had more orders: 2005-04-08 or two days later?",
+            (
+                "SELECT order_date FROM orders "
+                "WHERE order_date = '2005-04-08' OR order_date = '2005-04-10'"
+            ),
+        ),
+        (
+            "What was the decrease after a player was traded in 2005?",
+            (
+                "SELECT SUM(CASE WHEN year = 2005 THEN games ELSE 0 END) - "
+                "SUM(CASE WHEN year = 2006 THEN games ELSE 0 END) FROM player"
+            ),
+        ),
+    ],
+)
+def test_unsupported_derived_multi_periods_abstain(question, sql):
+    features = detect_consistency(
+        question,
+        sql,
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert _finding(
+        features, "TEMPORAL_REALIZATION_UNSUPPORTED"
+    ).status == ConsistencyStatus.UNRESOLVED
+
+
+def test_wrong_threshold_survives_multi_value_false_positive_guards():
+    features = detect_consistency(
+        "Show races held after 2004.",
+        "SELECT * FROM race WHERE year > 2014",
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT").status == (
+        ConsistencyStatus.CONTRADICTED
+    )
+
+
 def test_invalid_calendar_date_is_outside_temporal_rule_scope():
     features = detect_consistency(
         "Show events held on 2024/2/30.",

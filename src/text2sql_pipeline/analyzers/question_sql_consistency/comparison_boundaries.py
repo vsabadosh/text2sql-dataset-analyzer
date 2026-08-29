@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Literal, Protocol, Sequence
 
+from .context_manifest import ContextManifest
 from .lexical_resources import (
     is_derivational_variant,
     is_function_word,
@@ -28,7 +30,7 @@ from .question_normalization import (
 )
 
 
-BOUNDARY_LEXICON_VERSION = "1.0.0"
+BOUNDARY_LEXICON_VERSION = "1.1.0"
 
 
 @dataclass(frozen=True)
@@ -256,10 +258,41 @@ class ValueMention:
     span: TextSpan
 
 
+@dataclass(frozen=True)
+class EvidenceBoundaryAssertion:
+    operator: str
+    value_key: str
+    role_text: str
+    evidence_text: str
+
+
+_EVIDENCE_NUMBER = r"-?\d[\d,]*(?:\.\d+)?"
+_EVIDENCE_COMPARISON_RE = re.compile(
+    rf"(?P<role>[A-Za-z_`][A-Za-z0-9_`\"'. ():/-]{{0,96}}?)"
+    rf"\s*(?P<operator>>=|<=|>|<|=)\s*['\"]?(?P<value>{_EVIDENCE_NUMBER})",
+    re.IGNORECASE,
+)
+_EVIDENCE_BETWEEN_RE = re.compile(
+    rf"(?P<role>[A-Za-z_`][A-Za-z0-9_`\"'. ():/-]{{0,96}}?)"
+    rf"\s+\bBETWEEN\s+['\"]?(?P<lower>{_EVIDENCE_NUMBER})['\"]?"
+    rf"\s+AND\s+['\"]?(?P<upper>{_EVIDENCE_NUMBER})",
+    re.IGNORECASE,
+)
+_EVIDENCE_OPERATOR_MAP = {
+    ">": "GT",
+    ">=": "GTE",
+    "<": "LT",
+    "<=": "LTE",
+    "=": "EQ",
+}
+_BOUNDARY_CONVENTION_AMBIGUOUS_CUES = frozenset({"since"})
+
+
 def detect_comparison_boundaries(
     question: NormalizedQuestion,
     obligations: Sequence[BoundaryObligation],
     *,
+    context: ContextManifest | None = None,
     scope_reliable: bool = True,
 ) -> tuple[list[ConsistencyFinding], bool]:
     if not scope_reliable:
@@ -279,10 +312,18 @@ def detect_comparison_boundaries(
     mentions = _value_mentions(question, candidates)
     cues = _boundary_cues(question)
     range_findings = _range_findings(question, mentions)
+    manifest = context or ContextManifest()
     single_findings = [
         finding
         for cue in cues
-        if (finding := _single_boundary_finding(question, cue, mentions))
+        if (
+            finding := _single_boundary_finding(
+                question,
+                cue,
+                mentions,
+                manifest,
+            )
+        )
         is not None
     ]
     findings = [
@@ -393,6 +434,7 @@ def _single_boundary_finding(
     question: NormalizedQuestion,
     cue: BoundaryCue,
     mentions: Sequence[ValueMention],
+    context: ContextManifest,
 ) -> ConsistencyFinding | None:
     nearby = [
         mention
@@ -445,6 +487,19 @@ def _single_boundary_finding(
             cue,
             mention,
             expected_operator,
+        )
+    evidence_assertion = _evidence_boundary_assertion(context, obligation)
+    if (
+        evidence_assertion is not None
+        and evidence_assertion.operator != expected_operator
+        and obligation.operator
+        in _COMPATIBLE_OPERATORS[evidence_assertion.operator]
+    ):
+        return _evidence_question_boundary_finding(
+            cue,
+            mention,
+            expected_operator,
+            evidence_assertion,
         )
     status = (
         ConsistencyStatus.SUPPORTED
@@ -615,7 +670,7 @@ def _range_modifier_unresolved_finding(
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_RANGE_MODIFIER_UNRESOLVED",
         message=(
-            "The range has an explicit endpoint modifier outside the v1 "
+            "The range endpoint convention is not explicit in the supported "
             "allowlist, so inclusivity is not guessed."
         ),
         question_spans=[opener, lower.span, upper.span],
@@ -1371,7 +1426,181 @@ def _range_operators(
         re.IGNORECASE,
     ) or re.search(r"\band\s+including\b", context, re.IGNORECASE):
         return None
+    if spec.separators == ("until",):
+        return None
     return "GTE", spec.upper_operator
+
+
+def _evidence_boundary_assertion(
+    context: ContextManifest,
+    obligation: BoundaryObligation,
+) -> EvidenceBoundaryAssertion | None:
+    obligation_key = _evidence_number_key(obligation.value)
+    role_tokens = set(_obligation_role_tokens(obligation))
+    if obligation_key is None or not role_tokens:
+        return None
+
+    matches = [
+        assertion
+        for evidence_text in context.evidence_texts
+        for assertion in _evidence_boundary_assertions(evidence_text)
+        if assertion.value_key == obligation_key
+        and role_tokens.issubset(set(_identifier_tokens(assertion.role_text)))
+    ]
+    operators = {match.operator for match in matches}
+    if len(operators) != 1:
+        return None
+    return min(
+        matches,
+        key=lambda match: (
+            match.evidence_text,
+            match.role_text,
+            match.operator,
+            match.value_key,
+        ),
+    )
+
+
+def _evidence_boundary_assertions(
+    evidence_text: str,
+) -> list[EvidenceBoundaryAssertion]:
+    normalized = re.sub(r"\s+", " ", evidence_text.replace("\u00a0", " "))
+    normalized = re.sub(r"([<>])\s*=", r"\1=", normalized)
+    assertions: list[EvidenceBoundaryAssertion] = []
+
+    between_ranges: list[tuple[int, int]] = []
+    for match in _EVIDENCE_BETWEEN_RE.finditer(normalized):
+        if not _evidence_assertion_is_affirmative(match.group("role")):
+            continue
+        lower = _evidence_number_key(match.group("lower"))
+        upper = _evidence_number_key(match.group("upper"))
+        if lower is None or upper is None:
+            continue
+        between_ranges.append(match.span())
+        assertions.extend(
+            (
+                EvidenceBoundaryAssertion(
+                    operator="GTE",
+                    value_key=lower,
+                    role_text=match.group("role"),
+                    evidence_text=evidence_text,
+                ),
+                EvidenceBoundaryAssertion(
+                    operator="LTE",
+                    value_key=upper,
+                    role_text=match.group("role"),
+                    evidence_text=evidence_text,
+                ),
+            )
+        )
+
+    for match in _EVIDENCE_COMPARISON_RE.finditer(normalized):
+        if any(
+            start <= match.start() and match.end() <= end
+            for start, end in between_ranges
+        ):
+            continue
+        if not _evidence_assertion_is_affirmative(match.group("role")):
+            continue
+        value_key = _evidence_number_key(match.group("value"))
+        if value_key is None:
+            continue
+        assertions.append(
+            EvidenceBoundaryAssertion(
+                operator=_EVIDENCE_OPERATOR_MAP[match.group("operator")],
+                value_key=value_key,
+                role_text=match.group("role"),
+                evidence_text=evidence_text,
+            )
+        )
+    return assertions
+
+
+def _evidence_assertion_is_affirmative(role_text: str) -> bool:
+    clause = re.split(r"[.;]", role_text)[-1]
+    return re.search(
+        r"\b(?:does\s+not|is\s+not|isn't|not|never|without)\b",
+        clause,
+        re.IGNORECASE,
+    ) is None
+
+
+def _evidence_number_key(value: str) -> str | None:
+    try:
+        number = Decimal(value.strip().replace(",", ""))
+    except InvalidOperation:
+        return None
+    if not number.is_finite():
+        return None
+    if number == 0:
+        return "0"
+    return format(number.normalize(), "f")
+
+
+def _evidence_question_boundary_finding(
+    cue: BoundaryCue,
+    mention: ValueMention,
+    question_operator: str,
+    evidence: EvidenceBoundaryAssertion,
+) -> ConsistencyFinding:
+    obligation = mention.obligation
+    ambiguous = (
+        cue.span.normalized in _BOUNDARY_CONVENTION_AMBIGUOUS_CUES
+    )
+    return ConsistencyFinding(
+        rule_id="comparison_boundary_alignment",
+        target=ConsistencyTarget.MAPPING,
+        status=(
+            ConsistencyStatus.UNRESOLVED
+            if ambiguous
+            else ConsistencyStatus.CONTRADICTED
+        ),
+        strength=(
+            EvidenceStrength.DERIVED if ambiguous else EvidenceStrength.EXPLICIT
+        ),
+        reason_code=(
+            "COMPARISON_BOUNDARY_EVIDENCE_CONVENTION_UNRESOLVED"
+            if ambiguous
+            else "COMPARISON_BOUNDARY_EVIDENCE_QUESTION_CONFLICT"
+        ),
+        message=(
+            f"Question cue {cue.span.text!r} suggests {question_operator}, while "
+            f"dataset evidence defines {evidence.operator}; SQL follows the "
+            "dataset evidence."
+        ),
+        question_spans=[cue.span, mention.span],
+        sql_locations=[obligation.sql_location],
+        evidence_sources=[
+            EvidenceSource.QUESTION_TEXT,
+            EvidenceSource.DATASET_EVIDENCE,
+            EvidenceSource.SQL_AST,
+        ],
+        assumptions=[
+            _lexicon_assumption(),
+            ConsistencyAssumption(
+                code="DATASET_EVIDENCE_NORMATIVE",
+                description=(
+                    "Explicit affirmative dataset evidence is treated as the "
+                    "benchmark's boundary convention when it binds to the same "
+                    "predicate role and value."
+                ),
+            ),
+        ],
+        details={
+            "question_value": mention.span.text,
+            "sql_value": obligation.value,
+            "expected_operator": question_operator,
+            "evidence_operator": evidence.operator,
+            "actual_operator": obligation.operator,
+            "evidence_text": evidence.evidence_text,
+            "predicate_role": obligation.role,
+            "column_name": obligation.column,
+            "table_name": obligation.source_table,
+            "scope_id": obligation.scope_id,
+            "cue": cue.span.normalized,
+            "lexicon_version": BOUNDARY_LEXICON_VERSION,
+        },
+    )
 
 
 def _range_is_relational_comparison(

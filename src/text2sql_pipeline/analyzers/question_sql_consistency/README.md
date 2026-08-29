@@ -110,6 +110,18 @@ python scripts/validate_bird_aggregate_substitutions.py
   Without an exact binary domain, identifier shape only yields `UNRESOLVED`.
 - Dataset `evidence_texts` are treated as normative benchmark assertions;
   locally negated mentions do not license a value or aggregate.
+- Boundary evidence is used only when an affirmative numeric assertion binds
+  to the same SQL value and predicate role. If SQL follows that evidence while
+  an unambiguous question cue differs, the finding targets the benchmark
+  mapping; convention-sensitive `since` remains `UNRESOLVED`.
+- Bare `from ... until ...` does not define endpoint inclusivity by itself and
+  therefore remains `UNRESOLVED` unless the wording gains a supported explicit
+  convention.
+- Temporal anchors are evaluated as one specification rather than independent
+  pairs: coordinated alternatives use canonical value sets, stated ranges may
+  enumerate interior periods, and whole-year upper bounds may use an exact
+  half-open successor boundary. Derived multi-period formulas outside this
+  closed allowlist abstain instead of producing pairwise contradictions.
 - SQL obligations are query-scope and source-table aware. If sqlglot can parse
   a query but cannot build reliable scopes, scoped checks abstain while other
   rules continue.

@@ -80,14 +80,35 @@ _TEMPORAL_ROLE_RE = re.compile(
 # Comparatives ("than") and quantity prepositions ("over", "under") are
 # deliberately absent.
 _TEMPORAL_PREPOSITION_RE = re.compile(
-    r"\b(?:in|on|at|since|before|after|during|until|till|by|from|between|within|"
-    r"throughout|prior\s+to|as\s+of|year|years)\b[\s,(]*$",
+    r"\b(?:(?:month|months|year|years)\s+of|in|on|at|since|before|after|during|"
+    r"until|till|by|from|between|within|throughout|prior\s+to|as\s+of|year|"
+    r"years)\b[\s,(]*(?:(?:either|both)\s*)?$",
     re.IGNORECASE,
 )
 _COORDINATED_TEMPORAL_YEAR_RE = re.compile(
     r"\b(?:in|on|during|from|between|within|year|years)\b"
     r"[^.;?!]{0,32}\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})"
-    r"\s*(?:and|to|through|until|-)\s*$",
+    r"\s*(?:(?:and|or|to|through|until|-)\s*)?$",
+    re.IGNORECASE,
+)
+_INCLUSIVE_TEMPORAL_RANGE_UPPER_RE = re.compile(
+    r"\b(?:from|between|since|within)\b[^.;?!]{0,48}"
+    r"\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})\s*(?:to|through|-)\s*$",
+    re.IGNORECASE,
+)
+_FORWARD_COORDINATED_YEAR_RE = re.compile(
+    r"^\s*(?:and|or|to|through|until|-)\s+"
+    r"(?:1[5-9]\d{2}|20\d{2}|21\d{2})\b",
+    re.IGNORECASE,
+)
+_LOCAL_TEMPORAL_YEAR_ROLE_RE = re.compile(
+    r"\b(?:year|years)\b[^.;?!]{0,32}$",
+    re.IGNORECASE,
+)
+_RELATIVE_TEMPORAL_OFFSET_RE = re.compile(
+    r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:calendar\s+)?(?:day|days|week|weeks|month|months|year|years)\s+"
+    r"(?:later|after|before|earlier)\b",
     re.IGNORECASE,
 )
 _RELATIVE_PATTERNS = (
@@ -318,6 +339,7 @@ def detect_consistency(
         boundary_findings, applicable = detect_comparison_boundaries(
             normalized_question,
             obligations,
+            context=manifest,
             scope_reliable=scope_index.reliable,
         )
         findings.extend(boundary_findings)
@@ -2920,7 +2942,9 @@ def _temporal_anchor_provenance(
         )
         > 1
     )
-    explicit_values = {cue.value for cue in explicit_cues}
+    explicit_value_keys = {
+        _temporal_value_key(cue.value) for cue in explicit_cues
+    }
     for cue_index, cue in enumerate(explicit_cues):
         if cue_index in skipped_explicit:
             continue
@@ -2930,7 +2954,8 @@ def _temporal_anchor_provenance(
                 cue,
                 temporal_obligations,
                 require_role_binding=require_role_binding,
-                explicit_values=explicit_values,
+                explicit_cues=explicit_cues,
+                explicit_value_keys=explicit_value_keys,
             )
         )
     return findings, True
@@ -3032,7 +3057,8 @@ def _explicit_temporal_expected_operator(
     patterns = (
         (
             "GTE",
-            r"\b(?:since|(?:on|in)\s+or\s+after|not\s+before)[\s'\"]*$",
+            r"\b(?:since|(?:on|in)\s+or\s+after|not\s+before)"
+            r"(?:\s+(?:the\s+)?year)?[\s'\"]*$",
         ),
         (
             "LTE",
@@ -3040,8 +3066,15 @@ def _explicit_temporal_expected_operator(
             r"no\s+later\s+than|up\s+to)"
             r"[\s'\"]*$",
         ),
-        ("GT", r"\b(?:after|later\s+than)[\s'\"]*$"),
-        ("LT", r"\b(?:before|earlier\s+than|prior\s+to)[\s'\"]*$"),
+        (
+            "GT",
+            r"\b(?:after|later\s+than)(?:\s+(?:the\s+)?year)?[\s'\"]*$",
+        ),
+        (
+            "LT",
+            r"\b(?:before|earlier\s+than|prior\s+to)"
+            r"(?:\s+(?:the\s+)?year)?[\s'\"]*$",
+        ),
         ("NEQ", r"\b(?:not|except|excluding)\b[^.;,]{0,48}$"),
     )
     return next(
@@ -3354,7 +3387,8 @@ def _evaluate_explicit_temporal(
     obligations: list[LiteralObligation],
     *,
     require_role_binding: bool,
-    explicit_values: set[str],
+    explicit_cues: list[ExplicitTemporalCue],
+    explicit_value_keys: set[str],
 ) -> ConsistencyFinding:
     if _temporal_value_has_time(cue.value):
         return _temporal_finding(
@@ -3385,6 +3419,7 @@ def _evaluate_explicit_temporal(
         obligation
         for obligation in role_bound
         if _explicit_temporal_matches(cue, obligation)
+        or _temporal_boundary_equivalent(question, cue, obligation)
     ]
     if matching:
         matching_roles = {
@@ -3395,10 +3430,40 @@ def _evaluate_explicit_temporal(
             for obligation in role_bound
             if (obligation.scope_id, obligation.role) in matching_roles
             and obligation.operator in {"EQ", "IN", "NEQ"}
-            and obligation.value not in explicit_values
-            and not _explicit_temporal_matches(cue, obligation)
+            and _temporal_value_key(obligation.value) not in explicit_value_keys
+            and not _temporal_range_contains_value(
+                question,
+                explicit_cues,
+                obligation,
+            )
+            and not (
+                _explicit_temporal_matches(cue, obligation)
+                or _temporal_boundary_equivalent(question, cue, obligation)
+            )
         ]
         if competing:
+            if _temporal_multi_period_is_derived(
+                question,
+                [*matching, *competing],
+            ):
+                return _temporal_finding(
+                    cue.span,
+                    [*matching, *competing],
+                    ConsistencyStatus.UNRESOLVED,
+                    ConsistencyTarget.MAPPING,
+                    "TEMPORAL_REALIZATION_UNSUPPORTED",
+                    "The SQL derives a result from multiple temporal periods, "
+                    "which is outside direct anchor matching.",
+                    EvidenceStrength.DERIVED,
+                    details={
+                        "question_temporal_value": cue.value,
+                        "sql_temporal_values": [
+                            obligation.value
+                            for obligation in [*matching, *competing]
+                        ],
+                        "kind": cue.kind,
+                    },
+                )
             return _temporal_finding(
                 cue.span,
                 [*matching, *competing],
@@ -3457,9 +3522,9 @@ def _evaluate_explicit_temporal(
         set()
         if require_role_binding
         else {
-            _temporal_value_key(value)
-            for value in explicit_values
-            if _temporal_value_key(value) != _temporal_value_key(cue.value)
+            value
+            for value in explicit_value_keys
+            if value != _temporal_value_key(cue.value)
         }
     )
     comparable = [
@@ -3535,9 +3600,14 @@ def _year_cue_is_temporal(
     into a year.
     """
     preceding = question.original[: cue.span.start]
+    following = question.original[cue.span.end : cue.span.end + 24]
     return (
         _TEMPORAL_PREPOSITION_RE.search(preceding) is not None
         or _COORDINATED_TEMPORAL_YEAR_RE.search(preceding) is not None
+        or (
+            _LOCAL_TEMPORAL_YEAR_ROLE_RE.search(preceding) is not None
+            and _FORWARD_COORDINATED_YEAR_RE.match(following) is not None
+        )
     )
 
 
@@ -3578,6 +3648,104 @@ def _explicit_temporal_value_matches(
     if cue.kind == "date" and obligation.kind == "date":
         return _parse_sql_date(cue.value) == _parse_sql_date(obligation.value)
     return False
+
+
+def _temporal_boundary_equivalent(
+    question: NormalizedQuestion,
+    cue: ExplicitTemporalCue,
+    obligation: LiteralObligation,
+) -> bool:
+    """Recognize only exact whole-year half-open interval equivalences."""
+    if cue.kind != "year":
+        return False
+
+    cue_year = int(cue.value)
+    obligation_year: int | None = None
+    is_year_start = False
+    if obligation.kind == "year":
+        obligation_year = int(obligation.value)
+        is_year_start = True
+    elif obligation.kind == "date":
+        parsed = _parse_sql_date(obligation.value)
+        if parsed is not None:
+            obligation_year = parsed.year
+            is_year_start = parsed.month == 1 and parsed.day == 1
+    if obligation_year is None or not is_year_start:
+        return False
+
+    if (
+        cue.expected_operator == "GT"
+        and obligation.operator == "GTE"
+        and obligation_year == cue_year + 1
+    ):
+        return True
+
+    preceding = question.original[: cue.span.start]
+    return (
+        obligation.operator == "LT"
+        and obligation_year == cue_year + 1
+        and _INCLUSIVE_TEMPORAL_RANGE_UPPER_RE.search(preceding) is not None
+    )
+
+
+def _temporal_range_contains_value(
+    question: NormalizedQuestion,
+    cues: list[ExplicitTemporalCue],
+    obligation: LiteralObligation,
+) -> bool:
+    """Whether an extra SQL value enumerates the interior of a stated range."""
+    same_kind = sorted(
+        (cue for cue in cues if cue.kind == obligation.kind),
+        key=lambda cue: cue.span.start,
+    )
+    if len(same_kind) < 2:
+        return False
+
+    candidate = _temporal_ordering_value(obligation.kind, obligation.value)
+    if candidate is None:
+        return False
+
+    for lower_cue, upper_cue in zip(same_kind, same_kind[1:]):
+        preceding = question.original[
+            max(0, lower_cue.span.start - 64) : lower_cue.span.start
+        ]
+        separator = question.original[lower_cue.span.end : upper_cue.span.start]
+        if not re.search(
+            r"\b(?:from|between)\b[^.;?!]{0,48}$",
+            preceding,
+            re.IGNORECASE,
+        ):
+            continue
+        if not re.fullmatch(
+            r"[\s,]*(?:to|through|until|and|-)[\s,]*",
+            separator,
+            re.IGNORECASE,
+        ):
+            continue
+        lower = _temporal_ordering_value(lower_cue.kind, lower_cue.value)
+        upper = _temporal_ordering_value(upper_cue.kind, upper_cue.value)
+        if lower is not None and upper is not None and lower < candidate < upper:
+            return True
+    return False
+
+
+def _temporal_ordering_value(kind: str, value: str) -> int | None:
+    if kind == "year" and _YEAR_RE.fullmatch(value.strip()):
+        return int(value)
+    if kind == "date":
+        parsed = _parse_sql_date(value)
+        return parsed.toordinal() if parsed is not None else None
+    return None
+
+
+def _temporal_multi_period_is_derived(
+    question: NormalizedQuestion,
+    obligations: list[LiteralObligation],
+) -> bool:
+    return (
+        _RELATIVE_TEMPORAL_OFFSET_RE.search(question.original) is not None
+        or any(obligation.clause == "OTHER" for obligation in obligations)
+    )
 
 
 def _temporal_value_key(value: str) -> str:

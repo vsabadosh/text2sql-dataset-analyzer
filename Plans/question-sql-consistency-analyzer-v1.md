@@ -1,7 +1,7 @@
 # Question–SQL Consistency Analyzer: актуальний план v1
 
 Оновлено: **29 серпня 2026 року**
-Поточна версія аналізатора: **`0.6.2`**
+Поточна версія аналізатора: **`0.7.0`**
 
 Цей документ є коротким source of truth для поточного стану аналізатора і
 підготовки статті. Історію проміжних реалізацій, старі change lists, stale runs
@@ -87,6 +87,18 @@ Analyzer не блокує downstream pipeline. За замовчуванням
 Markdown report показує persisted run identity і відхиляє агрегацію змішаних
 version/config/resource identities.
 
+### 2.4. Temporal anchors
+
+Кілька date/year mentions одного question role утворюють **одну temporal
+specification**, а не незалежні пари, які мають конфліктувати між собою.
+Поточний closed allowlist підтримує canonical sets, явні ranges та exact
+whole-year successor boundaries. Relative offsets і derived multi-period
+формули поза цим allowlist дають `UNRESOLVED`.
+
+Велика кількість temporal mentions у corpus сама по собі не доводить
+незадокументовану convention: для такого claim потрібні повторюваний pattern,
+item-level context/evidence і незалежна ручна перевірка.
+
 ## 3. Статус детекторів
 
 ### 3.1. Покрито кодом і входить у core статті
@@ -95,15 +107,16 @@ version/config/resource identities.
 |---|---|---|
 | `literal_alignment` | Ліцензування string/numeric literals; exact, quoted і near-miss conflicts; inflection, derivation, abbreviation, number words; hidden thresholds, boolean flags, evidence aggregate substitutions і corpus-gated filters | Неліцензований literal сам по собі лишається `UNRESOLVED` |
 | `question_lexical_integrity` | Question-side OOV near-miss до identifier, який реально використано gold SQL; trusted paraphrase evidence; report-only identical-SQL peers | Не сканує всю schema; непідтверджені peers не стають contradiction |
-| `temporal_anchor_provenance` | Explicit dates/years, calendar normalization і supported relative-time derivations лише з явним anchor | Time-of-day, відсутній anchor і unsupported realization дають abstention |
-| `comparison_boundary_alignment` | Explicit single boundaries і ranges, зв’язані з одним direct-column filter у root query scope; strictness і direction | Negation, OR, nested/set scopes, expressions, ambiguous roles, ordinal polarity та unsupported endpoint modifiers дають abstention або не породжують finding |
+| `temporal_anchor_provenance` | Explicit dates/years, canonical sets, ranges, whole-year half-open successors і supported relative-time derivations лише з явним anchor | Time-of-day, відсутній anchor і derived/unsupported multi-period realization дають abstention |
+| `comparison_boundary_alignment` | Explicit single boundaries і ranges, зв’язані з direct-column filter; evidence-aware target attribution для affirmative numeric conventions | Bare `until`, evidence-conflicted `since`, negation, OR, nested/set scopes, ambiguous roles та unsupported modifiers дають abstention |
 
 У shipped config увімкнені саме ці чотири правила.
 
 ### 3.2. Треба покрити до подачі статті
 
-Новий detector зараз **не є обов’язковим**. Перший пріоритет — незалежно
-перевірити scientific coverage уже реалізованих правил:
+Новий detector зараз **не є обов’язковим**. Exhaustive diagnostic audit усіх
+residual temporal і boundary contradictions виконано, але він не замінює blind
+human annotation. До подачі треба:
 
 1. `literal_alignment`: вручну розмітити всі decisive reason-code families,
    окремо near-miss, quoted mismatch, unrequested filters і fragile-gold
@@ -111,12 +124,10 @@ version/config/resource identities.
 2. `question_lexical_integrity`: виміряти precision/recall для SQL-identifier
    findings; trusted paraphrases і identical-SQL peer candidates рахувати
    окремо.
-3. `temporal_anchor_provenance`: перевірити всі residual temporal
-   contradictions Spider/BIRD; не розширювати евристику під окремі приклади.
-4. `comparison_boundary_alignment`: вручну перевірити всі boundary/range
-   contradictions і окремо оцінити abstention на negation, Boolean та
-   role-ambiguous cases.
-5. Corpus layer: підтвердити, що recurrence описує benchmark convention, але
+3. `temporal_anchor_provenance` і `comparison_boundary_alignment`: повторити
+   validation на held-out sample двома незалежними annotators; regression
+   fixtures не включати до evaluation sample.
+4. Corpus layer: підтвердити, що recurrence описує benchmark convention, але
    не перетворює `UNRESOLVED` на дефект без item-level evidence.
 
 Implementation coverage не вважати scientific validation: потрібні held-out
@@ -179,6 +190,9 @@ detector verdict заднім числом.
 
 На поточному diagnostic state зберігаються такі феномени:
 
+- **80 manually checked positive findings у 78 unique items**: 65 раніше
+  стабілізованих non-temporal findings і 15 residual temporal contradictions
+  `0.7.0`; це engineering audit ledger, не blind paper estimate;
 - **106 hidden-threshold records**: повторювані неявні пороги є evidence
   benchmark convention, а не автоматично SQL bugs;
 - **3 corpus-confirmed unrequested filters**;
@@ -279,20 +293,19 @@ Paper-result можна фіксувати лише коли:
 Єдина актуальна історія запуску в цьому документі:
 
 - дата: **29 серпня 2026 року**;
-- analyzer: **`0.6.2`**;
-- focused semantic/provenance suite: **238 passed**;
-- full suite: **999 passed, 1 skipped**;
+- analyzer: **`0.7.0`**; boundary lexicon: **`1.1.0`**;
+- full suite: **1 020 passed, 1 skipped**;
 - linter diagnostics і `git diff --check`: без нових помилок.
 
 Diagnostic pipeline totals — це **кількість rule verdicts, не item count**:
 
 | Corpus | Items | SUPPORTED | CONTRADICTED | UNRESOLVED |
 |---|---:|---:|---:|---:|
-| Spider dev | 1 034 | 687 | 13 | 62 |
-| Spider test | 2 147 | 1 368 | 17 | 96 |
-| Spider train | 8 659 | 7 214 | 77 | 706 |
-| BIRD dev | 1 534 | 2 333 | 10 | 247 |
-| BIRD train | 9 428 | 14 566 | 138 | 1 423 |
+| Spider dev | 1 034 | 701 | 10 | 65 |
+| Spider test | 2 147 | 1 379 | 14 | 95 |
+| Spider train | 8 659 | 7 239 | 73 | 710 |
+| BIRD dev | 1 534 | 2 339 | 9 | 242 |
+| BIRD train | 9 428 | 14 602 | 117 | 1 418 |
 
 Стабільні diagnostic anchors:
 
@@ -303,8 +316,14 @@ Diagnostic pipeline totals — це **кількість rule verdicts, не ite
 - **986/5 406 (18.2%)** BIRD evidence-only numeric obligations;
 - **10/10** BIRD fragile-gold aggregate substitutions, перевірені на поточних
   SQLite snapshots;
-- BIRD temporal contradictions після normalization: **3 dev, 27 train**;
-  вони переходять до manual validation table.
+- **15/15 residual temporal contradictions** підтверджено в exhaustive
+  engineering audit: Spider train 4, BIRD dev 2, BIRD train 9;
+- **28/28 residual boundary contradictions** підтверджено; 9 evidence-licensed
+  SQL cases тепер правильно target-яться як `MAPPING`;
+- baseline audit `0.6.2` мав 75 findings: 42 true, 31 false verdicts і
+  2 ambiguous. У `0.7.0` усі 30 temporal false contradictions усунуто, bare
+  `until` і 2 evidence-conflicted `since` cases переведено в `UNRESOLVED`;
+  додатковий full-corpus pass знайшов один новий підтверджений temporal defect.
 
 Це ще **не paper results**: run виконано з поточного dirty worktree у temporary
 directories і не збережено як release artifact. Наступні звіти не повинні
@@ -312,13 +331,12 @@ directories і не збережено як release artifact. Наступні �
 
 ## 8. Наступні кроки
 
-### P0 — manual semantic audit
+### P0 — завершити scientific audit
 
-- класифікувати всі residual temporal і comparison boundary/range
-  contradictions;
-- перевірити decisive literal і lexical families;
-- виправляти лише узагальнювані false-verdict classes; ambiguous cases
-  переводити в `UNRESOLVED`.
+- temporal і comparison boundary/range engineering audit завершено;
+- незалежно перевірити decisive literal і lexical families;
+- сформувати held-out sample, blind dual annotation та adjudication protocol;
+- regression і audit examples не використовувати як paper test set.
 
 ### P1 — frozen release run
 
@@ -360,7 +378,7 @@ directories і не збережено як release artifact. Наступні �
 - «Analyzer перевіряє повну семантичну коректність SQL».
 - «Кожний unlicensed literal або hidden threshold є багом».
 - «Fragile-gold queries уже повертають неправильну відповідь».
-- «Diagnostic totals v0.6.2 є фінальною оцінкою поширеності».
+- «Diagnostic totals v0.7.0 є фінальною оцінкою поширеності».
 - «Fixture precision є corpus-wide precision».
 - «WordNet/fuzzy matching або keyword rules самі по собі є науковою новизною».
 - «Ідентичний SQL автоматично доводить, що два питання є парафразами».
