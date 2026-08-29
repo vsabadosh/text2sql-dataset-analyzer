@@ -87,6 +87,7 @@ analyze:
         - literal_alignment
         - question_lexical_integrity
         - comparison_boundary_alignment
+        - string_match_alignment
         - temporal_anchor_provenance
       emit_supported: false
       context:

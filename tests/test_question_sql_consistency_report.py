@@ -266,7 +266,7 @@ def test_report_summarises_verdicts(populated_db):
     report = _report(*populated_db)
     assert "# Question-SQL Consistency Report" in report
     assert "## Run Provenance" in report
-    assert "**Analyzer:** `0.7.0`" in report
+    assert "**Analyzer:** `0.8.0`" in report
     assert "`comparison_boundary_alignment`" in report
     assert "`boundary_lexicon=1.1.0`" in report
     assert "`wordnet=" in report

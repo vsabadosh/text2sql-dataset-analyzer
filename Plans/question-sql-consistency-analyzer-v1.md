@@ -1,7 +1,7 @@
 # Question–SQL Consistency Analyzer: актуальний план v1
 
 Оновлено: **29 серпня 2026 року**
-Поточна версія аналізатора: **`0.7.0`**
+Поточна версія аналізатора: **`0.8.0`**
 
 Цей документ є коротким source of truth для поточного стану аналізатора і
 підготовки статті. Історію проміжних реалізацій, старі change lists, stale runs
@@ -30,7 +30,7 @@ QUESTION | SQL | CONTEXT | MAPPING
 
 - англомовні питання і `SELECT`-запити;
 - SQLite/PostgreSQL syntax, який може розібрати SQLGlot;
-- explicit lexical, literal, temporal і comparison cues;
+- explicit lexical, literal, string-match, temporal і comparison cues;
 - typed findings із question spans, SQL locations, evidence sources,
   assumptions і reason codes;
 - детермінована робота без LLM та network calls під час аналізу.
@@ -81,7 +81,7 @@ Analyzer не блокує downstream pipeline. За замовчуванням
 
 - `analyzer_version`;
 - `enabled_rules`;
-- versions lexical і boundary resources;
+- versions lexical, boundary і string-match resources;
 - dialect, language, context availability та `emit_supported`.
 
 Markdown report показує persisted run identity і відхиляє агрегацію змішаних
@@ -107,10 +107,11 @@ item-level context/evidence і незалежна ручна перевірка.
 |---|---|---|
 | `literal_alignment` | Ліцензування string/numeric literals; exact, quoted і near-miss conflicts; inflection, derivation, abbreviation, number words; hidden thresholds, boolean flags, evidence aggregate substitutions і corpus-gated filters | Неліцензований literal сам по собі лишається `UNRESOLVED` |
 | `question_lexical_integrity` | Question-side OOV near-miss до identifier, який реально використано gold SQL; trusted paraphrase evidence; report-only identical-SQL peers | Не сканує всю schema; непідтверджені peers не стають contradiction |
+| `string_match_alignment` | Explicit exact/prefix/suffix/contains cues і direct positive/negative polarity, зв’язані з одним static `LIKE`/`ILIKE` predicate | DQS, `_`, `ESCAPE`, internal/repeated `%`, wrappers, dynamic patterns, whole-word claims, Boolean/negation complexity, ambiguous value/role/source і nested/set scopes дають abstention |
 | `temporal_anchor_provenance` | Explicit dates/years, canonical sets, ranges, whole-year half-open successors і supported relative-time derivations лише з явним anchor | Time-of-day, відсутній anchor і derived/unsupported multi-period realization дають abstention |
 | `comparison_boundary_alignment` | Explicit single boundaries і ranges, зв’язані з direct-column filter; evidence-aware target attribution для affirmative numeric conventions | Bare `until`, evidence-conflicted `since`, negation, OR, nested/set scopes, ambiguous roles та unsupported modifiers дають abstention |
 
-У shipped config увімкнені саме ці чотири правила.
+У shipped config увімкнені саме ці п’ять правил.
 
 ### 3.2. Треба покрити до подачі статті
 
@@ -129,18 +130,21 @@ human annotation. До подачі треба:
    fixtures не включати до evaluation sample.
 4. Corpus layer: підтвердити, що recurrence описує benchmark convention, але
    не перетворює `UNRESOLVED` на дефект без item-level evidence.
+5. `string_match_alignment`: оцінювати як supporting detector, окремо по
+   mode/polarity; current corpus не покриває всі advertised класи достатньою
+   кількістю незалежних contradictions.
 
 Implementation coverage не вважати scientific validation: потрібні held-out
 annotations, baselines і confidence intervals.
 
-### 3.3. Єдиний кандидат на додаткове правило
+### 3.3. Реалізоване supporting rule
 
-`string_match_alignment` поки не реалізовано. Його варто додавати лише після
-frozen evaluation, якщо exact wildcard semantics (`LIKE`, prefix/suffix/
-contains, custom `ESCAPE`) дасть підтверджені унікальні дефекти понад чинні
-правила і baselines.
-
-Це потенційне розширення статті, а не blocker для validation поточного core.
+`string_match_alignment` реалізовано у strict allowlist і пройшло незалежне
+adversarial review без blocker/high findings. На поточному корпусі воно дало
+один новий confirmed intensional defect, який інші правила лише ліцензували як
+literal. Це incremental value для system-level audit, але не достатня
+самостійна наукова новизна: у статті правило слід подавати як supporting
+component/ablation, а не окремий contribution.
 
 ### 3.4. Опційні правила без достатньої самостійної наукової новизни
 
@@ -193,6 +197,9 @@ detector verdict заднім числом.
 - **80 manually checked positive findings у 78 unique items**: 65 раніше
   стабілізованих non-temporal findings і 15 residual temporal contradictions
   `0.7.0`; це engineering audit ledger, не blind paper estimate;
+- **1 новий unique string-match defect**: `contains` у question проти exact
+  `LIKE` pattern; ще два intensional defects із DQS RHS навмисно лишаються
+  `UNRESOLVED` без schema-level identifier resolution;
 - **106 hidden-threshold records**: повторювані неявні пороги є evidence
   benchmark convention, а не автоматично SQL bugs;
 - **3 corpus-confirmed unrequested filters**;
@@ -293,19 +300,20 @@ Paper-result можна фіксувати лише коли:
 Єдина актуальна історія запуску в цьому документі:
 
 - дата: **29 серпня 2026 року**;
-- analyzer: **`0.7.0`**; boundary lexicon: **`1.1.0`**;
-- full suite: **1 020 passed, 1 skipped**;
+- analyzer: **`0.8.0`**; boundary lexicon: **`1.1.0`**; string-match
+  lexicon: **`1.0.0`**;
+- full suite: **1 109 passed, 1 skipped**;
 - linter diagnostics і `git diff --check`: без нових помилок.
 
 Diagnostic pipeline totals — це **кількість rule verdicts, не item count**:
 
 | Corpus | Items | SUPPORTED | CONTRADICTED | UNRESOLVED |
 |---|---:|---:|---:|---:|
-| Spider dev | 1 034 | 701 | 10 | 65 |
-| Spider test | 2 147 | 1 379 | 14 | 95 |
-| Spider train | 8 659 | 7 239 | 73 | 710 |
+| Spider dev | 1 034 | 702 | 11 | 67 |
+| Spider test | 2 147 | 1 390 | 14 | 113 |
+| Spider train | 8 659 | 7 246 | 73 | 771 |
 | BIRD dev | 1 534 | 2 339 | 9 | 242 |
-| BIRD train | 9 428 | 14 602 | 117 | 1 418 |
+| BIRD train | 9 428 | 14 605 | 117 | 1 421 |
 
 Стабільні diagnostic anchors:
 
@@ -320,6 +328,9 @@ Diagnostic pipeline totals — це **кількість rule verdicts, не ite
   engineering audit: Spider train 4, BIRD dev 2, BIRD train 9;
 - **28/28 residual boundary contradictions** підтверджено; 9 evidence-licensed
   SQL cases тепер правильно target-яться як `MAPPING`;
+- `string_match_alignment`: **22 SUPPORTED / 1 CONTRADICTED / 84 UNRESOLVED**;
+  єдина contradiction — independently checked true defect і unique finding,
+  а 70 DQS cases консервативно abstain-яться;
 - baseline audit `0.6.2` мав 75 findings: 42 true, 31 false verdicts і
   2 ambiguous. У `0.7.0` усі 30 temporal false contradictions усунуто, bare
   `until` і 2 evidence-conflicted `since` cases переведено в `UNRESOLVED`;
@@ -335,6 +346,8 @@ directories і не збережено як release artifact. Наступні �
 
 - temporal і comparison boundary/range engineering audit завершено;
 - незалежно перевірити decisive literal і lexical families;
+- включити string-match mode/polarity у held-out sample, не використовуючи
+  corpus item або adversarial probes, які впливали на strict allowlist;
 - сформувати held-out sample, blind dual annotation та adjudication protocol;
 - regression і audit examples не використовувати як paper test set.
 
@@ -358,8 +371,8 @@ directories і не збережено як release artifact. Наступні �
 
 ### P4 — рішення про scope статті
 
-- додати `string_match_alignment` лише за наявності incremental scientific
-  value;
+- лишити `string_match_alignment` supporting component, доки held-out
+  evaluation не покаже ширший incremental signal;
 - `aggregation_alignment` і `ordering_topk_alignment` не включати без нового
   contribution proof.
 
@@ -378,7 +391,7 @@ directories і не збережено як release artifact. Наступні �
 - «Analyzer перевіряє повну семантичну коректність SQL».
 - «Кожний unlicensed literal або hidden threshold є багом».
 - «Fragile-gold queries уже повертають неправильну відповідь».
-- «Diagnostic totals v0.7.0 є фінальною оцінкою поширеності».
+- «Diagnostic totals v0.8.0 є фінальною оцінкою поширеності».
 - «Fixture precision є corpus-wide precision».
 - «WordNet/fuzzy matching або keyword rules самі по собі є науковою новизною».
 - «Ідентичний SQL автоматично доводить, що два питання є парафразами».
@@ -393,7 +406,8 @@ directories і не збережено як release artifact. Наступні �
   `src/text2sql_pipeline/analyzers/question_sql_consistency/metrics.py`;
 - shipped configuration: `configs/pipeline.example.yaml`;
 - detector tests: `tests/test_question_sql_consistency_detector.py`,
-  `tests/test_comparison_boundaries.py`;
+  `tests/test_comparison_boundaries.py`,
+  `tests/test_string_match_alignment.py`;
 - analyzer/report integration tests:
   `tests/test_question_sql_consistency_analyzer.py`,
   `tests/test_question_sql_consistency_report.py`;

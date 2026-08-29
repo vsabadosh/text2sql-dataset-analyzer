@@ -20,6 +20,7 @@ from .metrics import (
     QuestionSqlConsistencyStats,
     QuestionSqlConsistencyTags,
 )
+from .string_match_alignment import STRING_MATCH_LEXICON_VERSION
 
 
 @register_analyzer("question_sql_consistency_analyzer")
@@ -70,6 +71,10 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
             self.resource_versions.update(lexical_resources.resource_versions())
         if enabled and ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT in self.rules:
             self.resource_versions["boundary_lexicon"] = BOUNDARY_LEXICON_VERSION
+        if enabled and ConsistencyRule.STRING_MATCH_ALIGNMENT in self.rules:
+            self.resource_versions["string_match_lexicon"] = (
+                STRING_MATCH_LEXICON_VERSION
+            )
 
     def analyze(
         self,

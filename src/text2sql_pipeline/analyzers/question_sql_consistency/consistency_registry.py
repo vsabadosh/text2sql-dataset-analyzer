@@ -19,6 +19,7 @@ IMPLEMENTED_RULES = frozenset(
         ConsistencyRule.LITERAL_ALIGNMENT,
         ConsistencyRule.QUESTION_LEXICAL_INTEGRITY,
         ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
+        ConsistencyRule.STRING_MATCH_ALIGNMENT,
         ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
     }
 )
@@ -27,6 +28,7 @@ DEFAULT_RULES = (
     ConsistencyRule.LITERAL_ALIGNMENT,
     ConsistencyRule.QUESTION_LEXICAL_INTEGRITY,
     ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
+    ConsistencyRule.STRING_MATCH_ALIGNMENT,
     ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
 )
 
@@ -99,6 +101,65 @@ REASON_CODE_NOTES: dict[str, str] = {
         "used by a same-database question with identical gold SQL. Without an "
         "explicit paraphrase-group assertion this remains an unresolved corpus "
         "candidate, not a proven typo."
+    ),
+    "STRING_MATCH_ALIGNMENT_MATCH": (
+        "An explicit exact, prefix, suffix or contains cue agrees with the shape "
+        "and polarity of one static LIKE or ILIKE predicate."
+    ),
+    "STRING_MATCH_MODE_CONFLICT": (
+        "An explicit string-match cue and static SQL pattern bind to the same "
+        "value and role but express different exact/prefix/suffix/contains modes."
+    ),
+    "STRING_MATCH_POLARITY_CONFLICT": (
+        "An explicit positive or negative string-match cue binds to a static SQL "
+        "pattern with the opposite LIKE polarity."
+    ),
+    "STRING_MATCH_PATTERN_UNRESOLVED": (
+        "The SQL pattern uses underscore, escaping, internal percent wildcards "
+        "or another shape outside the strict edge-percent allowlist."
+    ),
+    "STRING_MATCH_WRAPPER_UNRESOLVED": (
+        "The LIKE predicate transforms or wraps its left-hand role, so direct "
+        "question-to-column match semantics are not established."
+    ),
+    "STRING_MATCH_DYNAMIC_PATTERN_UNRESOLVED": (
+        "The LIKE pattern is computed dynamically instead of being one static "
+        "string literal."
+    ),
+    "STRING_MATCH_BOOLEAN_UNRESOLVED": (
+        "The LIKE predicate occurs under SQL disjunction, so its local shape "
+        "does not establish the complete requested condition."
+    ),
+    "STRING_MATCH_SQL_NEGATION_UNRESOLVED": (
+        "The LIKE predicate is nested under unsupported SQL negation rather than "
+        "one direct NOT LIKE."
+    ),
+    "STRING_MATCH_QUESTION_NEGATION_UNRESOLVED": (
+        "The match cue occurs under unsupported question-level exclusion or "
+        "negation, so polarity is not inverted locally."
+    ),
+    "STRING_MATCH_QUESTION_BOOLEAN_UNRESOLVED": (
+        "The question coordinates multiple string-match values or modes, so "
+        "one local cue-pattern pair does not establish the full request."
+    ),
+    "STRING_MATCH_DQS_UNRESOLVED": (
+        "A double-quoted SQLite RHS may resolve as an identifier or a legacy "
+        "string fallback; schema resolution was not supplied."
+    ),
+    "STRING_MATCH_DIALECT_UNRESOLVED": (
+        "The configured SQL dialect has wildcard or string-literal semantics "
+        "outside the validated v1 dialect allowlist."
+    ),
+    "STRING_MATCH_WORD_BOUNDARY_UNRESOLVED": (
+        "The question requests a whole word, while edge-percent LIKE proves "
+        "only substring containment."
+    ),
+    "STRING_MATCH_SCOPE_UNRESOLVED": (
+        "The LIKE predicate is outside the supported root WHERE/HAVING scope."
+    ),
+    "STRING_MATCH_ROLE_UNRESOLVED": (
+        "The explicit string-match cue and value bind to more than one SQL "
+        "predicate role."
     ),
     "EXPLICIT_TEMPORAL_VALUE_MATCH": (
         "The explicit date or year in the question is present in the SQL "

@@ -17,12 +17,16 @@ Implemented rules:
   the table and column identifiers used by the current gold SQL; the report
   adds an independent corpus-level check against paraphrases with identical
   gold SQL in the same database;
+- `string_match_alignment`: explicit exact, starts-with, ends-with and contains
+  cues bound to one static `LIKE`/`ILIKE` predicate, including direct
+  positive/negative polarity. The v1 rule is intentionally fail-closed:
+  ambiguous value, role, source, Boolean, negation, whole-word, wildcard or
+  dialect semantics abstain;
 - `comparison_boundary_alignment`: versioned comparison cues and explicit
   values bound to one root-query SQL filter role, including ranges; nested and
   set-operation scopes are outside v1 and emit no boundary finding. Bare
-  `from … until` uses an exclusive upper bound; explicit endpoint modifiers
-  such as `inclusive` or `exclusive`, exclusion scope, and identifier-like
-  columns without an explicit `id`/`code` role abstain in v1;
+  `from … until`, unsupported endpoint modifiers, exclusion scope, and
+  identifier-like columns without an explicit `id`/`code` role abstain in v1;
 - `temporal_anchor_provenance`: explicit date/year checks and validation of
   relative-time phrases only when the dataset supplies a reference datetime.
   Explicit times of day abstain because v1 compares calendar dates only.
@@ -54,7 +58,9 @@ The analyzer never substitutes the machine's current date for missing
 benchmark context. SQLite double-quoted predicate values are retained under a
 reported `SQLITE_DQS_STRING_FALLBACK` assumption because Spider frequently uses
 legacy double-quoted strings. This fallback is disabled for PostgreSQL and
-other dialects, where double quotes denote identifiers.
+other dialects, where double quotes denote identifiers. The stricter
+`string_match_alignment` rule does not use that fallback: without schema
+resolution a double-quoted `LIKE` RHS remains `UNRESOLVED`.
 
 ## Pipeline contract
 
@@ -73,9 +79,9 @@ subset: `SUPPORTED` findings appear only when `emit_supported: true`. The
 sources, allowing the report to calculate recurrence and evidence-only
 licensing without exposing all supported findings. Compact `rule_records`
 likewise keep rule/reason totals consistent with the summary. Every metric row
-also persists the analyzer version, enabled rules and lexical/boundary resource
-versions. The markdown report displays that identity and rejects mixed-version
-aggregation.
+also persists the analyzer version, enabled rules and lexical, boundary and
+string-match resource versions. The markdown report displays that identity and
+rejects mixed-version aggregation.
 
 ## Reproducing the BIRD experiment
 
@@ -96,8 +102,16 @@ python scripts/validate_bird_aggregate_substitutions.py
 
 - A single quote inside a word is treated as English possessive morphology, not
   as a quoted value, so "the owner's name" produces no quoted question value.
-- `LIKE` payload extraction assumes the default backslash escape; a custom
-  `ESCAPE` clause belongs to the planned `string_match_alignment` rule.
+- Literal licensing strips default `LIKE` wildcards only to recover lexical
+  payload. Separately, `string_match_alignment` resolves only static
+  single-quoted patterns in the validated SQLite/PostgreSQL dialect subset:
+  no `%`, one trailing `%`, one leading `%`, or one `%` at each edge.
+  Underscore, `ESCAPE`, internal/repeated `%`, dynamic patterns, transformed
+  columns and dialect-specific wildcard syntax remain `UNRESOLVED`.
+- String-match cues must bind to an adjacent value and the attached
+  column/source role. OR/AND specifications, outer negation, unsupported SQL
+  Boolean wrappers, nested/set scopes and whole-word claims abstain rather than
+  being simplified locally.
 - Literals without lexical content (`''`, a bare `'%'`) carry no obligation and
   are skipped rather than reported as unlicensed.
 - Years are recognized only in the 1500-2199 window to keep round quantities

@@ -54,6 +54,7 @@ from .question_normalization import (
     quoted_spans,
     value_tokens,
 )
+from .string_match_alignment import detect_string_match_alignment
 
 
 _ISO_DATE_RE = re.compile(
@@ -343,6 +344,16 @@ def detect_consistency(
             scope_reliable=scope_index.reliable,
         )
         findings.extend(boundary_findings)
+        applicable_rules += int(applicable)
+
+    if ConsistencyRule.STRING_MATCH_ALIGNMENT in selected_rules:
+        string_findings, applicable = detect_string_match_alignment(
+            normalized_question,
+            ast,
+            dialect=dialect or "sqlite",
+            scope_index=scope_index,
+        )
+        findings.extend(string_findings)
         applicable_rules += int(applicable)
 
     if ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE in selected_rules:
