@@ -11,6 +11,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer.scope import traverse_scope
 
+from .comparison_boundaries import detect_comparison_boundaries
 from .consistency_registry import ConsistencyRule, select_rules
 from .context_manifest import ContextManifest
 from .lexical_resources import (
@@ -62,7 +63,10 @@ _ISO_DATE_RE = re.compile(
 # quantities into temporal cues ("between 600 and 1000 faculty") and produced
 # false temporal conflicts on Spider train.
 _YEAR_RE = re.compile(r"^(?:1[5-9][0-9]{2}|20[0-9]{2}|21[0-9]{2})$")
-_QUESTION_DATE_RE = re.compile(r"(?<!\d)(?P<date>\d{4}[-/]\d{1,2}[-/]\d{1,2})(?!\d)")
+_QUESTION_DATE_RE = re.compile(
+    r"(?<!\d)(?P<date>\d{4}[-/]\d{1,2}[-/]\d{1,2}"
+    r"(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?)(?!\d)"
+)
 _QUESTION_YEAR_RE = re.compile(
     r"(?<![\d/-])(?P<year>(?:1[5-9]\d{2}|20\d{2}|21\d{2}))(?![\d/-])"
 )
@@ -78,6 +82,12 @@ _TEMPORAL_ROLE_RE = re.compile(
 _TEMPORAL_PREPOSITION_RE = re.compile(
     r"\b(?:in|on|at|since|before|after|during|until|till|by|from|between|within|"
     r"throughout|prior\s+to|as\s+of|year|years)\b[\s,(]*$",
+    re.IGNORECASE,
+)
+_COORDINATED_TEMPORAL_YEAR_RE = re.compile(
+    r"\b(?:in|on|during|from|between|within|year|years)\b"
+    r"[^.;?!]{0,32}\b(?:1[5-9]\d{2}|20\d{2}|21\d{2})"
+    r"\s*(?:and|to|through|until|-)\s*$",
     re.IGNORECASE,
 )
 _RELATIVE_PATTERNS = (
@@ -173,6 +183,10 @@ class LiteralObligation:
     table: str
     source_table: str
     scope_id: int
+    negated: bool
+    clause: str
+    disjunctive: bool
+    scope_relevant: bool
     sql_location: str
     dqs_fallback: bool = False
 
@@ -227,6 +241,7 @@ class QueryScopeIndex:
     nodes: dict[int, int]
     expressions: dict[int, exp.Expression]
     parents: dict[int, int | None]
+    relevant: dict[int, bool]
     reliable: bool = True
 
 
@@ -297,6 +312,15 @@ def detect_consistency(
             dialect or "sqlite",
         )
         findings.extend(lexical_findings)
+        applicable_rules += int(applicable)
+
+    if ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT in selected_rules:
+        boundary_findings, applicable = detect_comparison_boundaries(
+            normalized_question,
+            obligations,
+            scope_reliable=scope_index.reliable,
+        )
+        findings.extend(boundary_findings)
         applicable_rules += int(applicable)
 
     if ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE in selected_rules:
@@ -530,6 +554,7 @@ def _build_scope_index(ast: exp.Expression) -> QueryScopeIndex:
             nodes={id(node): 0 for node in ast.walk()},
             expressions={0: ast},
             parents={0: None},
+            relevant={0: True},
             reliable=False,
         )
 
@@ -538,7 +563,10 @@ def _build_scope_index(ast: exp.Expression) -> QueryScopeIndex:
         scope_id: scope_ids.get(id(scope.parent)) if scope.parent is not None else None
         for scope_id, scope in enumerate(scopes)
     }
-
+    relevant = {
+        scope_id: _scope_is_question_relevant(scope)
+        for scope_id, scope in enumerate(scopes)
+    }
     # sqlglot traverses child scopes before their parents. setdefault therefore
     # keeps an inner node bound to its own scope when the outer walk reaches it.
     for scope_id, scope in enumerate(scopes):
@@ -554,6 +582,7 @@ def _build_scope_index(ast: exp.Expression) -> QueryScopeIndex:
                 nodes={id(node): 0 for node in ast.walk()},
                 expressions={0: ast},
                 parents={0: None},
+                relevant={0: True},
                 reliable=False,
             )
         selected_sources = {
@@ -587,7 +616,12 @@ def _build_scope_index(ast: exp.Expression) -> QueryScopeIndex:
         nodes=nodes,
         expressions=expressions,
         parents=parents,
+        relevant=relevant,
     )
+
+
+def _scope_is_question_relevant(scope) -> bool:
+    return scope.parent is None
 
 
 def _question_lexical_integrity(
@@ -1027,9 +1061,54 @@ def _make_obligation(
         table=table,
         source_table=source_table,
         scope_id=scope_id,
+        negated=_predicate_has_sql_negation(predicate),
+        clause=_predicate_clause(predicate),
+        disjunctive=_predicate_is_disjunctive(predicate),
+        scope_relevant=scope_index.relevant.get(scope_id, False),
         sql_location=predicate.sql(dialect=dialect),
         dqs_fallback=dqs_fallback,
     )
+
+
+def _predicate_has_sql_negation(predicate: exp.Expression) -> bool:
+    current = predicate.parent
+    while current is not None:
+        if isinstance(
+            current,
+            (exp.Not, exp.Case, exp.If, exp.Coalesce, exp.Nullif),
+        ):
+            return True
+        if isinstance(current, (*_COMPARISON_TYPES, exp.Is)):
+            return True
+        current = current.parent
+    return False
+
+
+def _predicate_clause(predicate: exp.Expression) -> str:
+    current = predicate.parent
+    while current is not None and not isinstance(current, exp.Query):
+        if isinstance(current, exp.Where):
+            return "WHERE"
+        if isinstance(current, exp.Having):
+            return "HAVING"
+        if isinstance(current, exp.Join):
+            return "JOIN_ON"
+        if isinstance(current, exp.Order):
+            return "ORDER_BY"
+        current = current.parent
+    return "OTHER"
+
+
+def _predicate_is_disjunctive(predicate: exp.Expression) -> bool:
+    current = predicate.parent
+    while current is not None and not isinstance(
+        current,
+        (exp.Query, exp.Where, exp.Having, exp.Join),
+    ):
+        if isinstance(current, exp.Or):
+            return True
+        current = current.parent
+    return False
 
 
 def _operator_name(node: exp.Expression) -> str:
@@ -1053,7 +1132,7 @@ def _reverse_operator(operator: str) -> str:
 
 
 def _literal_kind(value: str) -> str:
-    if _ISO_DATE_RE.fullmatch(value.strip()):
+    if _parse_sql_date(value) is not None:
         return "date"
     if _YEAR_RE.fullmatch(value.strip()):
         return "year"
@@ -1181,6 +1260,10 @@ def _obligation_details(
         "column_name": obligation.column,
         "table_name": obligation.source_table or obligation.table,
         "scope_id": obligation.scope_id,
+        "sql_negated": obligation.negated,
+        "sql_clause": obligation.clause,
+        "sql_disjunctive": obligation.disjunctive,
+        "sql_scope_relevant": obligation.scope_relevant,
         "license_kind": license_kind,
     }
 
@@ -2722,7 +2805,7 @@ def _temporal_anchor_provenance(
     explicit_cues = [
         cue
         for cue in explicit_cues
-        if cue.kind != "year" or _year_cue_is_temporal(question, cue, obligations)
+        if cue.kind != "year" or _year_cue_is_temporal(question, cue)
     ]
     if not relative_cues and not explicit_cues:
         return [], False
@@ -2896,6 +2979,8 @@ def _explicit_temporal_cues(
     for match in _QUESTION_DATE_RE.finditer(question.original):
         start, end = match.span("date")
         value = match.group("date")
+        if _parse_sql_date(value) is None:
+            continue
         date_ranges.append((start, end))
         cues.append(
             ExplicitTemporalCue(
@@ -3271,6 +3356,21 @@ def _evaluate_explicit_temporal(
     require_role_binding: bool,
     explicit_values: set[str],
 ) -> ConsistencyFinding:
+    if _temporal_value_has_time(cue.value):
+        return _temporal_finding(
+            cue.span,
+            obligations,
+            ConsistencyStatus.UNRESOLVED,
+            ConsistencyTarget.MAPPING,
+            "TEMPORAL_TIME_GRANULARITY_UNRESOLVED",
+            "The question names a time of day, but this rule compares calendar "
+            "dates only.",
+            EvidenceStrength.EXPLICIT,
+            details={
+                "question_temporal_value": cue.value,
+                "supported_granularity": "day",
+            },
+        )
     role_bound = [
         obligation
         for obligation in obligations
@@ -3424,21 +3524,21 @@ def _evaluate_explicit_temporal(
 def _year_cue_is_temporal(
     question: NormalizedQuestion,
     cue: ExplicitTemporalCue,
-    obligations: list[LiteralObligation],
 ) -> bool:
     """Whether a bare four-digit number in the question really denotes a year.
 
     An ISO date needs no such test, but a bare number does: Spider asks about
-    populations, enrollments and prices in the same numeric range as years.
-    Two independent corroborations are accepted, a temporal preposition
-    directly in front of the number, or a temporal obligation on the SQL side
-    for the number to be checked against. With neither, the rule stays silent
-    instead of reporting a quantity as an unbound date.
+    populations, model numbers and prices in the same numeric range as years.
+    A local temporal preposition directly in front of the number is required.
+    A coordinated second endpoint also inherits an already explicit temporal
+    range, but an unrelated SQL date predicate cannot turn an entity number
+    into a year.
     """
     preceding = question.original[: cue.span.start]
-    if _TEMPORAL_PREPOSITION_RE.search(preceding):
-        return True
-    return any(_is_temporal_obligation(obligation) for obligation in obligations)
+    return (
+        _TEMPORAL_PREPOSITION_RE.search(preceding) is not None
+        or _COORDINATED_TEMPORAL_YEAR_RE.search(preceding) is not None
+    )
 
 
 def _explicit_temporal_matches(
@@ -3555,11 +3655,24 @@ def _parse_sql_date(value: str) -> date | None:
     Comparison happens at day granularity: a question that names a day is
     satisfied by a SQL literal that pins the same day at some time of day.
     """
-    head = re.split(r"[ T]", value.strip().replace("/", "-"), maxsplit=1)[0]
-    try:
-        return date.fromisoformat(head)
-    except ValueError:
+    match = _ISO_DATE_RE.fullmatch(value.strip())
+    if match is None:
         return None
+    components = re.split(r"[ T]", value.strip(), maxsplit=1)
+    head = components[0]
+    parts = re.split(r"[-/]", head)
+    try:
+        parsed_date = date(*(int(part) for part in parts))
+        if len(components) == 2:
+            time_parts = [int(part) for part in components[1].split(":")]
+            datetime(*parsed_date.timetuple()[:3], *time_parts)
+        return parsed_date
+    except (TypeError, ValueError):
+        return None
+
+
+def _temporal_value_has_time(value: str) -> bool:
+    return re.search(r"[ T]\d{1,2}:\d{2}(?::\d{2})?$", value.strip()) is not None
 
 
 def _direct_temporal_values(

@@ -34,6 +34,7 @@ _PRODUCTIVE_SUFFIXES = (
     "er",
     "ly",
 )
+_PRODUCTIVE_PREFIXES = ("re", "un")
 # Written-number matching is useful for human-scale thresholds, not machine
 # identifiers or scientific-notation magnitudes. Keeping a finite boundary also
 # avoids inflect's documented/undocumented out-of-range failure modes.
@@ -138,19 +139,26 @@ def is_productive_derivative(token: str) -> bool:
     """Whether an OOV token is a transparent derivation of a known word.
 
     WordNet does not list every productive English derivative. This narrow
-    guard keeps forms such as ``schooler`` from becoming typo findings while
-    retaining real slips such as ``headquarted`` (its putative stem
-    ``headquart`` is unknown).
+    guard keeps forms such as ``schooler``, ``reshared`` and ``uncredited``
+    from becoming typo findings while retaining real slips such as
+    ``headquarted`` (its putative stem ``headquart`` is unknown).
     """
     folded = fold(token)
     if not folded or " " in folded or not folded.isalpha():
         return False
-    return any(
+    has_known_suffix_base = any(
         len(folded) - len(suffix) >= 3
         and folded.endswith(suffix)
         and _has_lemma_or_form(folded[: -len(suffix)])
         for suffix in _PRODUCTIVE_SUFFIXES
     )
+    has_known_prefix_base = any(
+        len(folded) - len(prefix) >= 3
+        and folded.startswith(prefix)
+        and _has_lemma_or_form(folded[len(prefix) :])
+        for prefix in _PRODUCTIVE_PREFIXES
+    )
+    return has_known_suffix_base or has_known_prefix_base
 
 
 def number_inflection_forms(value: str) -> tuple[str, ...]:

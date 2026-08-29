@@ -57,6 +57,7 @@ analyze:
       rules:
         - literal_alignment
         - question_lexical_integrity
+        - comparison_boundary_alignment
         - temporal_anchor_provenance
       emit_supported: false
       context:

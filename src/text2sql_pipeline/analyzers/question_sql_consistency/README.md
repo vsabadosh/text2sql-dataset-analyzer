@@ -17,8 +17,15 @@ Implemented rules:
   the table and column identifiers used by the current gold SQL; the report
   adds an independent corpus-level check against paraphrases with identical
   gold SQL in the same database;
+- `comparison_boundary_alignment`: versioned comparison cues and explicit
+  values bound to one root-query SQL filter role, including ranges; nested and
+  set-operation scopes are outside v1 and emit no boundary finding. Bare
+  `from … until` uses an exclusive upper bound; explicit endpoint modifiers
+  such as `inclusive` or `exclusive`, exclusion scope, and identifier-like
+  columns without an explicit `id`/`code` role abstain in v1;
 - `temporal_anchor_provenance`: explicit date/year checks and validation of
   relative-time phrases only when the dataset supplies a reference datetime.
+  Explicit times of day abstain because v1 compares calendar dates only.
 
 ## Lexical corpora
 
@@ -65,7 +72,10 @@ subset: `SUPPORTED` findings appear only when `emit_supported: true`. The
 `corpus_records` always retain every literal obligation and its evidence
 sources, allowing the report to calculate recurrence and evidence-only
 licensing without exposing all supported findings. Compact `rule_records`
-likewise keep rule/reason totals consistent with the summary.
+likewise keep rule/reason totals consistent with the summary. Every metric row
+also persists the analyzer version, enabled rules and lexical/boundary resource
+versions. The markdown report displays that identity and rejects mixed-version
+aggregation.
 
 ## Reproducing the BIRD experiment
 
@@ -91,7 +101,9 @@ python scripts/validate_bird_aggregate_substitutions.py
 - Literals without lexical content (`''`, a bare `'%'`) carry no obligation and
   are skipped rather than reported as unlicensed.
 - Years are recognized only in the 1500-2199 window to keep round quantities
-  from becoming temporal cues.
+  from becoming temporal cues. A bare year additionally needs a local temporal
+  preposition; an unrelated SQL date predicate cannot turn a model or entity
+  number into a year.
 - `context.value_aliases_file` is read once during wiring; a bad path fails the
   run at startup instead of degrading every item.
 - Per-item `context.column_domains` can confirm a 0/1 boolean encoding.

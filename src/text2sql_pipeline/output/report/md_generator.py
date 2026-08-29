@@ -1249,6 +1249,7 @@ class MarkdownReportGenerator:
         sections.append("")
 
         try:
+            sections.extend(self._consistency_provenance_lines(table))
             sections.extend(self._consistency_summary_lines(table))
             sections.extend(self._consistency_rule_lines(table))
             sections.extend(self._consistency_reason_code_lines(table))
@@ -1278,6 +1279,66 @@ class MarkdownReportGenerator:
             sections.append(f"*Error generating report: {e}*")
 
         Path(output_path).write_text("\n".join(sections), encoding="utf-8")
+
+    def _consistency_provenance_lines(self, table: str) -> list:
+        """Persisted code/config/resource identity for reproducible verdicts."""
+        required = {
+            "analyzer_version",
+            "dialect",
+            "language",
+            "enabled_rules",
+            "resource_versions",
+        }
+        if not required <= self._table_columns(table):
+            return [
+                "## Run Provenance",
+                "",
+                "- **Status:** incomplete legacy artifact; regenerate metrics "
+                "before using this report for publication.",
+                "",
+            ]
+
+        rows = self.conn.execute(f"""
+            SELECT analyzer_version,
+                   dialect,
+                   language,
+                   CAST(enabled_rules AS VARCHAR),
+                   CAST(resource_versions AS VARCHAR),
+                   COUNT(*)
+            FROM {table}
+            GROUP BY 1, 2, 3, 4, 5
+            ORDER BY 1, 2, 3, 4, 5
+        """).fetchall()
+        if not rows:
+            return []
+        if len(rows) != 1:
+            identities = "; ".join(
+                f"version={row[0]}, dialect={row[1]}, language={row[2]}, "
+                f"rules={row[3]}, resources={row[4]}"
+                for row in rows
+            )
+            raise ValueError(
+                "Mixed question-SQL consistency provenance; regenerate one "
+                f"homogeneous artifact instead of aggregating: {identities}"
+            )
+
+        version, dialect, language, rules_json, resources_json, count = rows[0]
+        rules = json.loads(rules_json or "[]")
+        resources = json.loads(resources_json or "{}")
+        resource_text = ", ".join(
+            f"`{name}={value}`" for name, value in sorted(resources.items())
+        )
+        return [
+            "## Run Provenance",
+            "",
+            f"- **Analyzer:** `{version}` · **Dialect:** `{dialect}` · "
+            f"**Language:** `{language}`",
+            "- **Enabled rules:** "
+            + (", ".join(f"`{rule}`" for rule in rules) or "none"),
+            "- **Resources:** " + (resource_text or "none"),
+            f"- **Metric rows:** {count:,}",
+            "",
+        ]
 
     def _consistency_summary_lines(self, table: str) -> list:
         """How much of the partition the analyzer could judge, and how it ruled."""

@@ -118,7 +118,9 @@ class QuestionSqlConsistencyStats(BaseModel):
 class QuestionSqlConsistencyTags(BaseModel):
     dialect: str = "sqlite"
     language: str = "en"
-    analyzer_version: str = "0.5.1"
+    analyzer_version: str = "0.6.2"
+    enabled_rules: list[str] = Field(default_factory=list)
+    resource_versions: dict[str, str] = Field(default_factory=dict)
     context_available: str = "false"
     emit_supported: str = "false"
 

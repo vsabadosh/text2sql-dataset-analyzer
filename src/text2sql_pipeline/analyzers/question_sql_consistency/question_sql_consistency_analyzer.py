@@ -10,6 +10,7 @@ from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 
 from . import lexical_resources
+from .comparison_boundaries import BOUNDARY_LEXICON_VERSION
 from .consistency_detector import detect_consistency
 from .consistency_registry import ConsistencyRule, select_rules
 from .context_manifest import ContextManifest, load_context_manifest, load_value_aliases
@@ -52,17 +53,23 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
         self.file_aliases = load_value_aliases(
             self.context_config.get("value_aliases_file")
         )
-        if enabled and any(
+        needs_lexical_resources = enabled and any(
             rule in self.rules
             for rule in (
                 ConsistencyRule.LITERAL_ALIGNMENT,
                 ConsistencyRule.QUESTION_LEXICAL_INTEGRITY,
+                ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
             )
-        ):
+        )
+        self.resource_versions: dict[str, str] = {}
+        if needs_lexical_resources:
             # The lexical guards decide verdicts, so a missing corpus has to
             # stop the run here. Degrading quietly would keep the rule firing
             # at a worse false-positive rate, which is harder to notice.
             lexical_resources.ensure_available()
+            self.resource_versions.update(lexical_resources.resource_versions())
+        if enabled and ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT in self.rules:
+            self.resource_versions["boundary_lexicon"] = BOUNDARY_LEXICON_VERSION
 
     def analyze(
         self,
@@ -179,6 +186,8 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
                 tags=QuestionSqlConsistencyTags(
                     dialect=self.db_dialect,
                     language=self.language,
+                    enabled_rules=[rule.value for rule in self.rules],
+                    resource_versions=self.resource_versions,
                     context_available=str(context_available).casefold(),
                     emit_supported=str(self.emit_supported).casefold(),
                 ),

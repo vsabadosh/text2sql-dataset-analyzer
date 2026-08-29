@@ -18,6 +18,7 @@ IMPLEMENTED_RULES = frozenset(
     {
         ConsistencyRule.LITERAL_ALIGNMENT,
         ConsistencyRule.QUESTION_LEXICAL_INTEGRITY,
+        ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
         ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
     }
 )
@@ -25,6 +26,7 @@ IMPLEMENTED_RULES = frozenset(
 DEFAULT_RULES = (
     ConsistencyRule.LITERAL_ALIGNMENT,
     ConsistencyRule.QUESTION_LEXICAL_INTEGRITY,
+    ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
     ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
 )
 
@@ -133,6 +135,72 @@ REASON_CODE_NOTES: dict[str, str] = {
         "The date or year matches, but strictness, inclusivity or polarity does "
         "not. The temporal rule abstains because that verdict belongs to "
         "comparison_boundary_alignment."
+    ),
+    "TEMPORAL_TIME_GRANULARITY_UNRESOLVED": (
+        "The question names a time of day, while the deterministic temporal "
+        "rule currently compares calendar dates only."
+    ),
+    "COMPARISON_BOUNDARY_MATCH": (
+        "An explicit comparison cue, its value and one SQL predicate role agree "
+        "on strictness and direction."
+    ),
+    "COMPARISON_BOUNDARY_CONFLICT": (
+        "An explicit comparison cue is bound to one SQL predicate with the same "
+        "value, but SQL uses an incompatible operator."
+    ),
+    "COMPARISON_BOUNDARY_ROLE_UNRESOLVED": (
+        "A comparison cue and value do not bind to exactly one SQL predicate "
+        "role, so the analyzer abstains instead of guessing."
+    ),
+    "COMPARISON_BOUNDARY_NEGATION_UNRESOLVED": (
+        "A comparison phrase occurs under natural-language negation, whose SQL "
+        "realization may use a direct operator, NOT EXISTS, EXCEPT or another "
+        "scope. The rule abstains rather than inverting the operator locally."
+    ),
+    "COMPARISON_BOUNDARY_REALIZATION_UNRESOLVED": (
+        "A comparative phrase is paired with equality or membership SQL. The "
+        "value may identify an entity rather than a filter threshold, so the "
+        "rule abstains."
+    ),
+    "COMPARISON_SQL_NEGATION_UNRESOLVED": (
+        "The SQL comparison is negated or embedded in an unsupported Boolean "
+        "context. Effective semantics require Boolean normalization, so the "
+        "rule abstains."
+    ),
+    "COMPARISON_ORDINAL_POLARITY_UNRESOLVED": (
+        "Higher/lower ordinal rank can invert numeric direction. Without an "
+        "explicit ranking-domain convention, the rule abstains."
+    ),
+    "COMPARISON_RANGE_MATCH": (
+        "An explicit natural-language range is realized with the endpoint "
+        "semantics declared by its cue; bare 'until' uses an exclusive upper bound."
+    ),
+    "COMPARISON_RANGE_CONFLICT": (
+        "An explicit natural-language range is bound to SQL, but at least one "
+        "boundary has incompatible direction or strictness."
+    ),
+    "COMPARISON_RANGE_ROLE_UNRESOLVED": (
+        "The two range values could not be bound to exactly one SQL predicate pair."
+    ),
+    "COMPARISON_RANGE_REALIZATION_UNRESOLVED": (
+        "Range wording is paired with equality or membership SQL and may compare "
+        "two selected entities rather than define filter boundaries."
+    ),
+    "COMPARISON_RANGE_BOOLEAN_UNRESOLVED": (
+        "Range bounds occur under SQL disjunction and therefore do not establish "
+        "one conjunctive bounded interval."
+    ),
+    "COMPARISON_RANGE_NEGATION_UNRESOLVED": (
+        "The natural-language range is negated, and its complement may be realized "
+        "through OR, NOT BETWEEN, EXCEPT or another scope."
+    ),
+    "COMPARISON_RANGE_MODIFIER_UNRESOLVED": (
+        "The range carries an endpoint modifier outside the v1 allowlist, so "
+        "inclusivity is not guessed."
+    ),
+    "COMPARISON_BOOLEAN_CONTEXT_UNRESOLVED": (
+        "A single SQL comparison occurs under OR, so its local operator does not "
+        "by itself establish the requested Boolean boundary."
     ),
     "TEMPORAL_REALIZATION_UNSUPPORTED": (
         "A reference datetime is available, but the SQL expresses the interval "

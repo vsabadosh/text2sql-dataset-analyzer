@@ -37,7 +37,10 @@ def test_known_word_or_form_accepts_regular_inflections():
 
 def test_productive_derivative_guard_is_conservative():
     assert lex.is_productive_derivative("schooler") is True
+    assert lex.is_productive_derivative("reshared") is True
+    assert lex.is_productive_derivative("uncredited") is True
     assert lex.is_productive_derivative("headquarted") is False
+    assert lex.is_productive_derivative("recieved") is False
 
 
 def test_number_inflection_forms_cover_identifier_references():

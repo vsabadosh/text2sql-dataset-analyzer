@@ -94,6 +94,8 @@ QUESTION_SQL_CONSISTENCY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("dialect", "VARCHAR"),
     ("language", "VARCHAR"),
     ("analyzer_version", "VARCHAR"),
+    ("enabled_rules", "JSON"),
+    ("resource_versions", "JSON"),
     ("context_available", "VARCHAR"),
     ("emit_supported", "VARCHAR"),
 )
@@ -870,6 +872,8 @@ class DuckDBMetricsSink(MetricsSink):
                 tags.get("dialect"),
                 tags.get("language"),
                 tags.get("analyzer_version"),
+                json.dumps(tags.get("enabled_rules", [])),
+                json.dumps(tags.get("resource_versions", {})),
                 tags.get("context_available"),
                 tags.get("emit_supported"),
             ])

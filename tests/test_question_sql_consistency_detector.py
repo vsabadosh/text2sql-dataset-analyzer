@@ -707,6 +707,29 @@ def test_identifier_suffix_and_derivation_guards_prevent_false_typos():
     assert features.contradicted_count == 0
 
 
+@pytest.mark.parametrize(
+    "question,sql",
+    [
+        (
+            "List the texts of all messages that were reshared.",
+            "SELECT text FROM message WHERE IsReshare = 1",
+        ),
+        (
+            "How many cast members were uncredited?",
+            "SELECT count(*) FROM cast_member WHERE credited = 0",
+        ),
+    ],
+)
+def test_productive_prefixed_words_are_not_identifier_typos(question, sql):
+    features = detect_consistency(
+        question,
+        sql,
+        rules=["question_lexical_integrity"],
+    )
+
+    assert features.contradicted_count == 0
+
+
 def test_rule_uses_only_identifiers_from_the_current_gold_sql():
     features = detect_consistency(
         "Show the custmers.",
@@ -1249,6 +1272,99 @@ def test_explicit_year_conflict_is_contradicted():
     "question,sql",
     [
         (
+            "Show schools opened after 2000/1/1.",
+            "SELECT * FROM school WHERE open_date > '2000-01-01'",
+        ),
+        (
+            "Show events held on 2010-1-1.",
+            "SELECT * FROM event WHERE event_date = '2010/01/01'",
+        ),
+    ],
+)
+def test_equivalent_padded_and_unpadded_dates_match(question, sql):
+    features = detect_consistency(
+        question,
+        sql,
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_MATCH").status == (
+        ConsistencyStatus.SUPPORTED
+    )
+
+
+def test_distinct_calendar_dates_still_conflict_after_normalization():
+    features = detect_consistency(
+        "Show schools opened after 2000/1/1.",
+        "SELECT * FROM school WHERE open_date > '2000-01-02'",
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT").status == (
+        ConsistencyStatus.CONTRADICTED
+    )
+
+
+def test_unanchored_model_number_is_not_a_year_when_a_full_date_is_present():
+    features = detect_consistency(
+        "What quantity of Printer 1952 was ordered on 2014/9/10?",
+        (
+            "SELECT quantity FROM orders "
+            "WHERE product_name = 'Printer 1952' "
+            "AND order_date = '2014-09-10'"
+        ),
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.supported_count == 1
+    assert _finding(
+        features, "EXPLICIT_TEMPORAL_VALUE_MATCH"
+    ).details["question_temporal_value"] == "2014/9/10"
+
+
+def test_unanchored_model_number_is_not_inferred_as_a_year_from_sql():
+    features = detect_consistency(
+        "Show sales of Printer 1952.",
+        "SELECT * FROM sales WHERE order_date = '2014-09-10'",
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert features.applicable_rules == 0
+    assert features.findings == []
+
+
+def test_coordinated_year_endpoint_inherits_explicit_temporal_range():
+    features = detect_consistency(
+        "Compare events between 1996 and 1997.",
+        "SELECT * FROM event WHERE event_year IN (1996, 1997)",
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.unresolved_count == 0
+    assert features.supported_count == 2
+
+
+def test_invalid_calendar_date_is_outside_temporal_rule_scope():
+    features = detect_consistency(
+        "Show events held on 2024/2/30.",
+        "SELECT * FROM event WHERE event_date = '2024-03-01'",
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert features.applicable_rules == 0
+    assert features.findings == []
+
+
+@pytest.mark.parametrize(
+    "question,sql",
+    [
+        (
             "Show papers after 2012.",
             "SELECT * FROM paper WHERE publication_year < 2012",
         ),
@@ -1394,23 +1510,28 @@ def test_year_on_a_column_without_a_temporal_name_is_supported():
     assert features.unresolved_count == 0
 
 
-def test_datetime_literal_licenses_the_date_named_in_the_question():
-    """Spider train 3005: a time part must not hide the date from the rule."""
+@pytest.mark.parametrize(
+    "sql_time",
+    ["2005-08-23 02:06:01", "2005-08-23 03:00:00", "2005-08-23 99:99:99"],
+)
+def test_explicit_time_of_day_abstains_at_day_granularity(sql_time):
     features = detect_consistency(
         "What are the first names of customers who have not rented any films "
         "after '2005-08-23 02:06:01'?",
         (
             "SELECT first_name FROM customer WHERE customer_id NOT IN ("
             "SELECT customer_id FROM rental "
-            "WHERE rental_date > '2005-08-23 02:06:01')"
+            f"WHERE rental_date > '{sql_time}')"
         ),
         rules=["temporal_anchor_provenance"],
         emit_supported=True,
     )
 
-    finding = _finding(features, "EXPLICIT_TEMPORAL_VALUE_MATCH")
-    assert finding.status == ConsistencyStatus.SUPPORTED
-    assert features.unresolved_count == 0
+    assert features.supported_count == 0
+    assert features.contradicted_count == 0
+    finding = _finding(features, "TEMPORAL_TIME_GRANULARITY_UNRESOLVED")
+    assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert finding.details["supported_granularity"] == "day"
 
 
 def test_quoted_date_is_not_paired_with_an_unrelated_string_predicate():

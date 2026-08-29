@@ -215,6 +215,25 @@ def test_dialect_comes_from_db_manager():
     assert sink.metrics[0].tags.dialect == "postgres"
 
 
+def test_metric_tags_freeze_rules_and_resource_versions():
+    analyzer = build_analyzer(rules=["comparison_boundary_alignment"])
+    sink = RecordingSink()
+    item = DataItem(
+        id="1",
+        dbId="db",
+        question="Show people older than 10.",
+        sql="SELECT * FROM person WHERE age > 10",
+    )
+
+    list(analyzer.analyze([item], sink, "fixture"))
+
+    tags = sink.metrics[0].tags
+    assert tags.analyzer_version == "0.6.2"
+    assert tags.enabled_rules == ["comparison_boundary_alignment"]
+    assert tags.resource_versions["boundary_lexicon"] == "1.0.0"
+    assert tags.resource_versions["wordnet"] != "unavailable"
+
+
 def test_unsupported_language_fails_at_wiring_time():
     with pytest.raises(ValueError, match="language='en' only"):
         build_analyzer(language="fr")
@@ -311,7 +330,8 @@ def test_metrics_land_in_dedicated_duckdb_table(tmp_path):
     try:
         rows = conn.execute(
             """
-            SELECT item_id, status, contradicted_count, findings_emitted, emit_supported
+            SELECT item_id, status, contradicted_count, findings_emitted,
+                   emit_supported, analyzer_version, enabled_rules, resource_versions
             FROM metrics_question_sql_consistency
             ORDER BY item_id
             """
@@ -332,5 +352,8 @@ def test_metrics_land_in_dedicated_duckdb_table(tmp_path):
         "641": "warns",
         "99": "ok",
     }
+    assert {row[5] for row in rows} == {"0.6.2"}
+    assert all("comparison_boundary_alignment" in json.loads(row[6]) for row in rows)
+    assert all("boundary_lexicon" in json.loads(row[7]) for row in rows)
     reason_codes = {finding["reason_code"] for finding in json.loads(findings_json)}
     assert "NEAR_MISS_LITERAL_MISMATCH" in reason_codes

@@ -265,10 +265,36 @@ def _report(tmpdir, db_path) -> str:
 def test_report_summarises_verdicts(populated_db):
     report = _report(*populated_db)
     assert "# Question-SQL Consistency Report" in report
+    assert "## Run Provenance" in report
+    assert "**Analyzer:** `0.6.2`" in report
+    assert "`comparison_boundary_alignment`" in report
+    assert "`boundary_lexicon=1.0.0`" in report
+    assert "`wordnet=" in report
     assert "**Total Items:** 12" in report
     assert "**Items With Contradictions:** 4" in report
     assert "| literal_alignment |" in report
     assert "| LITERAL_EXPLICITLY_LICENSED | SUPPORTED |" in report
+
+
+def test_report_rejects_mixed_analyzer_provenance(populated_db):
+    tmpdir, db_path = populated_db
+    import duckdb
+
+    conn = duckdb.connect(db_path)
+    try:
+        conn.execute(
+            """
+            UPDATE metrics_question_sql_consistency
+            SET analyzer_version = '0.0.0'
+            WHERE item_id = '640'
+            """
+        )
+    finally:
+        conn.close()
+
+    report = _report(tmpdir, db_path)
+    assert "Mixed question-SQL consistency provenance" in report
+    assert "## Summary" not in report
 
 
 def test_report_lists_contradictions_with_provenance(populated_db):
