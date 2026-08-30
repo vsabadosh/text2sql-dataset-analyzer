@@ -192,14 +192,32 @@ component/ablation, а не окремий contribution.
 Corpus aggregation виконується у report layer, а не змінює item-level
 detector verdict заднім числом.
 
-На поточному diagnostic state зберігаються такі феномени:
+Frozen `0.8.0` run охоплює всі 22 802 Spider+BIRD items. Він містить 224
+`CONTRADICTED` obligations:
 
-- **80 manually checked positive findings у 78 unique items**: 65 раніше
-  стабілізованих non-temporal findings і 15 residual temporal contradictions
-  `0.7.0`; це engineering audit ledger, не blind paper estimate;
-- **1 новий unique string-match defect**: `contains` у question проти exact
-  `LIKE` pattern; ще два intensional defects із DQS RHS навмисно лишаються
-  `UNRESOLVED` без schema-level identifier resolution;
+- 125 `question_lexical_integrity`;
+- 55 `literal_alignment`;
+- 28 `comparison_boundary_alignment`;
+- 15 `temporal_anchor_provenance`;
+- 1 `string_match_alignment`.
+
+Подвійний незалежний model-assisted engineering audit з третім adjudication
+дав 204 `TRUE_DEFECT`, 15 `FALSE_POSITIVE` і 5 `AMBIGUOUS`; full-census
+precision на decidable findings — 93.2%. Після додаткового exclusion audit
+leakage-filtered частина містить 159 findings: 141 true, 13 false і 5
+ambiguous; descriptive provisional precision — 91.6%. Вона складається зі
+120 lexical, 38 literal і 1 temporal findings, тому не оцінює boundary та
+string-match правила.
+Початкова згода agent-review runs — 88.4%, Cohen's κ = 0.560. Це не замінює
+людську held-out annotation.
+
+Окремий документ експерименту та повний machine-readable ledger:
+
+- `research/question-sql-consistency-v0.8-validation/question_sql_consistency_experiment_findings.md`;
+- `research/question-sql-consistency-v0.8-validation/audits/verified-findings.jsonl`.
+
+Інші corpus mechanisms:
+
 - **106 hidden-threshold records**: повторювані неявні пороги є evidence
   benchmark convention, а не автоматично SQL bugs;
 - **3 corpus-confirmed unrequested filters**;
@@ -317,17 +335,18 @@ Diagnostic pipeline totals — це **кількість rule verdicts, не ite
 
 Стабільні diagnostic anchors:
 
-- **14** literal near-miss contradictions;
-- **10** quoted literal mismatches;
+- **31** literal near-miss contradictions;
+- **14** explicit quoted-literal mismatches;
 - **106** hidden thresholds;
 - **3** corpus-confirmed filters;
 - **986/5 406 (18.2%)** BIRD evidence-only numeric obligations;
 - **10/10** BIRD fragile-gold aggregate substitutions, перевірені на поточних
   SQLite snapshots;
-- **15/15 residual temporal contradictions** підтверджено в exhaustive
-  engineering audit: Spider train 4, BIRD dev 2, BIRD train 9;
-- **28/28 residual boundary contradictions** підтверджено; 9 evidence-licensed
-  SQL cases тепер правильно target-яться як `MAPPING`;
+- **15 residual temporal contradictions** пройшли exhaustive engineering
+  audit: 14 true defects і 1 false positive;
+- **28 residual boundary contradictions** пройшли audit: 27 true defects і
+  1 false positive; 9 evidence-licensed SQL cases правильно target-яться як
+  `MAPPING`;
 - `string_match_alignment`: **22 SUPPORTED / 1 CONTRADICTED / 84 UNRESOLVED**;
   єдина contradiction — independently checked true defect і unique finding,
   а 70 DQS cases консервативно abstain-яться;
@@ -336,31 +355,36 @@ Diagnostic pipeline totals — це **кількість rule verdicts, не ite
   `until` і 2 evidence-conflicted `since` cases переведено в `UNRESOLVED`;
   додатковий full-corpus pass знайшов один новий підтверджений temporal defect.
 
-Це ще **не paper results**: run виконано з поточного dirty worktree у temporary
-directories і не збережено як release artifact. Наступні звіти не повинні
-перезаписувати ці числа без frozen manifest.
+Ці значення відтворено у frozen run та manifest для commit
+`f77551b3c43bfd698a1fa454356756a4024147ab`. Model-assisted audit є
+інженерним свідченням, а не фінальною людською validation.
 
 ## 8. Наступні кроки
 
 ### P0 — завершити scientific audit
 
 - temporal і comparison boundary/range engineering audit завершено;
-- незалежно перевірити decisive literal і lexical families;
-- включити string-match mode/polarity у held-out sample, не використовуючи
-  corpus item або adversarial probes, які впливали на strict allowlist;
-- сформувати held-out sample, blind dual annotation та adjudication protocol;
+- повний 224-obligation model-assisted census audit завершено і збережено
+  окремим experiment artifact;
+- literal, lexical, boundary, temporal і string-match findings пройшли
+  подвійний review та adjudication;
+- leakage-safe held-out sample, phase-separated queues і adjudication protocol
+  сформовано;
 - regression і audit examples не використовувати як paper test set.
 
 ### P1 — frozen release run
 
-- привести source, tests, config і plan до одного commit;
-- зафіксувати input/dependency/resource hashes;
-- повторити повні Spider/BIRD runs і зберегти immutable artifacts.
+- analyzer source зафіксовано commit
+  `f77551b3c43bfd698a1fa454356756a4024147ab`;
+- input, output, schema, dependency, resource й audit-artifact hashes
+  зафіксовано у manifests;
+- повні Spider/BIRD runs збережено в
+  `research/question-sql-consistency-v0.8-validation/frozen-run/`.
 
 ### P2 — scientific validation
 
-- створити held-out annotation set і protocol;
-- провести dual annotation та adjudication;
+- annotation set і protocol створено;
+- провести **людську** blind dual annotation та adjudication;
 - порахувати per-rule metrics, confidence intervals, baselines і review cost.
 
 ### P3 — false-repair experiment
@@ -413,4 +437,8 @@ directories і не збережено як release artifact. Наступні �
   `tests/test_question_sql_consistency_report.py`;
 - BIRD reproduction: `scripts/run_bird_consistency_experiment.py`;
 - fragile-gold validation:
-  `scripts/validate_bird_aggregate_substitutions.py`.
+  `scripts/validate_bird_aggregate_substitutions.py`;
+- frozen validation protocol:
+  `Plans/question-sql-consistency-validation-protocol.md`;
+- experiment findings:
+  `research/question-sql-consistency-v0.8-validation/question_sql_consistency_experiment_findings.md`.

@@ -35,6 +35,7 @@ class MarkdownReportGenerator:
     """Generate markdown reports from DuckDB metrics."""
     
     ANNOTATED_DATASET = "annotatedOutputDataset.jsonl"
+    HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS = 4
 
     def __init__(self, duckdb_path: str):
         self.duckdb_path = duckdb_path
@@ -1249,6 +1250,9 @@ class MarkdownReportGenerator:
         sections.append("")
 
         try:
+            threshold_recurrence = self._consistency_threshold_recurrence_index(
+                table
+            )
             sections.extend(self._consistency_provenance_lines(table))
             sections.extend(self._consistency_summary_lines(table))
             sections.extend(self._consistency_rule_lines(table))
@@ -1261,6 +1265,7 @@ class MarkdownReportGenerator:
                 ("Question and SQL carry incompatible obligations. A MAPPING target "
                  "means the analyzer proved the two sides disagree without claiming "
                  "which one is wrong."),
+                threshold_recurrence=threshold_recurrence,
             ))
             sections.extend(self._consistency_findings_lines(
                 table,
@@ -1269,8 +1274,12 @@ class MarkdownReportGenerator:
                 ("An SQL obligation the question neither licenses nor contradicts. "
                  "Silence is not a defect: settling these needs external evidence "
                  "such as database values, dataset evidence or a curation decision."),
+                threshold_recurrence=threshold_recurrence,
             ))
-            sections.extend(self._consistency_recurrence_lines(table))
+            sections.extend(self._consistency_recurrence_lines(
+                table,
+                threshold_recurrence=threshold_recurrence,
+            ))
             sections.extend(self._consistency_twin_lines(table))
             sections.extend(self._consistency_question_lexical_lines(table))
             sections.extend(self._consistency_assumption_lines(table))
@@ -1562,8 +1571,10 @@ class MarkdownReportGenerator:
         )
         return sections
 
-    def _consistency_findings_lines(self, table: str, status: str, title: str,
-                                    note: str, limit: int = 100) -> list:
+    def _consistency_findings_lines(
+        self, table: str, status: str, title: str, note: str, limit: int = 100,
+        *, threshold_recurrence: Dict[tuple, dict] | None = None,
+    ) -> list:
         """Per-item findings of one verdict, with the provenance behind each."""
         total = self.conn.execute(f"""
             SELECT COUNT(*)
@@ -1576,13 +1587,19 @@ class MarkdownReportGenerator:
 
         rows = self.conn.execute(f"""
             SELECT m.item_id,
+                   m.dataset_id,
                    m.db_id,
                    json_extract_string(f.value, '$.reason_code'),
                    json_extract_string(f.value, '$.details.question_value'),
                    json_extract_string(f.value, '$.details.sql_value'),
                    json_extract_string(f.value, '$.sql_locations[0]'),
                    json_extract_string(f.value, '$.question_spans[0].text'),
-                   json_extract_string(f.value, '$.message')
+                   json_extract_string(f.value, '$.message'),
+                   json_extract_string(f.value, '$.details.table_name'),
+                   json_extract_string(f.value, '$.details.column_name'),
+                   json_extract_string(f.value, '$.details.predicate_role'),
+                   json_extract_string(f.value, '$.details.operator'),
+                   json_extract_string(f.value, '$.details.qualitative_cue')
             FROM {table} m, LATERAL json_each(m.findings) f
             WHERE json_extract_string(f.value, '$.status') = '{status}'
             ORDER BY TRY_CAST(m.item_id AS INTEGER) NULLS LAST, m.item_id
@@ -1596,11 +1613,34 @@ class MarkdownReportGenerator:
         sections.append(
             "|---------|----|--------|-------------------|----------------|----------|"
         )
-        for (item_id, db_id, reason_code, question_value, sql_value,
-             sql_location, span_text, message) in rows:
+        for (
+            item_id, dataset_id, db_id, reason_code, question_value, sql_value,
+            sql_location, span_text, message, table_name, column_name, role,
+            operator, qualitative_cue,
+        ) in rows:
             question, _ = self.item_details.get(str(item_id), ("", ""))
             evidence = question_value or span_text or ""
             obligation = sql_location or (f"= {sql_value}" if sql_value else "")
+            if reason_code == "IMPLICIT_THRESHOLD_UNLICENSED" and threshold_recurrence:
+                recurrence = threshold_recurrence.get(
+                    self._threshold_recurrence_key(
+                        dataset_id,
+                        db_id,
+                        table_name,
+                        column_name or role,
+                        operator,
+                        qualitative_cue or evidence,
+                        sql_value,
+                    )
+                )
+                if recurrence:
+                    count = len(recurrence["item_ids"])
+                    noun = "item" if count == 1 else "items"
+                    reason_code = (
+                        f"{reason_code} "
+                        f"({recurrence['corpus_classification']}, support: "
+                        f"{count:,} unique {noun} in this report partition)"
+                    )
             sections.append(
                 f"| {item_id} | {db_id} | {reason_code} | "
                 f"{self._cell(evidence, 60)} | {self._cell(obligation, 70)} | "
@@ -1611,7 +1651,98 @@ class MarkdownReportGenerator:
         sections.append("")
         return sections
 
-    def _consistency_recurrence_lines(self, table: str, limit: int = 50) -> list:
+    @staticmethod
+    def _threshold_recurrence_key(
+        dataset_id: str | None,
+        db_id: str | None,
+        table_name: str | None,
+        role: str | None,
+        operator: str | None,
+        cue: str | None,
+        value: str | None,
+    ) -> tuple[str, ...]:
+        """Normalize a hidden-threshold signature for corpus accounting."""
+        return (
+            str(dataset_id or "").strip().casefold(),
+            str(db_id or "").strip().casefold(),
+            str(table_name or "").strip().casefold(),
+            str(role or "").strip().casefold(),
+            str(operator or "").strip().upper(),
+            str(cue or "").strip().casefold(),
+            str(value or "").strip().casefold(),
+        )
+
+    @classmethod
+    def _hidden_threshold_corpus_classification(
+        cls, unique_items: int, distinct_thresholds: int = 1,
+    ) -> str:
+        """Classify corpus support without changing the item-level verdict."""
+        if distinct_thresholds > 1:
+            return "INTERNALLY_VARIABLE_UNDOCUMENTED_MAPPING"
+        if unique_items >= cls.HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS:
+            return "RECURRENT_UNDOCUMENTED_MAPPING"
+        if unique_items >= 2:
+            return "LOW_SUPPORT_UNDOCUMENTED_MAPPING"
+        return "ISOLATED_UNDOCUMENTED_MAPPING"
+
+    def _consistency_threshold_recurrence_index(
+        self, table: str,
+    ) -> Dict[tuple, dict]:
+        """Index hidden thresholds by cue, SQL role, value and unique item."""
+        rows = self.conn.execute(f"""
+            SELECT m.item_id, m.dataset_id, m.db_id,
+                   json_extract_string(r.value, '$.table_name'),
+                   json_extract_string(r.value, '$.column_name'),
+                   json_extract_string(r.value, '$.predicate_role'),
+                   json_extract_string(r.value, '$.operator'),
+                   json_extract_string(r.value, '$.question_evidence'),
+                   json_extract_string(r.value, '$.sql_value')
+            FROM {table} m,
+                 LATERAL json_each(COALESCE(m.corpus_records, '[]'::JSON)) r
+            WHERE json_extract_string(
+                r.value, '$.reason_code'
+            ) = 'IMPLICIT_THRESHOLD_UNLICENSED'
+        """).fetchall()
+
+        recurrence: Dict[tuple, dict] = {}
+        role_thresholds: Dict[tuple, set] = {}
+        for (
+            item_id, dataset_id, db_id, table_name, column_name, predicate_role,
+            operator, cue, value,
+        ) in rows:
+            role = column_name or predicate_role
+            key = self._threshold_recurrence_key(
+                dataset_id, db_id, table_name, role, operator, cue, value
+            )
+            stats = recurrence.setdefault(key, {
+                "dataset_id": dataset_id or "",
+                "db_id": db_id or "",
+                "table_name": table_name or "",
+                "role": role or "",
+                "operator": operator or "",
+                "cue": cue or "",
+                "value": value or "",
+                "item_ids": set(),
+            })
+            stats["item_ids"].add(str(item_id))
+            role_thresholds.setdefault(key[:-1], set()).add(
+                str(value or "").strip().casefold()
+            )
+
+        for key, stats in recurrence.items():
+            stats["distinct_thresholds"] = len(role_thresholds[key[:-1]])
+            stats["corpus_classification"] = (
+                self._hidden_threshold_corpus_classification(
+                    len(stats["item_ids"]),
+                    stats["distinct_thresholds"],
+                )
+            )
+        return recurrence
+
+    def _consistency_recurrence_lines(
+        self, table: str, limit: int = 50, *,
+        threshold_recurrence: Dict[tuple, dict] | None = None,
+    ) -> list:
         """Apply corpus gates to compact records, including hidden support."""
         rows = self.conn.execute(f"""
             SELECT m.item_id,
@@ -1635,88 +1766,57 @@ class MarkdownReportGenerator:
         if not rows:
             return sections + ["*No corpus obligation records available.*", ""]
 
-        threshold_items: Dict[tuple, set] = {}
-        threshold_values: Dict[tuple, set] = {}
-        for (
-            item_id,
-            dataset_id,
-            db_id,
-            _,
-            reason_code,
-            role,
-            table_name,
-            column,
-            operator,
-            value,
-            _,
-            _,
-        ) in rows:
-            if reason_code != "IMPLICIT_THRESHOLD_UNLICENSED":
-                continue
-            role_key = (
-                dataset_id or "",
-                db_id or "",
-                table_name or "",
-                column or role or "",
-                operator or "",
-            )
-            value_key = (*role_key, value or "")
-            threshold_items.setdefault(value_key, set()).add(str(item_id))
-            threshold_values.setdefault(role_key, set()).add(value or "")
+        threshold_recurrence = threshold_recurrence or {}
 
         sections.extend(["### Hidden-Threshold Recurrence", ""])
-        if threshold_items:
+        if threshold_recurrence:
             sections.append(
-                "| DB | Table | Column/Role | Op | Threshold | Occurrences | "
-                "Distinct Thresholds | Reading |"
+                "| DB | Cue | Table | Column/Role | Op | Threshold | "
+                "Unique Items | Distinct Thresholds | Corpus Classification |"
             )
             sections.append(
-                "|----|-------|-------------|----|-----------|-------------|"
-                "---------------------|---------|"
+                "|----|-----|-------|-------------|----|-----------|"
+                "--------------|---------------------|---------|"
             )
             ordered_thresholds = sorted(
-                threshold_items.items(),
-                key=lambda row: (-len(row[1]), row[0]),
+                threshold_recurrence.values(),
+                key=lambda stats: (
+                    -len(stats["item_ids"]),
+                    stats["db_id"],
+                    stats["role"],
+                    stats["value"],
+                ),
             )
-            for (
-                dataset_id,
-                db_id,
-                table_name,
-                role,
-                operator,
-                value,
-            ), item_ids in ordered_thresholds[:limit]:
-                occurrences = len(item_ids)
-                distinct = len(
-                    threshold_values[
-                        (dataset_id, db_id, table_name, role, operator)
-                    ]
-                )
-                reading = (
-                    "stable benchmark convention"
-                    if distinct == 1 and occurrences > 1
-                    else (
-                        "internally variable; review"
-                        if distinct > 1
-                        else "single unresolved instance"
-                    )
-                )
+            for stats in ordered_thresholds[:limit]:
+                occurrences = len(stats["item_ids"])
+                distinct = stats["distinct_thresholds"]
                 sections.append(
-                    f"| {db_id} | {self._cell(table_name, 30) or '—'} | "
-                    f"{self._cell(role, 40)} | {operator} | "
-                    f"{self._cell(value, 25)} | {occurrences:,} | {distinct:,} | "
-                    f"{reading} |"
+                    f"| {stats['db_id']} | {self._cell(stats['cue'], 20)} | "
+                    f"{self._cell(stats['table_name'], 30) or '—'} | "
+                    f"{self._cell(stats['role'], 40)} | {stats['operator']} | "
+                    f"{self._cell(stats['value'], 25)} | {occurrences:,} | "
+                    f"{distinct:,} | "
+                    f"{stats['corpus_classification']} |"
                 )
         else:
             sections.append("*No hidden qualitative thresholds found.*")
         sections.extend(
             [
                 "",
-                "Recurrence documents an implicit benchmark convention; it does "
-                "not prove that the threshold is semantically correct.",
+                "Counts are unique items within this report partition. Recurrence "
+                "is a corpus-level classification and does not change the "
+                "`UNRESOLVED` item verdict. Signatures found in at least "
+                f"{self.HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS} unique items are "
+                "`RECURRENT_UNDOCUMENTED_MAPPING`; two or three items are "
+                "`LOW_SUPPORT_UNDOCUMENTED_MAPPING`, and one item is "
+                "`ISOLATED_UNDOCUMENTED_MAPPING`. Exact support is always shown. "
+                "No class proves that a threshold is semantically correct.",
                 "",
             ]
         )
+        sections.extend(self._consistency_hidden_threshold_item_lines(
+            table, threshold_recurrence,
+        ))
 
         peer_stats: Dict[tuple, dict] = {}
         for (
@@ -1845,6 +1945,73 @@ class MarkdownReportGenerator:
                     f"{'confirmed' if passed else 'unresolved'} |"
                 )
             sections.append("")
+        sections.append("")
+        return sections
+
+    def _consistency_hidden_threshold_item_lines(
+        self, table: str, threshold_recurrence: Dict[tuple, dict],
+    ) -> list[str]:
+        """List each hidden-threshold candidate with its recurrence count."""
+        if not threshold_recurrence:
+            return []
+
+        rows = self.conn.execute(f"""
+            SELECT m.item_id, m.dataset_id, m.db_id,
+                   json_extract_string(f.value, '$.details.question_value'),
+                   json_extract_string(f.value, '$.details.sql_value'),
+                   json_extract_string(f.value, '$.sql_locations[0]'),
+                   json_extract_string(f.value, '$.details.table_name'),
+                   json_extract_string(f.value, '$.details.column_name'),
+                   json_extract_string(f.value, '$.details.predicate_role'),
+                   json_extract_string(f.value, '$.details.operator'),
+                   json_extract_string(f.value, '$.details.qualitative_cue')
+            FROM {table} m, LATERAL json_each(m.findings) f
+            WHERE json_extract_string(
+                f.value, '$.reason_code'
+            ) = 'IMPLICIT_THRESHOLD_UNLICENSED'
+            ORDER BY TRY_CAST(m.item_id AS INTEGER) NULLS LAST, m.item_id
+        """).fetchall()
+
+        item_count = len({str(row[0]) for row in rows})
+        sections = [
+            (f"#### Hidden-Threshold Candidates ({len(rows):,} in "
+             f"{item_count:,} unique items)"),
+            "",
+            "| Item ID | DB | Cue | SQL Obligation | Corpus Classification | "
+            "Matching Items | Question |",
+            "|---------|----|-----|----------------|-----------------------|"
+            "----------------|----------|",
+        ]
+        for (
+            item_id, dataset_id, db_id, question_value, sql_value, sql_location,
+            table_name, column_name, role, operator, qualitative_cue,
+        ) in rows:
+            key = self._threshold_recurrence_key(
+                dataset_id,
+                db_id,
+                table_name,
+                column_name or role,
+                operator,
+                qualitative_cue or question_value,
+                sql_value,
+            )
+            recurrence = threshold_recurrence.get(key)
+            matching_items = (
+                len(recurrence["item_ids"]) if recurrence is not None else 1
+            )
+            corpus_classification = (
+                recurrence["corpus_classification"]
+                if recurrence is not None
+                else self._hidden_threshold_corpus_classification(1)
+            )
+            question, _ = self.item_details.get(str(item_id), ("", ""))
+            sections.append(
+                f"| {item_id} | {db_id} | "
+                f"{self._cell(qualitative_cue or question_value, 20)} | "
+                f"{self._cell(sql_location, 70)} | "
+                f"{corpus_classification} | {matching_items:,} | "
+                f"{self._cell(question, 140)} |"
+            )
         sections.append("")
         return sections
 

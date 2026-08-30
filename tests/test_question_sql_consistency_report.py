@@ -372,9 +372,52 @@ def test_report_applies_corpus_discriminators_with_hidden_support(
     assert "### Corpus-Confirmed Unrequested Filters (2)" in report
     assert "| 1 | art_1 | artist | mediumon | EQ | canvas | 3 |" in report
     assert "| 7 | collection | collection | name | EQ | Best | 3 |" in report
-    assert "| geo | city | population | GT | 150000 | 2 | 1 |" in report
+    assert (
+        "| geo | major | city | population | GT | 150000 | 2 | 1 | "
+        "LOW_SUPPORT_UNDOCUMENTED_MAPPING |"
+    ) in report
     assert "| shared_columns | users | status | EQ | paid | 1 | 0 | unresolved |" in report
-    assert "stable benchmark convention" in report
+    assert "LOW_SUPPORT_UNDOCUMENTED_MAPPING" in report
+    assert "stable benchmark convention" not in report
+    assert (
+        "IMPLICIT_THRESHOLD_UNLICENSED "
+        "(LOW_SUPPORT_UNDOCUMENTED_MAPPING, support: "
+        "2 unique items in this report partition)"
+    ) in report
+    assert "Counts are unique items within this report partition." in report
+    assert "#### Hidden-Threshold Candidates (2 in 2 unique items)" in report
+    assert (
+        "| 5 | geo | major | population > 150000 | "
+        "LOW_SUPPORT_UNDOCUMENTED_MAPPING | 2 |"
+    ) in report
+    assert (
+        "| 6 | geo | major | population > 150000 | "
+        "LOW_SUPPORT_UNDOCUMENTED_MAPPING | 2 |"
+    ) in report
+
+
+@pytest.mark.parametrize(
+    ("unique_items", "distinct_thresholds", "expected"),
+    [
+        (1, 1, "ISOLATED_UNDOCUMENTED_MAPPING"),
+        (2, 1, "LOW_SUPPORT_UNDOCUMENTED_MAPPING"),
+        (3, 1, "LOW_SUPPORT_UNDOCUMENTED_MAPPING"),
+        (4, 1, "RECURRENT_UNDOCUMENTED_MAPPING"),
+        (20, 2, "INTERNALLY_VARIABLE_UNDOCUMENTED_MAPPING"),
+    ],
+)
+def test_hidden_threshold_corpus_classification(
+    unique_items,
+    distinct_thresholds,
+    expected,
+):
+    assert (
+        MarkdownReportGenerator._hidden_threshold_corpus_classification(
+            unique_items,
+            distinct_thresholds,
+        )
+        == expected
+    )
 
 
 def test_report_counts_dataset_evidence_only_licenses():
