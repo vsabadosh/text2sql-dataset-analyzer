@@ -160,6 +160,62 @@ def test_negated_boundary_abstains_without_sql_negation_scope_analysis():
     assert finding.status == ConsistencyStatus.UNRESOLVED
 
 
+def test_frequency_threshold_does_not_bind_to_a_row_level_value_column():
+    features = detect_consistency(
+        (
+            "State the name of teams ranked first five or more times "
+            "and lost a league two or more times between 1980 and 2000?"
+        ),
+        (
+            "SELECT T1.name FROM teams AS T1 "
+            "INNER JOIN series_post AS T2 ON T1.tmID = T2.tmIDLoser "
+            "AND T1.year = T2.year "
+            "WHERE T1.rank < 5 AND T2.lgIDLoser > 2 "
+            "AND T2.year BETWEEN 1980 AND 2000"
+        ),
+        rules=["comparison_boundary_alignment"],
+    )
+
+    assert not any(
+        finding.details.get("sql_value") in {"2", "5"}
+        for finding in features.findings
+    )
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["ViewCount", "RetweetCount", "num_purchases", "purchase_total"],
+)
+def test_frequency_threshold_binds_to_case_folded_counting_columns(column):
+    features = detect_consistency(
+        f"Show posts with a {column} of 10 or more times.",
+        f"SELECT id FROM posts WHERE {column} < 10",
+        rules=["comparison_boundary_alignment"],
+        emit_supported=True,
+    )
+
+    assert _finding(features, "COMPARISON_BOUNDARY_CONFLICT").details["sql_value"] == (
+        "10"
+    )
+
+
+@pytest.mark.parametrize("operator", [">=", "<"])
+def test_frequency_threshold_still_binds_to_an_explicit_count_column(operator):
+    features = detect_consistency(
+        "Show items with a purchase count of 10 or more times.",
+        f"SELECT * FROM item WHERE purchase_count {operator} 10",
+        rules=["comparison_boundary_alignment"],
+        emit_supported=True,
+    )
+
+    reason_code = (
+        "COMPARISON_BOUNDARY_MATCH"
+        if operator == ">="
+        else "COMPARISON_BOUNDARY_CONFLICT"
+    )
+    assert _finding(features, reason_code).details["sql_value"] == "10"
+
+
 def test_clause_bounded_negation_is_not_limited_to_four_tokens():
     features = detect_consistency(
         "Show items that have not ever been purchased by more than 10 customers.",

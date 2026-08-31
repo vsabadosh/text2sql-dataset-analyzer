@@ -180,6 +180,16 @@ _GENERIC_ROLE_TOKENS = frozenset(
         "year",
     }
 )
+_FREQUENCY_MARKERS = frozenset({"occasion", "occasions", "time", "times"})
+_COUNTING_ROLE_MARKERS = (
+    "count",
+    "freq",
+    "num",
+    "occurrence",
+    "tally",
+    "times",
+    "total",
+)
 _IDENTIFIER_COLUMN_SUFFIXES = frozenset({"code", "id", "identifier", "key"})
 _IDENTIFIER_ROLE_MARKERS = frozenset(
     {"code", "codes", "id", "ids", "identifier", "identifiers", "key", "keys"}
@@ -455,6 +465,17 @@ def _single_boundary_finding(
     expected_operator = cue.spec.expected_operator
     if _cue_is_negated(question, cue):
         return _negated_boundary_finding(cue, nearest)
+    nearest = [
+        mention
+        for mention in nearest
+        if not _frequency_threshold_requires_aggregate_binding(
+            question,
+            cue,
+            mention,
+        )
+    ]
+    if not nearest:
+        return None
     resolved = _resolve_mentions(
         question,
         cue.span,
@@ -1365,6 +1386,31 @@ def _cue_value_distance(
         if token.start >= gap_start and token.end <= gap_end
     ]
     return distance if len(intervening) <= 2 else None
+
+
+def _frequency_threshold_requires_aggregate_binding(
+    question: NormalizedQuestion,
+    cue: BoundaryCue,
+    mention: ValueMention,
+) -> bool:
+    """Whether a threshold counts events but SQL binds it to a non-count role."""
+    threshold_end = max(cue.span.end, mention.span.end)
+    following = next(
+        (
+            token
+            for token in question.tokens
+            if token.start >= threshold_end
+        ),
+        None,
+    )
+    if following is None or following.normalized not in _FREQUENCY_MARKERS:
+        return False
+    obligation = mention.obligation
+    # Column names reach this rule already case-folded, so a camelCase tally
+    # such as ViewCount arrives as one opaque token. Match on the joined form
+    # to keep genuine counting roles bound to the frequency threshold.
+    role_text = "".join(_all_identifier_tokens(obligation.column or obligation.role))
+    return not any(marker in role_text for marker in _COUNTING_ROLE_MARKERS)
 
 
 def _cue_is_negated(
