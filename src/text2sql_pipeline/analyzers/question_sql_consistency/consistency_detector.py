@@ -143,6 +143,7 @@ _COMPARISON_TYPES = (
     exp.LT,
     exp.LTE,
 )
+_CHAINABLE_COMPARISON_TYPES = (exp.GT, exp.GTE, exp.LT, exp.LTE)
 _LIKE_TYPES = tuple(
     cls for cls in (getattr(exp, "Like", None), getattr(exp, "ILike", None)) if cls
 )
@@ -211,6 +212,7 @@ class LiteralObligation:
     scope_relevant: bool
     sql_location: str
     dqs_fallback: bool = False
+    chained_comparison: bool = False
 
 
 @dataclass(frozen=True)
@@ -677,6 +679,9 @@ def _question_lexical_integrity(
     reference_forms = {
         lexeme: _identifier_reference_forms(lexeme.token) for lexeme in identifiers
     }
+    full_identifier_forms = {
+        fold(lexeme.identifier) for lexeme in identifiers if fold(lexeme.identifier)
+    }
     all_reference_forms = {
         form for forms in reference_forms.values() for form in forms
     }
@@ -687,6 +692,12 @@ def _question_lexical_integrity(
         if not _is_question_typo_candidate(candidate):
             continue
         if _belongs_to_literal_alignment(candidate, literal_words):
+            continue
+        # Identifier decomposition is useful for linking natural language to
+        # camelCase and suffixed schema names, but an exact full-token match
+        # must win before that decomposition can manufacture a near miss
+        # (coachID -> coach/coaches, dRebounds -> rebounds, etc.).
+        if candidate in full_identifier_forms:
             continue
         if candidate in all_reference_forms:
             continue
@@ -1100,6 +1111,21 @@ def _make_obligation(
         scope_relevant=scope_index.relevant.get(scope_id, False),
         sql_location=predicate.sql(dialect=dialect),
         dqs_fallback=dqs_fallback,
+        chained_comparison=_is_chained_comparison_member(predicate),
+    )
+
+
+def _is_chained_comparison_member(predicate: exp.Expression) -> bool:
+    """Whether a predicate belongs to an unparenthesized ordered comparison chain."""
+    if not isinstance(predicate, _CHAINABLE_COMPARISON_TYPES):
+        return False
+    if isinstance(predicate.this, _CHAINABLE_COMPARISON_TYPES) or isinstance(
+        predicate.expression, _CHAINABLE_COMPARISON_TYPES
+    ):
+        return True
+    parent = predicate.parent
+    return isinstance(parent, _CHAINABLE_COMPARISON_TYPES) and (
+        parent.this is predicate or parent.expression is predicate
     )
 
 
@@ -2851,10 +2877,51 @@ def _temporal_anchor_provenance(
         for obligation in obligations
         if _is_temporal_obligation(obligation, cue_years)
     ]
+    require_role_binding = (
+        len(
+            {
+                (obligation.scope_id, obligation.role)
+                for obligation in temporal_obligations
+            }
+        )
+        > 1
+    )
     findings: list[ConsistencyFinding] = []
     anchor, anchor_error = _parse_reference_datetime(context.reference_datetime)
     skipped_relative: set[int] = set()
     skipped_explicit: set[int] = set()
+    chained_obligations = [
+        obligation
+        for obligation in temporal_obligations
+        if obligation.chained_comparison
+    ]
+    if chained_obligations:
+        skipped_relative.update(
+            cue_index
+            for cue_index, cue in enumerate(relative_cues)
+            if any(
+                _temporal_role_matches_cue(
+                    question,
+                    cue.span,
+                    obligation,
+                    required=require_role_binding,
+                )
+                for obligation in chained_obligations
+            )
+        )
+        skipped_explicit.update(
+            cue_index
+            for cue_index, cue in enumerate(explicit_cues)
+            if any(
+                _temporal_role_matches_cue(
+                    question,
+                    cue.span,
+                    obligation,
+                    required=require_role_binding,
+                )
+                for obligation in chained_obligations
+            )
+        )
 
     if anchor is not None and not anchor_error:
         for relative_index, relative_cue in enumerate(relative_cues):
@@ -2944,15 +3011,6 @@ def _temporal_anchor_provenance(
             )
         )
 
-    require_role_binding = (
-        len(
-            {
-                (obligation.scope_id, obligation.role)
-                for obligation in temporal_obligations
-            }
-        )
-        > 1
-    )
     explicit_value_keys = {
         _temporal_value_key(cue.value) for cue in explicit_cues
     }

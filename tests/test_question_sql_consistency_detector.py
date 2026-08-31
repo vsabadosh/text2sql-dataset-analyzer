@@ -708,6 +708,26 @@ def test_identifier_suffix_and_derivation_guards_prevent_false_typos():
 
 
 @pytest.mark.parametrize(
+    "identifier",
+    ["coachID", "dRebounds", "oRebounds", "legendsID"],
+)
+def test_exact_camelcase_identifier_match_precedes_identifier_decomposition(
+    identifier,
+):
+    features = detect_consistency(
+        f"Return {identifier}.",
+        f"SELECT {identifier} FROM stats",
+        rules=["question_lexical_integrity"],
+    )
+
+    assert features.contradicted_count == 0
+    assert all(
+        finding.reason_code != "QUESTION_TOKEN_SQL_IDENTIFIER_NEAR_MISS"
+        for finding in features.findings
+    )
+
+
+@pytest.mark.parametrize(
     "question,sql",
     [
         (
@@ -1266,6 +1286,44 @@ def test_explicit_year_conflict_is_contradicted():
 
     finding = _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT")
     assert finding.status == ConsistencyStatus.CONTRADICTED
+
+
+def test_chained_temporal_comparison_abstains_from_endpoint_matching():
+    features = detect_consistency(
+        (
+            'Tally the player IDs of "Man of the Series" awardees '
+            "for the seasons from 2011 to 2015."
+        ),
+        (
+            "SELECT Man_of_the_Series FROM Season "
+            "WHERE 2011 < Season_Year < 2015"
+        ),
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert features.contradicted_count == 0
+    assert features.unresolved_count == 0
+    assert features.findings == []
+
+
+def test_chained_temporal_abstention_does_not_hide_other_role_conflicts():
+    features = detect_consistency(
+        "Show orders from 2020 and seasons from 2011 to 2015.",
+        (
+            "SELECT * FROM event WHERE order_year = 2019 "
+            "AND 2011 < season_year < 2015"
+        ),
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert features.contradicted_count == 1
+    finding = _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT")
+    assert finding.details["question_temporal_value"] == "2020"
+    assert finding.details["sql_temporal_value"] == "2019"
+    assert all(
+        finding.reason_code != "TEMPORAL_REALIZATION_UNSUPPORTED"
+        for finding in features.findings
+    )
 
 
 @pytest.mark.parametrize(
