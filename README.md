@@ -576,7 +576,7 @@ find . -name '*.egg-info' -type d -prune -exec rm -rf {} +
 find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 ```
 
-ал---
+---
 
 ## License
 
