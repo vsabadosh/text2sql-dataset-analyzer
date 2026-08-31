@@ -13,7 +13,7 @@ Detects SQL antipatterns and code smells with dialect-specific configuration.
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │  antipattern_registry.py (Single Source of Truth)               │
-│  - AntipatternPattern enum (16 registered pattern IDs)          │
+│  - AntipatternPattern enum (20 registered pattern IDs)          │
 │  - Pattern → Human-readable names mapping                       │
 │  - Pattern → Boolean field mapping                              │
 └─────────────────────────────────────────────────────────────────┘
@@ -170,6 +170,14 @@ all possible database contents.
 - `chained_comparison_semantics` - Mathematical-style chains such as
   `low < value < high`; SQLite silently compares the intermediate 0/1 result,
   while other dialects may reject the boolean-to-scalar comparison
+- `conditional_count_non_null_else` - Conditional `COUNT` whose every branch
+  is non-NULL and therefore counts both matching and non-matching rows
+- `unquoted_date_arithmetic` - A calendar-valid `Y-M-D`, `M-D-Y`, or `D-M-Y`
+  form parsed as subtraction or division. A declared temporal type or an exact
+  value match in the bound database column is critical evidence. TEXT, unknown,
+  or unavailable schema remains a high-severity unresolved risk. Declared
+  numeric roles are suppressed.
+- `literal_division_by_zero` - Division by a static numeric zero
 
 `missing_group_by` is schema-aware when the analyzer can introspect the
 database. Grouping by a whole primary key determines every other column of that
@@ -211,6 +219,8 @@ nondeterministic on the current rows.
 - `function_in_where` - Functions on columns in WHERE
 - `not_in_nullable` - NOT IN with nullable subquery
 - `leading_wildcard_like` - `LIKE '%pattern'`
+- `scalar_subquery_cardinality` - Scalar use of a subquery without a static
+  at-most-one-row guarantee
 
 `not_in_nullable` keeps its public identifier for compatibility, but its
 implementation is now schema-aware. It reports a training-time correctness

@@ -5,6 +5,10 @@ This module detects common SQL antipatterns and code smells:
 - Unsafe UPDATE/DELETE (no WHERE) - data safety
 - = NULL comparison (correctness)
 - Non-mathematical chained comparisons (silent boolean coercion or execution failure)
+- Conditional COUNT with a non-NULL ELSE branch (condition is not counted selectively)
+- Unquoted date-shaped subtraction in temporal predicates
+- Division by a static numeric zero
+- Scalar subqueries without a static at-most-one-row proof
 - Cartesian product (missing JOIN) - correctness
 - Missing GROUP BY (correctness)
 - Functions in WHERE clause (index prevention)
@@ -17,8 +21,11 @@ This module detects common SQL antipatterns and code smells:
 """
 
 from __future__ import annotations
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Optional, List, Dict, Set, Tuple, Type
+import re
+from typing import Callable, Optional, List, Dict, Set, Tuple, Type
 from sqlglot import exp
 import sqlglot
 
@@ -38,6 +45,19 @@ _CHAINABLE_COMPARISON_TYPES: Tuple[Type[exp.Expression], ...] = (
     exp.LTE,
     exp.GTE,
 )
+_SET_VALUED_SUBQUERY_PARENTS: Tuple[Type[exp.Expression], ...] = tuple(
+    node_type
+    for node_type in (
+        exp.In,
+        exp.From,
+        exp.Join,
+        exp.Any,
+        getattr(exp, "All", None),
+        exp.Lateral,
+        exp.CTE,
+    )
+    if node_type is not None
+)
 
 # Default antipattern configuration (enables all antipatterns for backwards compatibility)
 # In production, use dialect-specific configs from pipeline.yaml
@@ -48,6 +68,9 @@ DEFAULT_CONFIG = {
         AntipatternPattern.CARTESIAN_PRODUCT,
         AntipatternPattern.MISSING_GROUP_BY,
         AntipatternPattern.CHAINED_COMPARISON_SEMANTICS,
+        AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE,
+        AntipatternPattern.UNQUOTED_DATE_ARITHMETIC,
+        AntipatternPattern.LITERAL_DIVISION_BY_ZERO,
     ],
     "high": [
         AntipatternPattern.FUNCTION_IN_WHERE,
@@ -55,6 +78,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.LEADING_WILDCARD_LIKE,
         AntipatternPattern.LIMIT_WITHOUT_ORDER_BY,
         AntipatternPattern.OFFSET_WITHOUT_ORDER_BY,
+        AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY,
     ],
     "medium": [
         AntipatternPattern.REDUNDANT_DISTINCT,
@@ -77,6 +101,10 @@ def detect_antipatterns(
     ] = None,
     column_nullability: Optional[Dict[str, Dict[str, bool]]] = None,
     star_expanded_columns: Optional[Dict[str, List[str]]] = None,
+    column_types: Optional[Dict[str, Dict[str, str]]] = None,
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ] = None,
 ) -> QueryAntipatternFeatures:
     """
     Pure public API for antipattern detection.
@@ -112,6 +140,11 @@ def detect_antipatterns(
                    table, whose hidden columns bind normally but are never
                    expanded. Defaults to table_columns, which is exact for
                    every ordinary table.
+        column_types: Optional table -> column -> declared SQL type. Temporal
+                   types strengthen unquoted-date detection.
+        date_value_probe: Optional exact-value existence probe accepting
+                   (physical table, column, date-shaped text). It enriches
+                   TEXT/unknown columns with snapshot evidence.
         
     Returns:
         QueryAntipatternFeatures with detected antipatterns
@@ -182,6 +215,15 @@ def detect_antipatterns(
             }
             for table, columns in column_comparators.items()
         }
+    normalized_column_types = None
+    if column_types is not None:
+        normalized_column_types = {
+            str(table).lower(): {
+                str(column).lower(): str(sql_type).upper()
+                for column, sql_type in columns.items()
+            }
+            for table, columns in column_types.items()
+        }
 
     # PostgreSQL quoted identifiers are case-sensitive, while several schema
     # catalogs are normalized case-insensitively. Disable guarantees that
@@ -207,6 +249,7 @@ def detect_antipatterns(
             normalized_primary_keys = None
             normalized_nullability = None
             normalized_comparators = None
+            normalized_column_types = None
 
     return _analyze_ast(
         ast,
@@ -219,6 +262,8 @@ def detect_antipatterns(
         normalized_comparators,
         (dialect or "").lower() not in {"postgres", "postgresql"},
         normalized_star_columns,
+        normalized_column_types,
+        date_value_probe,
     )
 
 
@@ -237,6 +282,10 @@ def _analyze_ast(
     ] = None,
     quoted_identifier_proofs_safe: bool = True,
     star_expanded_columns: Optional[Dict[str, List[str]]] = None,
+    column_types: Optional[Dict[str, Dict[str, str]]] = None,
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ] = None,
 ) -> QueryAntipatternFeatures:
     """
     Analyze parsed AST and detect antipatterns.
@@ -252,6 +301,8 @@ def _analyze_ast(
         column_comparators: Optional verified comparison signatures
         quoted_identifier_proofs_safe: Whether case-folded binding is sound
         star_expanded_columns: Optional table -> columns projected by SELECT *
+        column_types: Optional declared SQL types for temporal-role proofs
+        date_value_probe: Optional exact-value snapshot probe
     """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
@@ -276,6 +327,28 @@ def _analyze_ast(
         )
     if AntipatternPattern.CHAINED_COMPARISON_SEMANTICS in enabled_patterns:
         _detect_chained_comparison_semantics(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE in enabled_patterns:
+        _detect_conditional_count_non_null_else(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.UNQUOTED_DATE_ARITHMETIC in enabled_patterns:
+        _detect_unquoted_date_arithmetic(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            table_columns,
+            column_types,
+            date_value_probe,
+        )
+    if AntipatternPattern.LITERAL_DIVISION_BY_ZERO in enabled_patterns:
+        _detect_literal_division_by_zero(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY in enabled_patterns:
+        _detect_scalar_subquery_cardinality(
             ast, antipatterns, features, pattern_severity_map
         )
     if AntipatternPattern.FUNCTION_IN_WHERE in enabled_patterns:
@@ -369,6 +442,422 @@ def _detect_chained_comparison_semantics(
                     "intermediate boolean value while others reject the query."
                 ),
                 location=node.sql(),
+            )
+        )
+        return
+
+
+def _detect_conditional_count_non_null_else(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect conditional COUNT expressions that are non-NULL on every branch.
+
+    COUNT counts non-NULL values, not truthy values. Consequently,
+    ``COUNT(CASE WHEN p THEN 1 ELSE 0 END)`` counts every input row. The rule
+    stays conservative: it reports only non-DISTINCT COUNT expressions whose
+    CASE/IIF result is provably non-NULL from literal or boolean branches.
+    """
+    pattern = AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE.value
+    severity = severity_map.get(pattern, "critical")
+
+    for count in ast.find_all(exp.Count):
+        conditional = count.this
+        if isinstance(conditional, exp.Distinct):
+            continue
+        if not _conditional_is_statically_non_null(conditional):
+            continue
+
+        features.has_conditional_count_non_null_else = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "COUNT counts every non-NULL CASE/IIF result, including "
+                    "the ELSE value. Use SUM(CASE ... ELSE 0 END) or omit ELSE "
+                    "so non-matching rows yield NULL."
+                ),
+                location=count.sql(),
+            )
+        )
+        return
+
+
+def _conditional_is_statically_non_null(
+    expression: exp.Expression | None,
+) -> bool:
+    """Whether a CASE/IIF returns a proven non-NULL literal on every branch."""
+    if isinstance(expression, exp.Case):
+        branches = expression.args.get("ifs") or []
+        default = expression.args.get("default")
+        return (
+            bool(branches)
+            and _is_statically_non_null_literal(default)
+            and all(
+                isinstance(branch, exp.If)
+                and _is_statically_non_null_literal(branch.args.get("true"))
+                for branch in branches
+            )
+        )
+
+    if isinstance(expression, exp.If):
+        return _is_statically_non_null_literal(
+            expression.args.get("true")
+        ) and _is_statically_non_null_literal(expression.args.get("false"))
+
+    return False
+
+
+def _is_statically_non_null_literal(
+    expression: exp.Expression | None,
+) -> bool:
+    while isinstance(expression, exp.Paren):
+        expression = expression.this
+    if isinstance(expression, exp.Neg):
+        return isinstance(expression.this, exp.Literal)
+    return isinstance(expression, (exp.Literal, exp.Boolean))
+
+
+def _detect_unquoted_date_arithmetic(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ],
+) -> None:
+    """Detect unquoted numeric dates parsed as arithmetic expressions."""
+    pattern = AntipatternPattern.UNQUOTED_DATE_ARITHMETIC.value
+    configured_severity = severity_map.get(pattern, "critical")
+
+    for arithmetic in ast.walk():
+        if not isinstance(arithmetic, (exp.Sub, exp.Div)):
+            continue
+        date_shape = _date_shaped_arithmetic(arithmetic)
+        if date_shape is None:
+            continue
+        shape, _year_digits = date_shape
+        role = _predicate_role_for_value(arithmetic)
+        if role is None:
+            continue
+        evidence, explanation = _date_role_evidence(
+            role,
+            shape,
+            table_columns,
+            column_types,
+            date_value_probe,
+        )
+        if evidence == "numeric":
+            continue
+        severity = (
+            configured_severity
+            if evidence == "confirmed"
+            else (
+                "high"
+                if configured_severity == "critical"
+                else configured_severity
+            )
+        )
+
+        features.has_unquoted_date_arithmetic = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    f"Unquoted date-shaped value {shape} is evaluated as "
+                    "numeric arithmetic. Quote the date literal or use a "
+                    f"dialect-specific DATE constructor. {explanation}"
+                ),
+                location=shape,
+            )
+        )
+        return
+
+
+def _date_shaped_arithmetic(
+    expression: exp.Expression,
+) -> tuple[str, int] | None:
+    """Return a plausible Y-M-D, M-D-Y, or D-M-Y arithmetic shape."""
+    operator_type = type(expression)
+    if operator_type not in {exp.Sub, exp.Div}:
+        return None
+    if isinstance(expression.parent, operator_type) or not isinstance(
+        expression.this, operator_type
+    ):
+        return None
+
+    raw_parts = (
+        expression.this.this,
+        expression.this.expression,
+        expression.expression,
+    )
+    if not all(
+        isinstance(part, exp.Literal)
+        and part.is_number
+        and str(part.this).isdigit()
+        for part in raw_parts
+    ):
+        return None
+
+    texts = tuple(str(part.this) for part in raw_parts)
+    numbers = tuple(int(value) for value in texts)
+    year_digits = _plausible_date_year_width(texts, numbers)
+    if year_digits is None:
+        return None
+    separator = "-" if operator_type is exp.Sub else "/"
+    return separator.join(texts), year_digits
+
+
+def _plausible_date_year_width(
+    texts: tuple[str, str, str],
+    numbers: tuple[int, int, int],
+) -> int | None:
+    """Return the strongest plausible year width across common date orders."""
+    candidates: list[int] = []
+    for year_index, month_index, day_index in (
+        (0, 1, 2),  # Y-M-D
+        (2, 0, 1),  # M-D-Y
+        (2, 1, 0),  # D-M-Y
+    ):
+        year_text = texts[year_index]
+        if len(year_text) not in {1, 2, 4}:
+            continue
+        raw_year = numbers[year_index]
+        if len(year_text) == 4:
+            if not 1 <= raw_year <= 9999:
+                continue
+            calendar_year = raw_year
+        else:
+            calendar_year = 2000 + raw_year
+        try:
+            date(
+                calendar_year,
+                numbers[month_index],
+                numbers[day_index],
+            )
+        except ValueError:
+            continue
+        candidates.append(len(year_text))
+    return max(candidates) if candidates else None
+
+
+def _predicate_role_for_value(
+    expression: exp.Expression,
+) -> exp.Expression | None:
+    """Return the expression compared with an arithmetic value candidate."""
+    value_expression: exp.Expression = expression
+    parent = expression.parent
+    while isinstance(parent, exp.Paren):
+        value_expression = parent
+        parent = parent.parent
+
+    if isinstance(parent, _CHAINABLE_COMPARISON_TYPES):
+        return (
+            parent.expression
+            if parent.this is value_expression
+            else parent.this
+        )
+    if isinstance(parent, exp.Between) and value_expression in {
+        parent.args.get("low"),
+        parent.args.get("high"),
+    }:
+        return parent.this
+    if isinstance(parent, exp.In) and value_expression in parent.expressions:
+        return parent.this
+    return None
+
+
+def _date_role_evidence(
+    role: exp.Expression,
+    date_shape: str,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ],
+) -> tuple[str, str]:
+    """Classify schema/snapshot evidence for one date-shaped predicate role."""
+    bound_columns: list[tuple[str, str, str]] = []
+    for column in role.find_all(exp.Column):
+        binding = _bound_column_schema(
+            column, table_columns, column_types
+        )
+        if binding is not None:
+            bound_columns.append(binding)
+
+    if any(
+        _declared_type_family(sql_type) == "temporal"
+        for _, _, sql_type in bound_columns
+    ):
+        return (
+            "confirmed",
+            "The bound column has a declared temporal SQL type.",
+        )
+
+    if bound_columns and all(
+        _declared_type_family(sql_type) == "numeric"
+        for _, _, sql_type in bound_columns
+    ):
+        return (
+            "numeric",
+            "The bound role is declared numeric, so arithmetic may be intentional.",
+        )
+
+    if date_value_probe is not None:
+        for table, column, _ in bound_columns:
+            if date_value_probe(table, column, date_shape) is True:
+                return (
+                    "confirmed",
+                    "The exact date-shaped text exists in the bound database column.",
+                )
+
+    return (
+        "unresolved",
+        "The column is TEXT, unknown, or unavailable and no exact domain match "
+        "confirms date intent.",
+    )
+
+
+def _bound_column_schema(
+    column: exp.Column,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+) -> tuple[str, str, str] | None:
+    """Resolve a role column to physical table, name, and declared type."""
+    current = column.parent
+    while current is not None and not isinstance(current, exp.Select):
+        current = current.parent
+    select = current
+    if not isinstance(select, exp.Select):
+        return None
+
+    sources = _from_table_aliases(select)
+    binding = _resolve_column(
+        column.table, column.name, sources, table_columns
+    )
+    if binding is None:
+        return None
+    source_identity, column_name = binding
+    physical_table = sources.get(source_identity)
+    if physical_table is None:
+        return None
+    sql_type = ""
+    if column_types:
+        table_key = _metadata_table_key(physical_table, column_types)
+        if table_key is not None:
+            sql_type = column_types.get(table_key, {}).get(column_name, "")
+    return physical_table, column_name, sql_type
+
+
+def _declared_type_family(sql_type: str) -> str:
+    """Classify only standard declared type signals, not identifier words."""
+    tokens = set(re.findall(r"[A-Z]+", sql_type.upper()))
+    if tokens & {"DATE", "DATETIME", "TIME", "TIMESTAMP"}:
+        return "temporal"
+    if tokens & {
+            "INT",
+            "INTEGER",
+            "BIGINT",
+            "SMALLINT",
+            "TINYINT",
+            "REAL",
+            "NUMERIC",
+            "DECIMAL",
+            "FLOAT",
+            "DOUBLE",
+            "NUMBER",
+    }:
+        return "numeric"
+    if tokens & {"CHAR", "CHARACTER", "VARCHAR", "NCHAR", "TEXT", "CLOB"}:
+        return "text"
+    return "unknown"
+
+
+def _detect_literal_division_by_zero(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect a division whose divisor is a static numeric zero literal."""
+    pattern = AntipatternPattern.LITERAL_DIVISION_BY_ZERO.value
+    severity = severity_map.get(pattern, "critical")
+
+    for division in ast.find_all(exp.Div):
+        if not _is_static_numeric_zero(division.expression):
+            continue
+
+        features.has_literal_division_by_zero = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "Division by a literal zero yields NULL in SQLite and an "
+                    "execution error in stricter dialects. Replace the divisor "
+                    "or guard a dynamic denominator explicitly."
+                ),
+                location=(
+                    f"{division.this.sql()} / {division.expression.sql()}"
+                ),
+            )
+        )
+        return
+
+
+def _is_static_numeric_zero(expression: exp.Expression | None) -> bool:
+    while isinstance(expression, (exp.Paren, exp.Cast)):
+        expression = expression.this
+    if isinstance(expression, exp.Neg):
+        expression = expression.this
+    if not isinstance(expression, exp.Literal) or not expression.is_number:
+        return False
+    try:
+        return Decimal(str(expression.this)) == 0
+    except InvalidOperation:
+        return False
+
+
+def _detect_scalar_subquery_cardinality(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect scalar subqueries without a syntactic <=1-row guarantee."""
+    pattern = AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY.value
+    severity = severity_map.get(pattern, "high")
+
+    for subquery in ast.find_all(exp.Subquery):
+        parent = subquery.parent
+        while isinstance(parent, exp.Paren):
+            parent = parent.parent
+        if isinstance(parent, _SET_VALUED_SUBQUERY_PARENTS):
+            continue
+
+        query = subquery.this
+        if _is_provably_scalar_query(query):
+            continue
+
+        features.has_scalar_subquery_cardinality = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "Scalar subquery is not statically guaranteed to return at "
+                    "most one row. SQLite silently keeps its first row, while "
+                    "stricter dialects raise a cardinality error. Add an "
+                    "intentional aggregate/LIMIT 1 or use a set-valued operator."
+                ),
+                location=subquery.sql(),
             )
         )
         return

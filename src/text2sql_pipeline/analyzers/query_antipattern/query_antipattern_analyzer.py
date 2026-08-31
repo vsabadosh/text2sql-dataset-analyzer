@@ -66,6 +66,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         self._column_comparator_cache: dict[
             str, dict[str, dict[str, tuple[str, str]]]
         ] = {}
+        self._column_type_cache: dict[str, dict[str, dict[str, str]]] = {}
         
         # Use helper function to select config for dialect
         # This keeps the analyzer itself dialect-agnostic - it just uses a helper
@@ -173,6 +174,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             and db_id in self._star_column_cache
             and db_id in self._column_nullability_cache
             and db_id in self._column_comparator_cache
+            and db_id in self._column_type_cache
         ):
             return
 
@@ -181,6 +183,7 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         star_columns: dict[str, list[str]] = {}
         nullability: dict[str, dict[str, bool]] = {}
         comparators: dict[str, dict[str, tuple[str, str]]] = {}
+        column_types: dict[str, dict[str, str]] = {}
         try:
             for table in self.db_manager.get_tables(db_id):
                 info = self.db_manager.get_table_info(db_id, table) or {}
@@ -208,6 +211,12 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                     if not self._is_hidden_from_star(column)
                 ]
                 nullability[table_name] = {}
+                column_types[table_name] = {
+                    self._catalog_name(column, case_sensitive_catalog): str(
+                        column.get("type") or ""
+                    )
+                    for column in table_columns
+                }
                 for column in table_columns:
                     raw_nullable = self._semantic_nullability(column)
                     if raw_nullable is None:
@@ -285,12 +294,14 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             star_columns = {}
             nullability = {}
             comparators = {}
+            column_types = {}
 
         self._primary_key_cache[db_id] = mapping
         self._table_column_cache[db_id] = columns
         self._star_column_cache[db_id] = star_columns
         self._column_nullability_cache[db_id] = nullability
         self._column_comparator_cache[db_id] = comparators
+        self._column_type_cache[db_id] = column_types
 
     @staticmethod
     def _catalog_name(column: dict, case_sensitive: bool) -> str:
@@ -349,6 +360,11 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         self._load_schema_metadata(db_id)
         return self._column_comparator_cache[db_id]
 
+    def _column_types(self, db_id: str) -> dict:
+        """Return declared SQL column types for semantic type guards."""
+        self._load_schema_metadata(db_id)
+        return self._column_type_cache[db_id]
+
     def _analyze_query(self, item: DataItem):
         """
         Detect antipatterns in SQL query.
@@ -374,6 +390,12 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 column_nullability=self._column_nullability(item.dbId),
                 column_comparators=self._column_comparators(item.dbId),
                 star_expanded_columns=self._star_expanded_columns(item.dbId),
+                column_types=self._column_types(item.dbId),
+                date_value_probe=lambda table, column, value: (
+                    self.db_manager.column_value_exists(
+                        item.dbId, table, column, value
+                    )
+                ),
             )
             ok = features.parseable
             return features, stats, tags, ok, None if ok else "Unparseable SQL"

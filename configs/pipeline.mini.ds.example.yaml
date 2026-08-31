@@ -109,6 +109,9 @@ analyze:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL` (always evaluates to NULL/false)
             - chained_comparison_semantics   # `a < b < c` silently compares a boolean in SQLite
+            - conditional_count_non_null_else # `COUNT(CASE ... ELSE 0)` counts every row
+            - unquoted_date_arithmetic       # `date = 2018-06-01` evaluates numeric subtraction
+            - literal_division_by_zero       # Static zero divisor yields NULL instead of a useful value
             - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
             - cartesian_product              # Missing JOIN condition (exponential result explosion)
           high:
@@ -116,6 +119,7 @@ analyze:
             - limit_without_order_by         # LIMIT without ORDER BY -> nondeterministic row selection
             - offset_without_order_by        # OFFSET without ORDER BY -> meaningless pagination
             - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
+            - scalar_subquery_cardinality    # Scalar subquery lacks a static <=1-row guarantee
           medium:
             - function_in_where              # Functions on indexed columns prevent index usage
             - correlated_subquery            # Row-by-row execution (often has better alternatives)
@@ -129,6 +133,9 @@ analyze:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL`
             - chained_comparison_semantics   # Mathematical-style comparison chains are invalid SQL semantics
+            - conditional_count_non_null_else # `COUNT(CASE ... ELSE 0)` counts every row
+            - unquoted_date_arithmetic       # Unquoted numeric date shapes are arithmetic expressions
+            - literal_division_by_zero       # Static zero divisor cannot produce a valid quotient
             - missing_group_by               # Non-aggregated columns without GROUP BY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE
             - cartesian_product              # Missing JOIN condition
@@ -136,6 +143,7 @@ analyze:
             - not_in_nullable                # Schema-aware nullable/unknown `NOT IN` subquery output
             - limit_without_order_by         # LIMIT without ORDER BY -> nondeterministic row selection
             - offset_without_order_by        # OFFSET without ORDER BY -> meaningless pagination
+            - scalar_subquery_cardinality    # May fail when a scalar subquery returns multiple rows
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution

@@ -39,6 +39,9 @@ class QueryAntipatternFeatures(BaseModel):
     has_cartesian_product: bool = False        # missing JOIN conditions
     has_missing_group_by: bool = False         # aggregates without GROUP BY
     has_chained_comparison_semantics: bool = False  # a < b < c is not a mathematical range
+    has_conditional_count_non_null_else: bool = False  # COUNT(CASE ... ELSE 0) counts every row
+    has_unquoted_date_arithmetic: bool = False  # date = 2018-06-01 evaluates subtraction
+    has_literal_division_by_zero: bool = False  # divisor is a static numeric zero
     
     # High severity
     has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)
@@ -46,6 +49,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_leading_wildcard_like: bool = False    # LIKE '%...' (prevents index use)
     has_limit_without_order_by: bool = False   # LIMIT without ORDER BY (undefined row order)
     has_offset_without_order_by: bool = False  # OFFSET without ORDER BY (undefined result)
+    has_scalar_subquery_cardinality: bool = False  # scalar use without <=1-row proof
     
     # Medium severity (configurable per dialect)
     has_redundant_distinct: bool = False       # DISTINCT proven redundant

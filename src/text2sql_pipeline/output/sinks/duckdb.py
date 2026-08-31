@@ -162,7 +162,13 @@ class DuckDBMetricsSink(MetricsSink):
             elif analyzer_name == "query_antipattern":
                 self._add_missing_columns(
                     table_name,
-                    [("has_chained_comparison_semantics", "BOOLEAN")],
+                    [
+                        ("has_chained_comparison_semantics", "BOOLEAN"),
+                        ("has_conditional_count_non_null_else", "BOOLEAN"),
+                        ("has_unquoted_date_arithmetic", "BOOLEAN"),
+                        ("has_literal_division_by_zero", "BOOLEAN"),
+                        ("has_scalar_subquery_cardinality", "BOOLEAN"),
+                    ],
                 )
             elif analyzer_name == "question_sql_consistency":
                 self._add_missing_columns(table_name, QUESTION_SQL_CONSISTENCY_COLUMNS)
@@ -417,6 +423,10 @@ class DuckDBMetricsSink(MetricsSink):
             -- Appended feature columns preserve positional compatibility when
             -- an existing metrics table is widened with ALTER TABLE.
             has_chained_comparison_semantics BOOLEAN,
+            has_conditional_count_non_null_else BOOLEAN,
+            has_unquoted_date_arithmetic BOOLEAN,
+            has_literal_division_by_zero BOOLEAN,
+            has_scalar_subquery_cardinality BOOLEAN,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -781,7 +791,7 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, 
-                    ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """, [
                 # Metadata
@@ -831,6 +841,10 @@ class DuckDBMetricsSink(MetricsSink):
                 tags.get("dialect"),
                 # Appended feature columns
                 features.get("has_chained_comparison_semantics"),
+                features.get("has_conditional_count_non_null_else"),
+                features.get("has_unquoted_date_arithmetic"),
+                features.get("has_literal_division_by_zero"),
+                features.get("has_scalar_subquery_cardinality"),
             ])
     
     def _insert_question_sql_consistency(self, table_name: str, records: list[Dict[str, Any]]) -> None:

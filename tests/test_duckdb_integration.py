@@ -236,8 +236,8 @@ def test_multiple_analyzers():
         conn.close()
 
 
-def test_antipattern_sink_migrates_and_stores_chained_comparison_flag():
-    """An existing antipattern table is widened without losing the new flag."""
+def test_antipattern_sink_migrates_and_stores_appended_flags():
+    """An existing antipattern table is widened without losing new flags."""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "test.duckdb")
         sink = DuckDBMetricsSink(db_path)
@@ -246,6 +246,18 @@ def test_antipattern_sink_migrates_and_stores_chained_comparison_flag():
             "metrics_query_antipattern"
         ).replace(
             "            has_chained_comparison_semantics BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_conditional_count_non_null_else BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_unquoted_date_arithmetic BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_literal_division_by_zero BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_scalar_subquery_cardinality BOOLEAN,\n",
             "",
         )
         sink.conn.execute(old_schema)
@@ -259,16 +271,44 @@ def test_antipattern_sink_migrates_and_stores_chained_comparison_flag():
             duration_ms=1.0,
             features=QueryAntipatternFeatures(
                 has_chained_comparison_semantics=True,
-                total_antipatterns=1,
-                quality_score=70,
-                quality_level="fair",
+                has_conditional_count_non_null_else=True,
+                has_unquoted_date_arithmetic=True,
+                has_literal_division_by_zero=True,
+                has_scalar_subquery_cardinality=True,
+                total_antipatterns=5,
+                quality_score=0,
+                quality_level="poor",
                 antipatterns=[
                     AntipatternInstance(
                         pattern="chained_comparison_semantics",
                         severity="critical",
                         message="SQL does not implement mathematical chained comparisons.",
                         location="2011 < Season_Year < 2015",
-                    )
+                    ),
+                    AntipatternInstance(
+                        pattern="conditional_count_non_null_else",
+                        severity="critical",
+                        message="COUNT counts a non-NULL ELSE value.",
+                        location="COUNT(CASE WHEN won THEN 1 ELSE 0 END)",
+                    ),
+                    AntipatternInstance(
+                        pattern="unquoted_date_arithmetic",
+                        severity="critical",
+                        message="Unquoted date is numeric subtraction.",
+                        location="2018 - 06 - 01",
+                    ),
+                    AntipatternInstance(
+                        pattern="literal_division_by_zero",
+                        severity="critical",
+                        message="Division by a literal zero.",
+                        location="amount / 0",
+                    ),
+                    AntipatternInstance(
+                        pattern="scalar_subquery_cardinality",
+                        severity="high",
+                        message="Scalar subquery lacks an at-most-one-row proof.",
+                        location="(SELECT user_id FROM users)",
+                    ),
                 ],
             ),
         )
@@ -281,12 +321,16 @@ def test_antipattern_sink_migrates_and_stores_chained_comparison_flag():
         conn = duckdb.connect(db_path, read_only=True)
         stored = conn.execute(
             "SELECT has_chained_comparison_semantics, "
-            "json_extract_string(antipatterns, '$[0].pattern') "
+            "has_conditional_count_non_null_else, "
+            "has_unquoted_date_arithmetic, "
+            "has_literal_division_by_zero, "
+            "has_scalar_subquery_cardinality, "
+            "json_array_length(antipatterns) "
             "FROM metrics_query_antipattern"
         ).fetchone()
         conn.close()
 
-        assert stored == (True, "chained_comparison_semantics")
+        assert stored == (True, True, True, True, True, 5)
 
 
 if __name__ == "__main__":

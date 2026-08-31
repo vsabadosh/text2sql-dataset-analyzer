@@ -47,6 +47,9 @@ class AntipatternPattern(str, Enum):
     CARTESIAN_PRODUCT = "cartesian_product"
     MISSING_GROUP_BY = "missing_group_by"
     CHAINED_COMPARISON_SEMANTICS = "chained_comparison_semantics"
+    CONDITIONAL_COUNT_NON_NULL_ELSE = "conditional_count_non_null_else"
+    UNQUOTED_DATE_ARITHMETIC = "unquoted_date_arithmetic"
+    LITERAL_DIVISION_BY_ZERO = "literal_division_by_zero"
     
     # High severity antipatterns (performance/correctness)
     FUNCTION_IN_WHERE = "function_in_where"
@@ -54,6 +57,7 @@ class AntipatternPattern(str, Enum):
     LEADING_WILDCARD_LIKE = "leading_wildcard_like"
     LIMIT_WITHOUT_ORDER_BY = "limit_without_order_by"
     OFFSET_WITHOUT_ORDER_BY = "offset_without_order_by"
+    SCALAR_SUBQUERY_CARDINALITY = "scalar_subquery_cardinality"
     
     # Medium severity antipatterns (configurable)
     REDUNDANT_DISTINCT = "redundant_distinct"
@@ -71,11 +75,15 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.CARTESIAN_PRODUCT: "Cartesian product",
     AntipatternPattern.MISSING_GROUP_BY: "Missing GROUP BY",
     AntipatternPattern.CHAINED_COMPARISON_SEMANTICS: "Non-mathematical chained comparison",
+    AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE: "Conditional COUNT with non-NULL ELSE",
+    AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "Unquoted date interpreted as arithmetic",
+    AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "Literal division by zero",
     AntipatternPattern.FUNCTION_IN_WHERE: "Function in WHERE",
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
     AntipatternPattern.LIMIT_WITHOUT_ORDER_BY: "LIMIT without ORDER BY",
     AntipatternPattern.OFFSET_WITHOUT_ORDER_BY: "OFFSET without ORDER BY",
+    AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY: "Unbounded scalar subquery cardinality",
     AntipatternPattern.REDUNDANT_DISTINCT: "Redundant DISTINCT",
     AntipatternPattern.CORRELATED_SUBQUERY: "Correlated subquery",
     AntipatternPattern.SELECT_STAR: "SELECT *",
@@ -92,11 +100,15 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.CARTESIAN_PRODUCT: "has_cartesian_product",
     AntipatternPattern.MISSING_GROUP_BY: "has_missing_group_by",
     AntipatternPattern.CHAINED_COMPARISON_SEMANTICS: "has_chained_comparison_semantics",
+    AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE: "has_conditional_count_non_null_else",
+    AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "has_unquoted_date_arithmetic",
+    AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "has_literal_division_by_zero",
     AntipatternPattern.FUNCTION_IN_WHERE: "has_function_in_where",
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",
     AntipatternPattern.LIMIT_WITHOUT_ORDER_BY: "has_limit_without_order_by",
     AntipatternPattern.OFFSET_WITHOUT_ORDER_BY: "has_offset_without_order_by",
+    AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY: "has_scalar_subquery_cardinality",
     AntipatternPattern.REDUNDANT_DISTINCT: "has_redundant_distinct",
     AntipatternPattern.CORRELATED_SUBQUERY: "has_correlated_subquery",
     AntipatternPattern.SELECT_STAR: "has_select_star",

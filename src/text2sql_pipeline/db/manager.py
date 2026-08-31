@@ -172,6 +172,40 @@ class DbManager:
                 return conn.execute(statement).first() is not None
         except Exception:
             return None
+
+    def column_value_exists(
+        self,
+        db_id: str,
+        table: str,
+        column: str,
+        value: Any,
+    ) -> Optional[bool]:
+        """Whether one exact value exists in a bound physical column.
+
+        The parameterized existence probe stops after the first match. ``None``
+        means that binding, reflection, or execution failed; callers must keep
+        the result unresolved rather than treating a failed probe as absence.
+        """
+        try:
+            eng = self.engine(db_id)
+            reflected = Table(table, MetaData(), autoload_with=eng)
+            by_lower = {
+                candidate.name.lower(): candidate
+                for candidate in reflected.columns
+            }
+            target = by_lower.get(str(column).lower())
+            if target is None:
+                return None
+            statement = (
+                select(1)
+                .select_from(reflected)
+                .where(target == value)
+                .limit(1)
+            )
+            with eng.connect() as conn:
+                return conn.execute(statement).first() is not None
+        except Exception:
+            return None
     
     def get_sqlglot_dialect(self) -> str:
         """Get the SQL dialect name for sqlglot parsing."""
