@@ -21,6 +21,11 @@ from text2sql_pipeline.analyzers.query_execution.metrics import (
     QueryExecutionStats,
     QueryExecutionTags
 )
+from text2sql_pipeline.analyzers.query_antipattern.metrics import (
+    AntipatternInstance,
+    QueryAntipatternFeatures,
+    QueryAntipatternMetricEvent,
+)
 
 
 def test_duckdb_sink_creates_database():
@@ -229,6 +234,59 @@ def test_multiple_analyzers():
         assert "metrics_query_syntax" in table_names
         assert "metrics_query_execution" in table_names
         conn.close()
+
+
+def test_antipattern_sink_migrates_and_stores_chained_comparison_flag():
+    """An existing antipattern table is widened without losing the new flag."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.duckdb")
+        sink = DuckDBMetricsSink(db_path)
+
+        old_schema = sink._query_antipattern_table(
+            "metrics_query_antipattern"
+        ).replace(
+            "            has_chained_comparison_semantics BOOLEAN,\n",
+            "",
+        )
+        sink.conn.execute(old_schema)
+
+        metric = QueryAntipatternMetricEvent(
+            dataset_id="test_dataset",
+            item_id="bird_train_1931",
+            db_id="soccer_2016",
+            status="warns",
+            success=False,
+            duration_ms=1.0,
+            features=QueryAntipatternFeatures(
+                has_chained_comparison_semantics=True,
+                total_antipatterns=1,
+                quality_score=70,
+                quality_level="fair",
+                antipatterns=[
+                    AntipatternInstance(
+                        pattern="chained_comparison_semantics",
+                        severity="critical",
+                        message="SQL does not implement mathematical chained comparisons.",
+                        location="2011 < Season_Year < 2015",
+                    )
+                ],
+            ),
+        )
+
+        sink.write(metric)
+        sink.close()
+
+        import duckdb
+
+        conn = duckdb.connect(db_path, read_only=True)
+        stored = conn.execute(
+            "SELECT has_chained_comparison_semantics, "
+            "json_extract_string(antipatterns, '$[0].pattern') "
+            "FROM metrics_query_antipattern"
+        ).fetchone()
+        conn.close()
+
+        assert stored == (True, "chained_comparison_semantics")
 
 
 if __name__ == "__main__":

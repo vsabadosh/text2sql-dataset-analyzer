@@ -46,6 +46,7 @@ class AntipatternPattern(str, Enum):
     NULL_COMPARISON_EQUALS = "null_comparison_equals"
     CARTESIAN_PRODUCT = "cartesian_product"
     MISSING_GROUP_BY = "missing_group_by"
+    CHAINED_COMPARISON_SEMANTICS = "chained_comparison_semantics"
     
     # High severity antipatterns (performance/correctness)
     FUNCTION_IN_WHERE = "function_in_where"
@@ -69,6 +70,7 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.NULL_COMPARISON_EQUALS: "= NULL comparison",
     AntipatternPattern.CARTESIAN_PRODUCT: "Cartesian product",
     AntipatternPattern.MISSING_GROUP_BY: "Missing GROUP BY",
+    AntipatternPattern.CHAINED_COMPARISON_SEMANTICS: "Non-mathematical chained comparison",
     AntipatternPattern.FUNCTION_IN_WHERE: "Function in WHERE",
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
@@ -89,6 +91,7 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.NULL_COMPARISON_EQUALS: "has_null_comparison_equals",
     AntipatternPattern.CARTESIAN_PRODUCT: "has_cartesian_product",
     AntipatternPattern.MISSING_GROUP_BY: "has_missing_group_by",
+    AntipatternPattern.CHAINED_COMPARISON_SEMANTICS: "has_chained_comparison_semantics",
     AntipatternPattern.FUNCTION_IN_WHERE: "has_function_in_where",
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",

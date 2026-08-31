@@ -159,6 +159,11 @@ class DuckDBMetricsSink(MetricsSink):
             self.conn.execute(create_sql)
             if analyzer_name == "query_execution":
                 self._add_missing_columns(table_name, QUERY_EXECUTION_COLUMNS)
+            elif analyzer_name == "query_antipattern":
+                self._add_missing_columns(
+                    table_name,
+                    [("has_chained_comparison_semantics", "BOOLEAN")],
+                )
             elif analyzer_name == "question_sql_consistency":
                 self._add_missing_columns(table_name, QUESTION_SQL_CONSISTENCY_COLUMNS)
             self._created_tables.add(table_name)
@@ -408,6 +413,10 @@ class DuckDBMetricsSink(MetricsSink):
             
             -- Tags
             tags_dialect VARCHAR,
+
+            -- Appended feature columns preserve positional compatibility when
+            -- an existing metrics table is widened with ALTER TABLE.
+            has_chained_comparison_semantics BOOLEAN,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -772,7 +781,7 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, 
-                    ?, ?, ?
+                    ?, ?, ?, ?
                 )
             """, [
                 # Metadata
@@ -819,7 +828,9 @@ class DuckDBMetricsSink(MetricsSink):
                 json.dumps(stats.get("errors", [])),
                 json.dumps(stats.get("warnings", [])),
                 # Tags
-                tags.get("dialect")
+                tags.get("dialect"),
+                # Appended feature columns
+                features.get("has_chained_comparison_semantics"),
             ])
     
     def _insert_question_sql_consistency(self, table_name: str, records: list[Dict[str, Any]]) -> None:

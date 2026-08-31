@@ -45,6 +45,99 @@ class TestDetectAntipatternBasic:
         assert result.quality_level == "excellent"
 
 
+class TestChainedComparisonSemanticsAntipattern:
+    """Mathematical-style comparison chains are not SQL range predicates."""
+
+    def test_bird_sqlite_case_detected_as_critical(self):
+        sql = (
+            "SELECT Man_of_the_Series FROM Season "
+            "WHERE 2011 < Season_Year < 2015"
+        )
+
+        result = detect_antipatterns(sql, dialect="sqlite")
+
+        assert result.has_chained_comparison_semantics is True
+        finding = next(
+            item
+            for item in result.antipatterns
+            if item.pattern == "chained_comparison_semantics"
+        )
+        assert finding.severity == "critical"
+        assert finding.location == "2011 < Season_Year < 2015"
+        assert result.quality_score == 70
+
+    @pytest.mark.parametrize(
+        "predicate",
+        [
+            "2015 > Season_Year > 2011",
+            "a <= b <= c",
+            "a = b = c",
+            "a <> b <> c",
+        ],
+    )
+    def test_other_unparenthesized_chains_detected(self, predicate):
+        result = detect_antipatterns(
+            f"SELECT id FROM values_table WHERE {predicate}"
+        )
+
+        assert result.has_chained_comparison_semantics is True
+        assert any(
+            item.pattern == "chained_comparison_semantics"
+            for item in result.antipatterns
+        )
+
+    @pytest.mark.parametrize(
+        "predicate",
+        [
+            "Season_Year > 2011 AND Season_Year < 2015",
+            "Season_Year BETWEEN 2011 AND 2015",
+            "(2011 < Season_Year) < 2015",
+            "2011 < (Season_Year < 2015)",
+        ],
+    )
+    def test_safe_or_explicit_forms_not_flagged(self, predicate):
+        result = detect_antipatterns(
+            f"SELECT id FROM seasons WHERE {predicate}"
+        )
+
+        assert result.has_chained_comparison_semantics is False
+        assert all(
+            item.pattern != "chained_comparison_semantics"
+            for item in result.antipatterns
+        )
+
+    def test_chain_in_nested_query_detected(self):
+        sql = (
+            "SELECT id FROM teams WHERE season_id IN "
+            "(SELECT id FROM seasons WHERE 2011 < year < 2015)"
+        )
+
+        result = detect_antipatterns(sql)
+
+        assert result.has_chained_comparison_semantics is True
+
+    def test_rule_can_be_disabled_by_configuration(self):
+        result = detect_antipatterns(
+            "SELECT id FROM seasons WHERE 2011 < year < 2015",
+            config={"critical": ["null_comparison_equals"]},
+        )
+
+        assert result.has_chained_comparison_semantics is False
+
+    def test_custom_severity_is_respected(self):
+        result = detect_antipatterns(
+            "SELECT id FROM seasons WHERE 2011 < year < 2015",
+            config={"blocker": ["chained_comparison_semantics"]},
+        )
+
+        finding = next(
+            item
+            for item in result.antipatterns
+            if item.pattern == "chained_comparison_semantics"
+        )
+        assert finding.severity == "blocker"
+
+
 class TestSelectStarAntipattern:
     """Unit tests for SELECT * antipattern detection."""
 

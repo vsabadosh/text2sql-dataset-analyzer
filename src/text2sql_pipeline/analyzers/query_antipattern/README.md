@@ -13,7 +13,7 @@ Detects SQL antipatterns and code smells with dialect-specific configuration.
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │  antipattern_registry.py (Single Source of Truth)               │
-│  - AntipatternPattern enum (19 patterns)                        │
+│  - AntipatternPattern enum (16 registered pattern IDs)          │
 │  - Pattern → Human-readable names mapping                       │
 │  - Pattern → Boolean field mapping                              │
 └─────────────────────────────────────────────────────────────────┘
@@ -167,6 +167,9 @@ all possible database contents.
 - `null_comparison_equals` - `= NULL` instead of `IS NULL`
 - `cartesian_product` - Missing JOIN conditions
 - `missing_group_by` - Aggregate/grouping queries with an undetermined projection
+- `chained_comparison_semantics` - Mathematical-style chains such as
+  `low < value < high`; SQLite silently compares the intermediate 0/1 result,
+  while other dialects may reject the boolean-to-scalar comparison
 
 `missing_group_by` is schema-aware when the analyzer can introspect the
 database. Grouping by a whole primary key determines every other column of that

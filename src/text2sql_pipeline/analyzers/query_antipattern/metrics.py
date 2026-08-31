@@ -38,6 +38,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_null_comparison_equals: bool = False   # = NULL instead of IS NULL
     has_cartesian_product: bool = False        # missing JOIN conditions
     has_missing_group_by: bool = False         # aggregates without GROUP BY
+    has_chained_comparison_semantics: bool = False  # a < b < c is not a mathematical range
     
     # High severity
     has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)

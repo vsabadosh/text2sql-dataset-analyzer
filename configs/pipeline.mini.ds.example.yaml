@@ -108,6 +108,7 @@ analyze:
         sqlite:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL` (always evaluates to NULL/false)
+            - chained_comparison_semantics   # `a < b < c` silently compares a boolean in SQLite
             - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
             - cartesian_product              # Missing JOIN condition (exponential result explosion)
           high:
@@ -127,6 +128,7 @@ analyze:
         postgresql:
           critical:
             - null_comparison_equals         # `= NULL` instead of `IS NULL`
+            - chained_comparison_semantics   # Mathematical-style comparison chains are invalid SQL semantics
             - missing_group_by               # Non-aggregated columns without GROUP BY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE
             - cartesian_product              # Missing JOIN condition

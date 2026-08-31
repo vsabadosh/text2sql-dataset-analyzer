@@ -1,0 +1,51 @@
+sourceDb:
+  dialect: sqlite
+  kind: file
+  # This rule is purely syntactic. The directory may be empty because no
+  # schema or database values participate in the decision.
+  endpoint: "${SOURCE_DB_ENDPOINT:/tmp/text2sql-empty-databases}"
+
+load:
+  name: jsonl
+  params:
+    path: "${INPUT_PATH}"
+
+progress:
+  show_progress: false
+
+normalize:
+  - name: alias_mapper
+    params:
+      mapping:
+        id: id
+        question: question
+        sql: sql
+        schema: schema
+        dbId: dbId
+
+analyze:
+  - name: query_antipattern_analyzer
+    params:
+      enabled: true
+      penalties:
+        critical: 30
+      antipatterns:
+        sqlite:
+          critical:
+            - chained_comparison_semantics
+
+output:
+  dataset_name: "${DATASET_NAME}"
+  base_dir: "UJIT/antipattern-runs"
+  jsonl_enabled: true
+  reports:
+    enabled: true
+    output_dir: "all_reports"
+    summary_report: true
+    schema_validation: false
+    llm_judge_issues: false
+    query_execution_issues: false
+    query_structure_profile: false
+    table_coverage: false
+    query_quality: true
+    question_sql_consistency: false

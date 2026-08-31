@@ -199,7 +199,7 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, unsafe_update_delete, cartesian_product]
+          critical: [null_comparison_equals, chained_comparison_semantics, unsafe_update_delete, cartesian_product]
           high: [not_in_nullable, limit_without_order_by, offset_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery, leading_wildcard_like]
           low: [select_star, redundant_distinct, select_in_exists]
@@ -258,11 +258,11 @@ Parses SQL with sqlglot and extracts structural features:
 
 ### 3. Query Antipattern Analyzer
 
-Detects 13 SQL antipatterns with configurable severity and dialect-specific rules:
+Detects 14 SQL antipatterns with configurable severity and dialect-specific rules:
 
 | Severity | Antipatterns |
 |----------|-------------|
-| **CRITICAL** | `null_comparison_equals`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
+| **CRITICAL** | `null_comparison_equals`, `chained_comparison_semantics`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
 | **HIGH** | `not_in_nullable`, `limit_without_order_by`, `offset_without_order_by` |
 | **MEDIUM** | `function_in_where`, `correlated_subquery`, `leading_wildcard_like` |
 | **LOW** | `select_star`, `redundant_distinct`, `select_in_exists` |
@@ -479,7 +479,7 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, unsafe_update_delete, cartesian_product]
+          critical: [null_comparison_equals, chained_comparison_semantics, unsafe_update_delete, cartesian_product]
           high: [not_in_nullable, limit_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery]
           low: [select_star, redundant_distinct]
@@ -576,7 +576,7 @@ find . -name '*.egg-info' -type d -prune -exec rm -rf {} +
 find . -name '__pycache__' -type d -prune -exec rm -rf {} +
 ```
 
----
+ал---
 
 ## License
 

@@ -4,6 +4,7 @@ Core antipattern detection logic using sqlglot AST analysis.
 This module detects common SQL antipatterns and code smells:
 - Unsafe UPDATE/DELETE (no WHERE) - data safety
 - = NULL comparison (correctness)
+- Non-mathematical chained comparisons (silent boolean coercion or execution failure)
 - Cartesian product (missing JOIN) - correctness
 - Missing GROUP BY (correctness)
 - Functions in WHERE clause (index prevention)
@@ -29,6 +30,15 @@ from .antipattern_registry import (
     get_severity_penalties,
 )
 
+_CHAINABLE_COMPARISON_TYPES: Tuple[Type[exp.Expression], ...] = (
+    exp.EQ,
+    exp.NEQ,
+    exp.LT,
+    exp.GT,
+    exp.LTE,
+    exp.GTE,
+)
+
 # Default antipattern configuration (enables all antipatterns for backwards compatibility)
 # In production, use dialect-specific configs from pipeline.yaml
 DEFAULT_CONFIG = {
@@ -37,6 +47,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.NULL_COMPARISON_EQUALS,
         AntipatternPattern.CARTESIAN_PRODUCT,
         AntipatternPattern.MISSING_GROUP_BY,
+        AntipatternPattern.CHAINED_COMPARISON_SEMANTICS,
     ],
     "high": [
         AntipatternPattern.FUNCTION_IN_WHERE,
@@ -263,6 +274,10 @@ def _analyze_ast(
             table_columns,
             column_comparators,
         )
+    if AntipatternPattern.CHAINED_COMPARISON_SEMANTICS in enabled_patterns:
+        _detect_chained_comparison_semantics(
+            ast, antipatterns, features, pattern_severity_map
+        )
     if AntipatternPattern.FUNCTION_IN_WHERE in enabled_patterns:
         _detect_function_in_where(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.NOT_IN_NULLABLE in enabled_patterns:
@@ -315,6 +330,49 @@ def _analyze_ast(
 # ============================================================================
 # Detection Rules
 # ============================================================================
+
+def _detect_chained_comparison_semantics(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect unparenthesized mathematical-style comparison chains.
+
+    SQL does not define ``low < value < high`` as a range predicate. Dialects
+    such as SQLite evaluate it left-to-right and coerce the first comparison
+    to 0/1, which silently admits unrelated rows. Other dialects reject the
+    resulting boolean-to-scalar comparison. Explicit parentheses are retained
+    by SQLGlot and are not flagged because they make the intermediate boolean
+    operation intentional.
+    """
+    pattern = AntipatternPattern.CHAINED_COMPARISON_SEMANTICS.value
+    severity = severity_map.get(pattern, "critical")
+
+    for node in ast.walk():
+        if not isinstance(node, _CHAINABLE_COMPARISON_TYPES):
+            continue
+        if not isinstance(
+            node.this, _CHAINABLE_COMPARISON_TYPES
+        ) and not isinstance(node.expression, _CHAINABLE_COMPARISON_TYPES):
+            continue
+
+        features.has_chained_comparison_semantics = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "SQL does not implement mathematical chained comparisons. "
+                    "Rewrite the range as two predicates joined by AND or use "
+                    "BETWEEN; otherwise some dialects silently compare an "
+                    "intermediate boolean value while others reject the query."
+                ),
+                location=node.sql(),
+            )
+        )
+        return
+
 
 def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect UPDATE/DELETE without WHERE clause (data safety issue)."""
