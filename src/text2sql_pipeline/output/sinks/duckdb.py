@@ -168,6 +168,7 @@ class DuckDBMetricsSink(MetricsSink):
                         ("has_unquoted_date_arithmetic", "BOOLEAN"),
                         ("has_literal_division_by_zero", "BOOLEAN"),
                         ("has_scalar_subquery_cardinality", "BOOLEAN"),
+                        ("has_template_placeholder_literal", "BOOLEAN"),
                     ],
                 )
             elif analyzer_name == "question_sql_consistency":
@@ -427,6 +428,7 @@ class DuckDBMetricsSink(MetricsSink):
             has_unquoted_date_arithmetic BOOLEAN,
             has_literal_division_by_zero BOOLEAN,
             has_scalar_subquery_cardinality BOOLEAN,
+            has_template_placeholder_literal BOOLEAN,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -791,7 +793,7 @@ class DuckDBMetricsSink(MetricsSink):
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, 
-                    ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """, [
                 # Metadata
@@ -845,6 +847,7 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("has_unquoted_date_arithmetic"),
                 features.get("has_literal_division_by_zero"),
                 features.get("has_scalar_subquery_cardinality"),
+                features.get("has_template_placeholder_literal"),
             ])
     
     def _insert_question_sql_consistency(self, table_name: str, records: list[Dict[str, Any]]) -> None:

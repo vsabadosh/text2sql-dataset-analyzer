@@ -154,6 +154,7 @@ analyze:
             - offset_without_order_by        # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
             - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             - scalar_subquery_cardinality    # Scalar subquery lacks a static <=1-row guarantee
+            - template_placeholder_literal   # Unexpanded generated value such as `region0`
           medium:
             # 🐌 PERFORMANCE KILLERS
             - function_in_where              # Functions on indexed columns prevent index usage
@@ -181,6 +182,7 @@ analyze:
             - limit_without_order_by         # LIMIT without ORDER BY → nondeterministic row selection (unstable results across runs)
             - offset_without_order_by         # OFFSET without ORDER BY → meaningless pagination; skipped rows are nondeterministic
             - scalar_subquery_cardinality    # May fail when a scalar subquery returns multiple rows
+            - template_placeholder_literal   # Unexpanded generated string value such as `region0`
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution

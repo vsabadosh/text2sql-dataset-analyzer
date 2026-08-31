@@ -221,6 +221,12 @@ nondeterministic on the current rows.
 - `leading_wildcard_like` - `LIKE '%pattern'`
 - `scalar_subquery_cardinality` - Scalar use of a subquery without a static
   at-most-one-row guarantee
+- `template_placeholder_literal` - Predicate values with an unexpanded
+  lowercase zero-suffixed template shape such as `region0` or `actor_name0`.
+  The part before `0` must equal or end with the compared column name.
+  Single-quoted values are checked in every dialect. SQLite double-quoted
+  values are checked only when schema metadata does not bind them as real
+  columns.
 
 `not_in_nullable` keeps its public identifier for compatibility, but its
 implementation is now schema-aware. It reports a training-time correctness

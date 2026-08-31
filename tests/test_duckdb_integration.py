@@ -259,6 +259,9 @@ def test_antipattern_sink_migrates_and_stores_appended_flags():
         ).replace(
             "            has_scalar_subquery_cardinality BOOLEAN,\n",
             "",
+        ).replace(
+            "            has_template_placeholder_literal BOOLEAN,\n",
+            "",
         )
         sink.conn.execute(old_schema)
 
@@ -275,7 +278,8 @@ def test_antipattern_sink_migrates_and_stores_appended_flags():
                 has_unquoted_date_arithmetic=True,
                 has_literal_division_by_zero=True,
                 has_scalar_subquery_cardinality=True,
-                total_antipatterns=5,
+                has_template_placeholder_literal=True,
+                total_antipatterns=6,
                 quality_score=0,
                 quality_level="poor",
                 antipatterns=[
@@ -309,6 +313,12 @@ def test_antipattern_sink_migrates_and_stores_appended_flags():
                         message="Scalar subquery lacks an at-most-one-row proof.",
                         location="(SELECT user_id FROM users)",
                     ),
+                    AntipatternInstance(
+                        pattern="template_placeholder_literal",
+                        severity="high",
+                        message="SQL contains an unexpanded template placeholder.",
+                        location='"region0"',
+                    ),
                 ],
             ),
         )
@@ -325,12 +335,13 @@ def test_antipattern_sink_migrates_and_stores_appended_flags():
             "has_unquoted_date_arithmetic, "
             "has_literal_division_by_zero, "
             "has_scalar_subquery_cardinality, "
+            "has_template_placeholder_literal, "
             "json_array_length(antipatterns) "
             "FROM metrics_query_antipattern"
         ).fetchone()
         conn.close()
 
-        assert stored == (True, True, True, True, True, 5)
+        assert stored == (True, True, True, True, True, True, 6)
 
 
 if __name__ == "__main__":

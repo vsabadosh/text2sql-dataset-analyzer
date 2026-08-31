@@ -42,6 +42,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_conditional_count_non_null_else: bool = False  # COUNT(CASE ... ELSE 0) counts every row
     has_unquoted_date_arithmetic: bool = False  # date = 2018-06-01 evaluates subtraction
     has_literal_division_by_zero: bool = False  # divisor is a static numeric zero
+    has_template_placeholder_literal: bool = False  # region0/actor_name0 left unexpanded
     
     # High severity
     has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)

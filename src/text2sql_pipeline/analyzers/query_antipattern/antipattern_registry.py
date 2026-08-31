@@ -50,6 +50,7 @@ class AntipatternPattern(str, Enum):
     CONDITIONAL_COUNT_NON_NULL_ELSE = "conditional_count_non_null_else"
     UNQUOTED_DATE_ARITHMETIC = "unquoted_date_arithmetic"
     LITERAL_DIVISION_BY_ZERO = "literal_division_by_zero"
+    TEMPLATE_PLACEHOLDER_LITERAL = "template_placeholder_literal"
     
     # High severity antipatterns (performance/correctness)
     FUNCTION_IN_WHERE = "function_in_where"
@@ -78,6 +79,7 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE: "Conditional COUNT with non-NULL ELSE",
     AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "Unquoted date interpreted as arithmetic",
     AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "Literal division by zero",
+    AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "Unexpanded template placeholder literal",
     AntipatternPattern.FUNCTION_IN_WHERE: "Function in WHERE",
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
@@ -103,6 +105,7 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE: "has_conditional_count_non_null_else",
     AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "has_unquoted_date_arithmetic",
     AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "has_literal_division_by_zero",
+    AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "has_template_placeholder_literal",
     AntipatternPattern.FUNCTION_IN_WHERE: "has_function_in_where",
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",

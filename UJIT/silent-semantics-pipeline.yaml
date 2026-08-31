@@ -37,6 +37,7 @@ analyze:
             - literal_division_by_zero
           high:
             - scalar_subquery_cardinality
+            - template_placeholder_literal
 
 output:
   dataset_name: "${DATASET_NAME}"

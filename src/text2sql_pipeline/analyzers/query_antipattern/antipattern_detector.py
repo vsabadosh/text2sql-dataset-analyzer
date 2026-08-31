@@ -8,6 +8,7 @@ This module detects common SQL antipatterns and code smells:
 - Conditional COUNT with a non-NULL ELSE branch (condition is not counted selectively)
 - Unquoted date-shaped subtraction in temporal predicates
 - Division by a static numeric zero
+- Unexpanded zero-suffixed template placeholders in predicate values
 - Scalar subqueries without a static at-most-one-row proof
 - Cartesian product (missing JOIN) - correctness
 - Missing GROUP BY (correctness)
@@ -58,6 +59,9 @@ _SET_VALUED_SUBQUERY_PARENTS: Tuple[Type[exp.Expression], ...] = tuple(
     )
     if node_type is not None
 )
+_TEMPLATE_PLACEHOLDER_LITERAL_RE = re.compile(
+    r"^(?P<base>[a-z][a-z_]{2,})0$"
+)
 
 # Default antipattern configuration (enables all antipatterns for backwards compatibility)
 # In production, use dialect-specific configs from pipeline.yaml
@@ -73,6 +77,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.LITERAL_DIVISION_BY_ZERO,
     ],
     "high": [
+        AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL,
         AntipatternPattern.FUNCTION_IN_WHERE,
         AntipatternPattern.NOT_IN_NULLABLE,
         AntipatternPattern.LEADING_WILDCARD_LIKE,
@@ -264,6 +269,7 @@ def detect_antipatterns(
         normalized_star_columns,
         normalized_column_types,
         date_value_probe,
+        (dialect or "sqlite").lower(),
     )
 
 
@@ -286,6 +292,7 @@ def _analyze_ast(
     date_value_probe: Optional[
         Callable[[str, str, str], Optional[bool]]
     ] = None,
+    dialect: str = "sqlite",
 ) -> QueryAntipatternFeatures:
     """
     Analyze parsed AST and detect antipatterns.
@@ -303,6 +310,7 @@ def _analyze_ast(
         star_expanded_columns: Optional table -> columns projected by SELECT *
         column_types: Optional declared SQL types for temporal-role proofs
         date_value_probe: Optional exact-value snapshot probe
+        dialect: SQL dialect used to parse the query
     """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
@@ -346,6 +354,15 @@ def _analyze_ast(
     if AntipatternPattern.LITERAL_DIVISION_BY_ZERO in enabled_patterns:
         _detect_literal_division_by_zero(
             ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL in enabled_patterns:
+        _detect_template_placeholder_literal(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            table_columns,
+            dialect,
         )
     if AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY in enabled_patterns:
         _detect_scalar_subquery_cardinality(
@@ -778,6 +795,83 @@ def _declared_type_family(sql_type: str) -> str:
     if tokens & {"CHAR", "CHARACTER", "VARCHAR", "NCHAR", "TEXT", "CLOB"}:
         return "text"
     return "unknown"
+
+
+def _detect_template_placeholder_literal(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    table_columns: Optional[Dict[str, List[str]]],
+    dialect: str,
+) -> None:
+    """Detect unexpanded zero-suffixed template values in SQL predicates."""
+    pattern = AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL.value
+    severity = severity_map.get(pattern, "high")
+
+    candidates: list[tuple[exp.Expression, str]] = []
+    for literal in ast.find_all(exp.Literal):
+        if literal.is_string:
+            candidates.append((literal, str(literal.this)))
+
+    if dialect == "sqlite":
+        for column in ast.find_all(exp.Column):
+            identifier = column.this
+            if (
+                column.table
+                or not isinstance(identifier, exp.Identifier)
+                or not bool(identifier.args.get("quoted"))
+            ):
+                continue
+            if (
+                table_columns is not None
+                and _bound_column_schema(column, table_columns, None) is not None
+            ):
+                continue
+            candidates.append((column, column.name))
+
+    for candidate, value in candidates:
+        match = _TEMPLATE_PLACEHOLDER_LITERAL_RE.fullmatch(value)
+        if match is None:
+            continue
+        role = _predicate_role_for_value(candidate)
+        if role is None or not _placeholder_base_matches_role(
+            match.group("base"), role
+        ):
+            continue
+
+        features.has_template_placeholder_literal = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    f"Predicate value {value!r} has the zero-suffixed shape of "
+                    "an unexpanded template variable derived from the compared "
+                    "column. Replace it with the intended domain value before "
+                    "executing the query."
+                ),
+                location=candidate.sql(),
+            )
+        )
+
+
+def _placeholder_base_matches_role(
+    base: str,
+    role: exp.Expression,
+) -> bool:
+    """Whether a placeholder base names the predicate's compared column."""
+    columns = (
+        [role]
+        if isinstance(role, exp.Column)
+        else list(role.find_all(exp.Column))
+    )
+    return any(
+        base == column.name.lower()
+        or base.endswith(f"_{column.name.lower()}")
+        for column in columns
+        if column.name
+    )
 
 
 def _detect_literal_division_by_zero(

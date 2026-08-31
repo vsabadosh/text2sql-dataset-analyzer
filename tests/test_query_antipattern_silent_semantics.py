@@ -228,6 +228,87 @@ class TestUnquotedDateArithmetic:
         assert result.has_unquoted_date_arithmetic is False
 
 
+class TestTemplatePlaceholderLiteral:
+    """Zero-suffixed generated values should not survive in predicates."""
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("region", "region0"),
+            ("name", "actor_name0"),
+            ("name", "director_name0"),
+            ("category_name", "category_category_name0"),
+        ],
+    )
+    @pytest.mark.parametrize("quote", ["'", '"'])
+    def test_placeholder_shaped_predicate_value_is_high(
+        self, column, value, quote
+    ):
+        result = detect_antipatterns(
+            f"SELECT id FROM records WHERE {column} = {quote}{value}{quote}"
+        )
+
+        assert result.has_template_placeholder_literal is True
+        finding = next(
+            item
+            for item in result.antipatterns
+            if item.pattern == "template_placeholder_literal"
+        )
+        assert finding.severity == "high"
+        assert value in finding.message
+
+    def test_shape_without_column_role_alignment_is_not_flagged(self):
+        result = detect_antipatterns(
+            "SELECT id FROM records WHERE name = 'student0'"
+        )
+
+        assert result.has_template_placeholder_literal is False
+
+    @pytest.mark.parametrize(
+        ("column", "value"),
+        [
+            ("student", "student180"),
+            ("word", "word1002"),
+            ("coach", "costela01"),
+            ("amount", "under_10"),
+            ("region", "region"),
+            ("region", "Region0"),
+        ],
+    )
+    def test_domain_values_without_exact_placeholder_shape_are_not_flagged(
+        self, column, value
+    ):
+        result = detect_antipatterns(
+            f"SELECT id FROM records WHERE {column} = '{value}'"
+        )
+
+        assert result.has_template_placeholder_literal is False
+
+    def test_real_sqlite_quoted_column_is_not_treated_as_placeholder(self):
+        result = detect_antipatterns(
+            'SELECT id FROM records WHERE region = "region0"',
+            table_columns={"records": ["id", "region", "region0"]},
+        )
+
+        assert result.has_template_placeholder_literal is False
+
+    def test_postgres_quoted_identifier_is_not_treated_as_literal(self):
+        result = detect_antipatterns(
+            'SELECT id FROM records WHERE region = "region0"',
+            dialect="postgres",
+        )
+
+        assert result.has_template_placeholder_literal is False
+
+    def test_rule_can_be_disabled(self):
+        result = detect_antipatterns(
+            "SELECT id FROM records WHERE region = 'region0'",
+            config={"critical": ["null_comparison_equals"]},
+        )
+
+        assert result.has_template_placeholder_literal is False
+
+
 class TestLiteralDivisionByZero:
     """A static zero divisor cannot produce a useful quotient."""
 

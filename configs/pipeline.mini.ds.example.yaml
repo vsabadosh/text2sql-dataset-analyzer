@@ -120,6 +120,7 @@ analyze:
             - offset_without_order_by        # OFFSET without ORDER BY -> meaningless pagination
             - missing_group_by               # Non-aggregated columns without GROUP BY (SQL semantic error)
             - scalar_subquery_cardinality    # Scalar subquery lacks a static <=1-row guarantee
+            - template_placeholder_literal   # Unexpanded generated value such as `region0`
           medium:
             - function_in_where              # Functions on indexed columns prevent index usage
             - correlated_subquery            # Row-by-row execution (often has better alternatives)
@@ -144,6 +145,7 @@ analyze:
             - limit_without_order_by         # LIMIT without ORDER BY -> nondeterministic row selection
             - offset_without_order_by        # OFFSET without ORDER BY -> meaningless pagination
             - scalar_subquery_cardinality    # May fail when a scalar subquery returns multiple rows
+            - template_placeholder_literal   # Unexpanded generated string value such as `region0`
           medium:
             - function_in_where              # Index-breaking functions in WHERE
             - correlated_subquery            # Inefficient row-by-row execution
