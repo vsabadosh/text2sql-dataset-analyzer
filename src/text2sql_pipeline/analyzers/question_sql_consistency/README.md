@@ -124,6 +124,12 @@ python scripts/validate_bird_aggregate_substitutions.py
   Without an exact binary domain, identifier shape only yields `UNRESOLVED`.
 - Dataset `evidence_texts` are treated as normative benchmark assertions;
   locally negated mentions do not license a value or aggregate.
+- Explicit evidence mappings of the form `semantic label refers to column = 0/1`
+  bind by column and by the same label in the question. The evidence and
+  question labels must have the same semantic polarity; unmatched or
+  polarity-shifted labels, competing sources and non-Boolean substitutions
+  abstain. This path emits only opposite-code contradictions; matching values
+  remain on the existing literal-licensing path.
 - Boundary evidence is used only when an affirmative numeric assertion binds
   to the same SQL value and predicate role. If SQL follows that evidence while
   an unambiguous question cue differs, the finding targets the benchmark
@@ -136,6 +142,10 @@ python scripts/validate_bird_aggregate_substitutions.py
   enumerate interior periods, and whole-year upper bounds may use an exact
   half-open successor boundary. Derived multi-period formulas outside this
   closed allowlist abstain instead of producing pairwise contradictions.
+- Year-last slash-date ranges are interpreted as month/day/year only when
+  dataset evidence confirms the same ISO bounds for the same column. The rule
+  then compares the complete question interval with one SQL `BETWEEN`; a
+  disagreeing context or competing SQL role abstains.
 - SQL obligations are query-scope and source-table aware. If sqlglot can parse
   a query but cannot build reliable scopes, scoped checks abstain while other
   rules continue.

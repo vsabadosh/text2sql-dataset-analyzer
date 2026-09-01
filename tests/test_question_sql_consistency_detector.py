@@ -59,6 +59,179 @@ def test_literal_can_be_licensed_by_dataset_evidence():
     assert "DATASET_EVIDENCE" in {source.value for source in finding.evidence_sources}
 
 
+def test_column_bound_evidence_value_mismatch_is_contradicted():
+    features = detect_consistency(
+        "How many active employees do not wish to receive e-mail promotions?",
+        (
+            "SELECT COUNT(*) FROM Employee AS e JOIN Person AS p "
+            "ON e.id = p.id WHERE e.CurrentFlag = 1 "
+            "AND p.EmailPromotion = 1"
+        ),
+        context=ContextManifest(
+            evidence_texts=[
+                "active status refers to CurrentFlag = 1; "
+                "does not wish to receive promotions refers to "
+                "EmailPromotion = 0;"
+            ]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.supported_count == 0
+    assert features.contradicted_count == 1
+    assert features.unresolved_count == 1
+    finding = _finding(features, "EVIDENCE_BOOLEAN_LITERAL_MISMATCH")
+    assert finding.status == ConsistencyStatus.CONTRADICTED
+    assert finding.details["column_name"] == "emailpromotion"
+    assert finding.details["expected_value"] == "0"
+    assert finding.details["sql_value"] == "1"
+
+
+def test_matching_column_bound_evidence_does_not_emit_mismatch():
+    features = detect_consistency(
+        "How many employees do not wish to receive e-mail promotions?",
+        "SELECT COUNT(*) FROM Person WHERE EmailPromotion = 0",
+        context=ContextManifest(
+            evidence_texts=[
+                "does not wish to receive promotions refers to "
+                "EmailPromotion = 0"
+            ]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert not any(
+        finding.reason_code == "EVIDENCE_BOOLEAN_LITERAL_MISMATCH"
+        for finding in features.findings
+    )
+
+
+def test_question_polarity_change_does_not_reuse_positive_boolean_mapping():
+    features = detect_consistency(
+        "Show authors who are not on contract.",
+        "SELECT * FROM authors WHERE contract = 0",
+        context=ContextManifest(
+            evidence_texts=["on contract refers to contract = 1"]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert _finding(features, "SQL_LITERAL_UNLICENSED")
+
+
+def test_unmatched_evidence_label_does_not_create_boolean_contradiction():
+    features = detect_consistency(
+        "Show products purchased in house.",
+        "SELECT * FROM products WHERE MakeFlag = 0",
+        context=ContextManifest(
+            evidence_texts=["manufactured in house refers to MakeFlag = 1"]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert _finding(features, "SQL_LITERAL_UNLICENSED")
+
+
+def test_structured_evidence_value_does_not_contradict_another_column():
+    features = detect_consistency(
+        "Show the requested employee records.",
+        "SELECT * FROM Employee WHERE EmailPromotion = 1",
+        context=ContextManifest(
+            evidence_texts=["active status refers to CurrentFlag = 1"]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert not any(
+        finding.reason_code == "EVIDENCE_BOOLEAN_LITERAL_MISMATCH"
+        for finding in features.findings
+    )
+
+
+def test_conflicting_column_bound_evidence_values_do_not_contradict():
+    features = detect_consistency(
+        "Show employees with the requested promotion setting.",
+        "SELECT * FROM Person WHERE EmailPromotion = 1",
+        context=ContextManifest(
+            evidence_texts=[
+                "requested promotion refers to EmailPromotion = 0; "
+                "requested promotion refers to EmailPromotion = 1"
+            ]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert not any(
+        finding.reason_code == "EVIDENCE_BOOLEAN_LITERAL_MISMATCH"
+        for finding in features.findings
+    )
+
+
+def test_non_boolean_column_bound_evidence_mismatch_abstains():
+    features = detect_consistency(
+        "Show employees with the requested promotion setting.",
+        "SELECT * FROM Person WHERE EmailPromotion = 2",
+        context=ContextManifest(
+            evidence_texts=["requested setting refers to EmailPromotion = 1"]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.supported_count == 0
+    assert features.contradicted_count == 0
+    assert _finding(features, "SQL_LITERAL_UNLICENSED")
+
+
+def test_question_value_prevents_blame_for_conflicting_evidence_mapping():
+    features = detect_consistency(
+        "Which 1988 movie got the most ratings?",
+        "SELECT title FROM movies WHERE movie_release_year = 1988",
+        context=ContextManifest(
+            evidence_texts=["1988 movie refers to movie_release_year = '1998'"]
+        ),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert features.supported_count == 1
+    assert not any(
+        finding.reason_code == "EVIDENCE_BOOLEAN_LITERAL_MISMATCH"
+        for finding in features.findings
+    )
+
+
+def test_unqualified_evidence_does_not_cross_ambiguous_column_sources():
+    features = detect_consistency(
+        "Show the requested records.",
+        (
+            "SELECT * FROM users AS u JOIN audit AS a ON u.id = a.user_id "
+            "WHERE u.status = 1 AND a.status = 2"
+        ),
+        context=ContextManifest(evidence_texts=["requested means status = 1"]),
+        rules=["literal_alignment"],
+        emit_supported=True,
+    )
+
+    assert features.contradicted_count == 0
+    assert not any(
+        finding.reason_code == "EVIDENCE_BOOLEAN_LITERAL_MISMATCH"
+        for finding in features.findings
+    )
+
+
 def test_negated_dataset_evidence_does_not_license_a_literal():
     features = detect_consistency(
         "Show active customers.",
@@ -1582,6 +1755,96 @@ def test_wrong_threshold_survives_multi_value_false_positive_guards():
     assert _finding(features, "EXPLICIT_TEMPORAL_VALUE_CONFLICT").status == (
         ConsistencyStatus.CONTRADICTED
     )
+
+
+def test_evidence_confirmed_mdy_range_conflicts_with_sql_between_bounds():
+    features = detect_consistency(
+        "How many films released between 1/2/1990 and 12/30/2000?",
+        (
+            "SELECT COUNT(*) FROM movie WHERE release_date "
+            "BETWEEN '1990-01-01' AND '2000-12-31'"
+        ),
+        context=ContextManifest(
+            evidence_texts=[
+                "released between 1/2/1990 and 12/30/2000 refers to "
+                "release_date BETWEEN '1990-01-02' AND '2000-12-30'"
+            ]
+        ),
+        rules=["temporal_anchor_provenance"],
+    )
+
+    finding = _finding(features, "EXPLICIT_TEMPORAL_RANGE_CONFLICT")
+    assert finding.status == ConsistencyStatus.CONTRADICTED
+    assert finding.details["question_range"] == {
+        "lower": "1990-01-02",
+        "upper": "2000-12-30",
+    }
+    assert finding.details["sql_range"] == {
+        "lower": "1990-01-01",
+        "upper": "2000-12-31",
+    }
+
+
+def test_evidence_confirmed_mdy_range_matching_sql_is_supported():
+    features = detect_consistency(
+        "Show films from 1/2/1990 to 12/30/2000.",
+        (
+            "SELECT * FROM movie WHERE release_date "
+            "BETWEEN '1990-01-02' AND '2000-12-30'"
+        ),
+        context=ContextManifest(
+            evidence_texts=[
+                "films in range refers to release_date "
+                "BETWEEN '1990-01-02' AND '2000-12-30'"
+            ]
+        ),
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    finding = _finding(features, "EXPLICIT_TEMPORAL_RANGE_MATCH")
+    assert finding.status == ConsistencyStatus.SUPPORTED
+
+
+def test_conflicting_context_does_not_reinterpret_question_mdy_range():
+    features = detect_consistency(
+        "Show films between 1/1/1916 and 12/31/1925.",
+        (
+            "SELECT * FROM movie WHERE release_date "
+            "BETWEEN '1916-01-01' AND '1925-12-31'"
+        ),
+        context=ContextManifest(
+            evidence_texts=[
+                "released range refers to release_date "
+                "BETWEEN '1916-01-02' AND '1925-12-30'"
+            ]
+        ),
+        rules=["temporal_anchor_provenance"],
+        emit_supported=True,
+    )
+
+    assert features.applicable_rules == 0
+    assert features.findings == []
+
+
+def test_mdy_range_evidence_for_another_column_does_not_bind():
+    features = detect_consistency(
+        "Show films between 1/2/1990 and 12/30/2000.",
+        (
+            "SELECT * FROM movie WHERE release_date "
+            "BETWEEN '1990-01-01' AND '2000-12-31'"
+        ),
+        context=ContextManifest(
+            evidence_texts=[
+                "range refers to created_date "
+                "BETWEEN '1990-01-02' AND '2000-12-30'"
+            ]
+        ),
+        rules=["temporal_anchor_provenance"],
+    )
+
+    assert features.applicable_rules == 0
+    assert features.findings == []
 
 
 def test_invalid_calendar_date_is_outside_temporal_rule_scope():

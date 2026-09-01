@@ -193,6 +193,40 @@ _EVIDENCE_AGGREGATE_RE = re.compile(
     r"\s*\)(?:\s+from\s+(?P<source_table>[A-Za-z_][A-Za-z0-9_.$]*))?",
     re.IGNORECASE,
 )
+_EVIDENCE_IDENTIFIER = (
+    r"(?:\"[^\"]+\"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)"
+)
+_EVIDENCE_LITERAL_EQ_RE = re.compile(
+    rf"(?<![A-Za-z0-9_$])"
+    rf"(?P<column>{_EVIDENCE_IDENTIFIER}(?:\s*\.\s*{_EVIDENCE_IDENTIFIER})?)"
+    rf"\s*(?<![<>=!])=(?!=)\s*"
+    rf"(?P<value>'(?:''|[^'\n\r;=])*'|\"(?:\"\"|[^\"\n\r;=])*\"|"
+    rf"-?\d+(?:\.\d+)?|true\b|false\b)",
+    re.IGNORECASE,
+)
+_EVIDENCE_MAPPING_CUE_RE = re.compile(
+    r"\b(?:refers?\s+to|means?)\b",
+    re.IGNORECASE,
+)
+_SEMANTIC_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|without|doesn['’]?t|don['’]?t|"
+    r"isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t)\b",
+    re.IGNORECASE,
+)
+_QUESTION_MDY_RANGE_RE = re.compile(
+    r"\b(?P<range>(?:between|from)\s+"
+    r"(?P<lower>\d{1,2}/\d{1,2}/\d{4})\s+"
+    r"(?:and|to|through|-)\s+"
+    r"(?P<upper>\d{1,2}/\d{1,2}/\d{4}))\b",
+    re.IGNORECASE,
+)
+_EVIDENCE_DATE_BETWEEN_RE = re.compile(
+    rf"(?<![A-Za-z0-9_$])"
+    rf"(?P<column>{_EVIDENCE_IDENTIFIER}(?:\s*\.\s*{_EVIDENCE_IDENTIFIER})?)"
+    r"\s+BETWEEN\s+['\"]?(?P<lower>\d{4}-\d{1,2}-\d{1,2})['\"]?"
+    r"\s+AND\s+['\"]?(?P<upper>\d{4}-\d{1,2}-\d{1,2})['\"]?",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -248,6 +282,27 @@ class AggregateEvidenceReference:
     aggregate: str
     table: str
     column: str
+    evidence_text: str
+
+
+@dataclass(frozen=True)
+class LiteralEvidenceReference:
+    table: str
+    column: str
+    value: str
+    normalized: str
+    label: str
+    evidence_text: str
+    value_start: int
+    value_end: int
+
+
+@dataclass(frozen=True)
+class DateRangeEvidenceReference:
+    table: str
+    column: str
+    lower: date
+    upper: date
     evidence_text: str
 
 
@@ -1234,6 +1289,7 @@ def _literal_alignment(
     )
     findings = list(contradictions)
     aggregate_references = _aggregate_evidence_references(context.evidence_texts)
+    literal_references = _literal_evidence_references(context.evidence_texts)
 
     for obligation in obligations:
         if (obligation.scope_id, obligation.sql_location) in contradicted_locations:
@@ -1247,8 +1303,20 @@ def _literal_alignment(
         if aggregate_finding is not None:
             findings.append(aggregate_finding)
             continue
+        evidence_finding = _evidence_literal_alignment_finding(
+            question,
+            obligation,
+            obligations,
+            literal_references,
+            scope_index,
+        )
+        if evidence_finding is not None:
+            findings.append(evidence_finding)
+            continue
         spans, sources, license_kind = _literal_license(
-            question, obligation, context
+            question,
+            obligation,
+            context,
         )
         assumptions = _obligation_assumptions(obligation)
         if license_kind in _DERIVED_LICENSE_KINDS:
@@ -1899,6 +1967,268 @@ def _evidence_aggregate_substitution_finding(
             "required_aggregate": reference.aggregate.upper(),
             "evidence_text": reference.evidence_text,
         },
+    )
+
+
+def _literal_evidence_references(
+    evidence_texts: Iterable[str],
+) -> list[LiteralEvidenceReference]:
+    references: list[LiteralEvidenceReference] = []
+    for evidence_text in evidence_texts:
+        for match in _EVIDENCE_LITERAL_EQ_RE.finditer(evidence_text):
+            clause_start = max(
+                evidence_text.rfind(";", 0, match.start()),
+                evidence_text.rfind("\n", 0, match.start()),
+            ) + 1
+            prefix = evidence_text[clause_start : match.start("column")]
+            mapping_cues = list(_EVIDENCE_MAPPING_CUE_RE.finditer(prefix))
+            if not mapping_cues:
+                continue
+            cue = mapping_cues[-1]
+            if re.fullmatch(r"[\s:,(]*", prefix[cue.end() :]) is None:
+                continue
+            label = prefix[: cue.start()].strip(" \t:,.()")
+            if not label:
+                continue
+            table, column = _split_identifier_reference(match.group("column"))
+            raw_value = match.group("value")
+            value = _unquote_evidence_literal(raw_value)
+            references.append(
+                LiteralEvidenceReference(
+                    table=table,
+                    column=column,
+                    value=value,
+                    normalized=_literal_evidence_value_key(value),
+                    label=label,
+                    evidence_text=evidence_text,
+                    value_start=match.start("value"),
+                    value_end=match.end("value"),
+                )
+            )
+    return references
+
+
+def _unquote_evidence_literal(value: str) -> str:
+    if len(value) < 2 or value[0] not in {"'", '"'} or value[-1] != value[0]:
+        return value
+    quote = value[0]
+    return value[1:-1].replace(quote * 2, quote)
+
+
+def _literal_evidence_value_key(value: str) -> str:
+    kind = _literal_kind(value)
+    if kind == "number":
+        try:
+            number = Decimal(value.replace(",", ""))
+        except InvalidOperation:
+            pass
+        else:
+            if number.is_finite():
+                return f"number:{format(number.normalize(), 'f')}"
+    parsed_date = _parse_sql_date(value) if kind == "date" else None
+    if parsed_date is not None:
+        return f"date:{parsed_date.isoformat()}"
+    return f"{kind}:{normalize_text(value)}"
+
+
+def _evidence_label_question_alignment(
+    label: str,
+    question: NormalizedQuestion,
+) -> list[TextSpan] | None:
+    normalized_label = normalize_question(label)
+    label_negations = list(_SEMANTIC_NEGATION_RE.finditer(label))
+    after_negation = label_negations[-1].end() if label_negations else 0
+    content_tokens = [
+        token.normalized
+        for token in normalized_label.tokens
+        if token.end > after_negation
+        and len(token.normalized) > 1
+        and not is_function_word(token.normalized)
+        and _SEMANTIC_NEGATION_RE.fullmatch(token.text) is None
+    ]
+    if not content_tokens:
+        return None
+
+    spans_by_token = {
+        token: _dedupe_spans(
+            [
+                *find_exact_spans(question, token),
+                *find_inflected_spans(question, token),
+            ]
+        )
+        for token in dict.fromkeys(content_tokens)
+    }
+    anchor_spans = spans_by_token[content_tokens[0]]
+    matched_tokens = sum(bool(spans) for spans in spans_by_token.values())
+    if not anchor_spans or matched_tokens * 2 < len(spans_by_token):
+        return None
+
+    question_polarities = {
+        _question_span_has_semantic_negation(question, span)
+        for span in anchor_spans
+    }
+    if len(question_polarities) != 1:
+        return None
+    if bool(label_negations) != question_polarities.pop():
+        return None
+    return anchor_spans
+
+
+def _question_span_has_semantic_negation(
+    question: NormalizedQuestion,
+    span: TextSpan,
+) -> bool:
+    index = next(
+        (
+            token_index
+            for token_index, token in enumerate(question.tokens)
+            if token.start == span.start
+        ),
+        None,
+    )
+    if index is None:
+        return False
+    return any(
+        _SEMANTIC_NEGATION_RE.fullmatch(token.text) is not None
+        for token in question.tokens[max(0, index - 4) : index]
+    )
+
+
+def _evidence_literal_alignment_finding(
+    question: NormalizedQuestion,
+    obligation: LiteralObligation,
+    obligations: list[LiteralObligation],
+    references: list[LiteralEvidenceReference],
+    scope_index: QueryScopeIndex,
+) -> ConsistencyFinding | None:
+    if (
+        obligation.operator != "EQ"
+        or not obligation.column
+        or not scope_index.reliable
+    ):
+        return None
+
+    column = _normalize_identifier_reference(obligation.column)
+    obligation_tables = {
+        _normalize_identifier_reference(value)
+        for value in (obligation.table, obligation.source_table)
+        if value
+    }
+    qualified = [
+        reference
+        for reference in references
+        if reference.column == column
+        and reference.table
+        and reference.table in obligation_tables
+    ]
+    matches = qualified or [
+        reference
+        for reference in references
+        if reference.column == column and not reference.table
+    ]
+    if not matches or (
+        not qualified
+        and len(
+            {
+                (
+                    candidate.scope_id,
+                    candidate.source_table or candidate.table,
+                )
+                for candidate in obligations
+                if candidate.operator == "EQ"
+                and _normalize_identifier_reference(candidate.column) == column
+            }
+        )
+        != 1
+    ):
+        return None
+
+    aligned: list[tuple[LiteralEvidenceReference, str, list[TextSpan]]] = []
+    for reference in matches:
+        question_spans = _evidence_label_question_alignment(
+            reference.label, question
+        )
+        if question_spans is None:
+            continue
+        aligned.append(
+            (reference, reference.normalized, question_spans)
+        )
+    expected_values = {expected for _, expected, _ in aligned}
+    if len(expected_values) != 1:
+        return None
+    actual_value = _literal_evidence_value_key(obligation.value)
+    if actual_value not in {"number:0", "number:1"} or not expected_values <= {
+        "number:0",
+        "number:1",
+    }:
+        return None
+    reference, expected_value, question_spans = min(
+        aligned,
+        key=lambda item: (
+            item[0].evidence_text,
+            item[0].table,
+            item[0].column,
+            item[0].value_start,
+        ),
+    )
+    if actual_value in expected_values:
+        return None
+    assumptions = [
+        *_obligation_assumptions(obligation),
+        ConsistencyAssumption(
+            code="DATASET_EVIDENCE_NORMATIVE",
+            description=(
+                "An explicit semantic-label-to-column-value assertion in "
+                "dataset evidence is treated as the benchmark mapping when "
+                "the question uses the same semantic polarity."
+            ),
+        ),
+        ConsistencyAssumption(
+            code="EVIDENCE_LABEL_QUESTION_BINDING",
+            description=(
+                "The evidence label is bound to the question through its first "
+                "content word and majority content-token overlap."
+            ),
+        ),
+        _lexical_versions_assumption(),
+    ]
+    expected_display = (
+        expected_value.removeprefix("number:")
+        if expected_value.startswith("number:")
+        else reference.value
+    )
+    details = {
+        **_obligation_details(
+            obligation,
+            license_kind="COLUMN_BOUND_EVIDENCE",
+        ),
+        "expected_value": expected_display,
+        "evidence_value": reference.value,
+        "evidence_label": reference.label,
+        "evidence_column": reference.column,
+        "evidence_table": reference.table,
+        "evidence_text": reference.evidence_text,
+    }
+    return ConsistencyFinding(
+        rule_id=ConsistencyRule.LITERAL_ALIGNMENT.value,
+        target=ConsistencyTarget.SQL,
+        status=ConsistencyStatus.CONTRADICTED,
+        strength=EvidenceStrength.DERIVED,
+        reason_code="EVIDENCE_BOOLEAN_LITERAL_MISMATCH",
+        message=(
+            f"Dataset evidence and the same-polarity question label require "
+            f"{obligation.column} = {expected_display!r}, but SQL uses "
+            f"{obligation.value!r}."
+        ),
+        question_spans=question_spans,
+        sql_locations=[obligation.sql_location],
+        evidence_sources=[
+            EvidenceSource.QUESTION_TEXT,
+            EvidenceSource.DATASET_EVIDENCE,
+            EvidenceSource.SQL_AST,
+        ],
+        assumptions=assumptions,
+        details=details,
     )
 
 
@@ -2851,6 +3181,188 @@ def _obligation_assumptions(
     ]
 
 
+def _evidence_date_range_references(
+    evidence_texts: Iterable[str],
+) -> list[DateRangeEvidenceReference]:
+    references: list[DateRangeEvidenceReference] = []
+    for evidence_text in evidence_texts:
+        for match in _EVIDENCE_DATE_BETWEEN_RE.finditer(evidence_text):
+            lower = _parse_sql_date(match.group("lower"))
+            upper = _parse_sql_date(match.group("upper"))
+            if lower is None or upper is None or lower > upper:
+                continue
+            table, column = _split_identifier_reference(match.group("column"))
+            references.append(
+                DateRangeEvidenceReference(
+                    table=table,
+                    column=column,
+                    lower=lower,
+                    upper=upper,
+                    evidence_text=evidence_text,
+                )
+            )
+    return references
+
+
+def _parse_mdy_question_date(value: str) -> date | None:
+    try:
+        month, day, year = (int(part) for part in value.split("/"))
+        return date(year, month, day)
+    except (TypeError, ValueError):
+        return None
+
+
+def _evidence_backed_mdy_range_findings(
+    question: NormalizedQuestion,
+    obligations: list[LiteralObligation],
+    context: ContextManifest,
+) -> list[ConsistencyFinding]:
+    references = _evidence_date_range_references(context.evidence_texts)
+    if not references:
+        return []
+
+    groups: dict[tuple[int, str, str], list[LiteralObligation]] = {}
+    for obligation in obligations:
+        if (
+            obligation.kind == "date"
+            and obligation.operator in {"BETWEEN_LOW", "BETWEEN_HIGH"}
+            and obligation.scope_relevant
+        ):
+            groups.setdefault(
+                (
+                    obligation.scope_id,
+                    obligation.role,
+                    obligation.sql_location,
+                ),
+                [],
+            ).append(obligation)
+
+    findings: list[ConsistencyFinding] = []
+    seen: set[tuple[int, int, str]] = set()
+    for match in _QUESTION_MDY_RANGE_RE.finditer(question.original):
+        question_lower = _parse_mdy_question_date(match.group("lower"))
+        question_upper = _parse_mdy_question_date(match.group("upper"))
+        if (
+            question_lower is None
+            or question_upper is None
+            or question_lower > question_upper
+        ):
+            continue
+        matching_references = [
+            reference
+            for reference in references
+            if reference.lower == question_lower
+            and reference.upper == question_upper
+        ]
+        candidates: list[
+            tuple[DateRangeEvidenceReference, list[LiteralObligation]]
+        ] = []
+        for reference in matching_references:
+            for group in groups.values():
+                representative = group[0]
+                if (
+                    _normalize_identifier_reference(representative.column)
+                    != reference.column
+                ):
+                    continue
+                obligation_tables = {
+                    _normalize_identifier_reference(value)
+                    for value in (
+                        representative.table,
+                        representative.source_table,
+                    )
+                    if value
+                }
+                if reference.table and reference.table not in obligation_tables:
+                    continue
+                candidates.append((reference, group))
+        if len(candidates) != 1:
+            continue
+
+        reference, group = candidates[0]
+        lows = [
+            obligation
+            for obligation in group
+            if obligation.operator == "BETWEEN_LOW"
+        ]
+        highs = [
+            obligation
+            for obligation in group
+            if obligation.operator == "BETWEEN_HIGH"
+        ]
+        if len(lows) != 1 or len(highs) != 1:
+            continue
+        sql_lower = _parse_sql_date(lows[0].value)
+        sql_upper = _parse_sql_date(highs[0].value)
+        if sql_lower is None or sql_upper is None:
+            continue
+
+        key = (match.start("range"), match.end("range"), group[0].sql_location)
+        if key in seen:
+            continue
+        seen.add(key)
+        aligned = sql_lower == question_lower and sql_upper == question_upper
+        range_start, range_end = match.span("range")
+        findings.append(
+            _temporal_finding(
+                TextSpan(
+                    text=match.group("range"),
+                    normalized=normalize_text(match.group("range")),
+                    start=range_start,
+                    end=range_end,
+                ),
+                group,
+                (
+                    ConsistencyStatus.SUPPORTED
+                    if aligned
+                    else ConsistencyStatus.CONTRADICTED
+                ),
+                (
+                    ConsistencyTarget.MAPPING
+                    if aligned
+                    else ConsistencyTarget.SQL
+                ),
+                (
+                    "EXPLICIT_TEMPORAL_RANGE_MATCH"
+                    if aligned
+                    else "EXPLICIT_TEMPORAL_RANGE_CONFLICT"
+                ),
+                (
+                    "The evidence-confirmed question date range matches the SQL "
+                    "BETWEEN bounds."
+                    if aligned
+                    else "The evidence-confirmed question date range conflicts "
+                    "with the SQL BETWEEN bounds."
+                ),
+                EvidenceStrength.DERIVED,
+                details={
+                    "question_range": {
+                        "lower": question_lower.isoformat(),
+                        "upper": question_upper.isoformat(),
+                    },
+                    "sql_range": {
+                        "lower": sql_lower.isoformat(),
+                        "upper": sql_upper.isoformat(),
+                    },
+                    "evidence_column": reference.column,
+                    "evidence_text": reference.evidence_text,
+                },
+                assumptions=[
+                    ConsistencyAssumption(
+                        code="MDY_RANGE_CONFIRMED_BY_DATASET_EVIDENCE",
+                        description=(
+                            "The year-last slash dates are interpreted as "
+                            "month/day/year only because dataset evidence gives "
+                            "the same ISO date bounds for the same column."
+                        ),
+                    )
+                ],
+                extra_sources=[EvidenceSource.DATASET_EVIDENCE],
+            )
+        )
+    return findings
+
+
 def _temporal_anchor_provenance(
     question: NormalizedQuestion,
     obligations: list[LiteralObligation],
@@ -2858,7 +3370,12 @@ def _temporal_anchor_provenance(
 ) -> tuple[list[ConsistencyFinding], bool]:
     relative_cues = _relative_temporal_cues(question)
     explicit_cues = _explicit_temporal_cues(question)
-    if not relative_cues and not explicit_cues:
+    range_findings = _evidence_backed_mdy_range_findings(
+        question,
+        obligations,
+        context,
+    )
+    if not relative_cues and not explicit_cues and not range_findings:
         return [], False
 
     explicit_cues = [
@@ -2866,7 +3383,7 @@ def _temporal_anchor_provenance(
         for cue in explicit_cues
         if cue.kind != "year" or _year_cue_is_temporal(question, cue)
     ]
-    if not relative_cues and not explicit_cues:
+    if not relative_cues and not explicit_cues and not range_findings:
         return [], False
 
     cue_years = frozenset(
@@ -2886,7 +3403,7 @@ def _temporal_anchor_provenance(
         )
         > 1
     )
-    findings: list[ConsistencyFinding] = []
+    findings: list[ConsistencyFinding] = list(range_findings)
     anchor, anchor_error = _parse_reference_datetime(context.reference_datetime)
     skipped_relative: set[int] = set()
     skipped_explicit: set[int] = set()

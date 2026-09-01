@@ -72,6 +72,11 @@ REASON_CODE_NOTES: dict[str, str] = {
         "SQL equates that column to a constant and implements no equivalent "
         "aggregate or ORDER BY ... LIMIT 1."
     ),
+    "EVIDENCE_BOOLEAN_LITERAL_MISMATCH": (
+        "Dataset evidence explicitly maps a question-aligned semantic label to "
+        "Boolean code 0 or 1, while gold SQL uses the opposite code. Evidence "
+        "and question labels must carry the same semantic polarity."
+    ),
     "AGGREGATE_CONSTANT_EQUIVALENCE_UNPROVEN": (
         "Evidence requests an aggregate over an ordinal role while SQL uses a "
         "constant such as rank = 1. Without an explicit ranking-domain invariant, "
@@ -168,6 +173,14 @@ REASON_CODE_NOTES: dict[str, str] = {
     "EXPLICIT_TEMPORAL_VALUE_CONFLICT": (
         "The question states one date or year while the sole comparable SQL "
         "temporal predicate states another."
+    ),
+    "EXPLICIT_TEMPORAL_RANGE_MATCH": (
+        "A year-last slash-date range in the question is confirmed by an ISO "
+        "range in dataset evidence and matches the same SQL BETWEEN role."
+    ),
+    "EXPLICIT_TEMPORAL_RANGE_CONFLICT": (
+        "A year-last slash-date range in the question is confirmed by an ISO "
+        "range in dataset evidence but conflicts with the same SQL BETWEEN role."
     ),
     "QUESTION_TEMPORAL_VALUE_UNBOUND": (
         "The question carries an explicit temporal value that could not be "
