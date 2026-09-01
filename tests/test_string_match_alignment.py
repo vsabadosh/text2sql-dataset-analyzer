@@ -294,7 +294,9 @@ def test_patterns_outside_the_percent_edge_allowlist_abstain(sql):
     assert features.contradicted_count == 0
     assert _finding(
         features, "STRING_MATCH_PATTERN_UNRESOLVED"
-    ).status == ConsistencyStatus.UNRESOLVED
+    ).status == ConsistencyStatus.NOT_ASSESSED
+    assert features.unresolved_count == 0
+    assert features.not_assessed_count == 1
 
 
 def test_function_wrapped_role_abstains():

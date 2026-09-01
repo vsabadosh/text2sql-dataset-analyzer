@@ -216,5 +216,6 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
                 "supported_count": features.supported_count,
                 "contradicted_count": features.contradicted_count,
                 "unresolved_count": features.unresolved_count,
+                "not_assessed_count": features.not_assessed_count,
             }
         )

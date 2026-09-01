@@ -1276,6 +1276,15 @@ class MarkdownReportGenerator:
                  "such as database values, dataset evidence or a curation decision."),
                 threshold_recurrence=threshold_recurrence,
             ))
+            sections.extend(self._consistency_findings_lines(
+                table,
+                "NOT_ASSESSED",
+                "Not-Assessed Obligations",
+                ("The rule recognized a relevant construct but did not judge it "
+                 "because its realization is outside the implemented scope or "
+                 "the decision is delegated to another rule."),
+                threshold_recurrence=threshold_recurrence,
+            ))
             sections.extend(self._consistency_recurrence_lines(
                 table,
                 threshold_recurrence=threshold_recurrence,
@@ -1351,6 +1360,17 @@ class MarkdownReportGenerator:
 
     def _consistency_summary_lines(self, table: str) -> list:
         """How much of the partition the analyzer could judge, and how it ruled."""
+        has_not_assessed = "not_assessed_count" in self._table_columns(table)
+        not_assessed_items_sql = (
+            "SUM(CASE WHEN not_assessed_count > 0 THEN 1 ELSE 0 END)"
+            if has_not_assessed
+            else "0"
+        )
+        not_assessed_sql = (
+            "COALESCE(SUM(not_assessed_count), 0)"
+            if has_not_assessed
+            else "0"
+        )
         row = self.conn.execute(f"""
             SELECT
                 COUNT(*),
@@ -1358,16 +1378,19 @@ class MarkdownReportGenerator:
                 SUM(CASE WHEN status = 'errors' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN contradicted_count > 0 THEN 1 ELSE 0 END),
                 SUM(CASE WHEN unresolved_count > 0 THEN 1 ELSE 0 END),
+                {not_assessed_items_sql},
                 COALESCE(SUM(supported_count), 0),
                 COALESCE(SUM(contradicted_count), 0),
                 COALESCE(SUM(unresolved_count), 0),
+                {not_assessed_sql},
                 COALESCE(SUM(findings_emitted), 0),
                 COALESCE(AVG(collect_ms), 0)
             FROM {table}
         """).fetchone()
 
         (total, skipped, errors, items_contradicted, items_unresolved,
-         supported, contradicted, unresolved, emitted, avg_ms) = row
+         items_not_assessed, supported, contradicted, unresolved, not_assessed,
+         emitted, avg_ms) = row
         total = total or 0
         skipped = skipped or 0
         errors = errors or 0
@@ -1383,11 +1406,14 @@ class MarkdownReportGenerator:
                 f"- **Items With Contradictions:** {items_contradicted or 0:,} "
                 f"({(items_contradicted or 0) / analyzed * 100:.1f}%) · "
                 f"**With Unresolved:** {items_unresolved or 0:,} "
-                f"({(items_unresolved or 0) / analyzed * 100:.1f}%)"
+                f"({(items_unresolved or 0) / analyzed * 100:.1f}%) · "
+                f"**Not Assessed:** {items_not_assessed or 0:,} "
+                f"({(items_not_assessed or 0) / analyzed * 100:.1f}%)"
             )
         sections.append(
             f"- **Verdicts:** CONTRADICTED {contradicted:,} · "
-            f"UNRESOLVED {unresolved:,} · SUPPORTED {supported:,}"
+            f"UNRESOLVED {unresolved:,} · SUPPORTED {supported:,} · "
+            f"NOT_ASSESSED {not_assessed:,}"
         )
         sections.append(
             f"- **Findings Emitted:** {emitted:,} · **Avg Detection:** {avg_ms:.2f} ms"
@@ -1405,7 +1431,8 @@ class MarkdownReportGenerator:
             sections.append(
                 "SUPPORTED verdicts are counted but not emitted as findings "
                 "(`emit_supported: false`), so the per-item sections list "
-                "contradictions and unresolved obligations only."
+                "contradictions, unresolved obligations and not-assessed "
+                "diagnostics only."
             )
             sections.append("")
         return sections
@@ -1438,15 +1465,20 @@ class MarkdownReportGenerator:
         for rule_id, status, findings in verdict_rows:
             by_rule.setdefault(rule_id, {})[status] = findings
 
-        sections.append("| Rule | Items | CONTRADICTED | UNRESOLVED | SUPPORTED |")
-        sections.append("|------|-------|--------------|------------|-----------|")
+        sections.append(
+            "| Rule | Items | CONTRADICTED | UNRESOLVED | SUPPORTED | NOT_ASSESSED |"
+        )
+        sections.append(
+            "|------|-------|--------------|------------|-----------|--------------|"
+        )
         for rule_id in sorted(by_rule):
             verdicts = by_rule[rule_id]
             sections.append(
                 f"| {rule_id} | {items.get(rule_id, 0):,} | "
                 f"{verdicts.get('CONTRADICTED', 0):,} | "
                 f"{verdicts.get('UNRESOLVED', 0):,} | "
-                f"{verdicts.get('SUPPORTED', 0):,} |"
+                f"{verdicts.get('SUPPORTED', 0):,} | "
+                f"{verdicts.get('NOT_ASSESSED', 0):,} |"
             )
         sections.append("")
         sections.append(

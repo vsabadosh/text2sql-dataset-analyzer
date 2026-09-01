@@ -51,8 +51,11 @@ Statuses are evidence-sensitive:
 - `SUPPORTED`: available evidence explicitly or deterministically licenses the
   mapping;
 - `CONTRADICTED`: question and SQL contain explicitly incompatible values;
-- `UNRESOLVED`: evidence is missing or the realization is outside the
-  implemented allowlist.
+- `UNRESOLVED`: the rule completed its supported analysis, but available
+  evidence is missing or the mapping remains genuinely ambiguous;
+- `NOT_ASSESSED`: the rule recognized a relevant construct but its realization
+  is outside the implemented scope, or the final verdict belongs to another
+  rule.
 
 The analyzer never substitutes the machine's current date for missing
 benchmark context. SQLite double-quoted predicate values are retained under a
@@ -72,8 +75,9 @@ empty or unparseable SQL, empty question), and `errors` on an internal
 detection error.
 
 Metric events carry the full `supported_count` / `contradicted_count` /
-`unresolved_count` totals, while the `findings` list holds only the emitted
-subset: `SUPPORTED` findings appear only when `emit_supported: true`. The
+`unresolved_count` / `not_assessed_count` totals, while the `findings` list
+holds only the emitted subset: `SUPPORTED` findings appear only when
+`emit_supported: true`. The
 `emit_supported` tag records which mode produced the row. Compact
 `corpus_records` always retain every literal obligation and its evidence
 sources, allowing the report to calculate recurrence and evidence-only

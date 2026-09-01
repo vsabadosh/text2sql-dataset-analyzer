@@ -654,7 +654,7 @@ def _negated_range_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.MAPPING,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_RANGE_NEGATION_UNRESOLVED",
         message=(
@@ -687,7 +687,7 @@ def _range_modifier_unresolved_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.MAPPING,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_RANGE_MODIFIER_UNRESOLVED",
         message=(
@@ -922,7 +922,7 @@ def _range_boolean_unresolved_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.SQL,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_RANGE_BOOLEAN_UNRESOLVED",
         message=(
@@ -960,7 +960,7 @@ def _sql_negation_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.SQL,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_SQL_NEGATION_UNRESOLVED",
         message=(
@@ -1062,7 +1062,7 @@ def _single_boolean_unresolved_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.SQL,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_BOOLEAN_CONTEXT_UNRESOLVED",
         message=(
@@ -1427,7 +1427,7 @@ def _negated_boundary_finding(
     return ConsistencyFinding(
         rule_id="comparison_boundary_alignment",
         target=ConsistencyTarget.MAPPING,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=ConsistencyStatus.NOT_ASSESSED,
         strength=EvidenceStrength.DERIVED,
         reason_code="COMPARISON_BOUNDARY_NEGATION_UNRESOLVED",
         message=(

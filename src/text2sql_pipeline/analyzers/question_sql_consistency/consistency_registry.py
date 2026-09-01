@@ -32,6 +32,37 @@ DEFAULT_RULES = (
     ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
 )
 
+# These reasons describe analyzer coverage rather than an unresolved semantic
+# relation between the question and SQL. They are reported as NOT_ASSESSED and
+# must not be included in the UNRESOLVED verdict total. Existing reason-code
+# strings are retained so old and new artifacts can be compared by reason.
+IMPLEMENTATION_LIMIT_REASON_CODES = frozenset(
+    {
+        "TEMPORAL_REALIZATION_UNSUPPORTED",
+        "TEMPORAL_TIME_GRANULARITY_UNRESOLVED",
+        "STRING_MATCH_PATTERN_UNRESOLVED",
+        "STRING_MATCH_WRAPPER_UNRESOLVED",
+        "STRING_MATCH_DYNAMIC_PATTERN_UNRESOLVED",
+        "STRING_MATCH_BOOLEAN_UNRESOLVED",
+        "STRING_MATCH_SQL_NEGATION_UNRESOLVED",
+        "STRING_MATCH_QUESTION_NEGATION_UNRESOLVED",
+        "STRING_MATCH_QUESTION_BOOLEAN_UNRESOLVED",
+        "STRING_MATCH_DIALECT_UNRESOLVED",
+        "STRING_MATCH_WORD_BOUNDARY_UNRESOLVED",
+        "STRING_MATCH_SCOPE_UNRESOLVED",
+        "COMPARISON_BOUNDARY_NEGATION_UNRESOLVED",
+        "COMPARISON_SQL_NEGATION_UNRESOLVED",
+        "COMPARISON_RANGE_BOOLEAN_UNRESOLVED",
+        "COMPARISON_RANGE_NEGATION_UNRESOLVED",
+        "COMPARISON_RANGE_MODIFIER_UNRESOLVED",
+        "COMPARISON_BOOLEAN_CONTEXT_UNRESOLVED",
+    }
+)
+DELEGATED_REASON_CODES = frozenset({"TEMPORAL_OPERATOR_ALIGNMENT_DEFERRED"})
+NOT_ASSESSED_REASON_CODES = (
+    IMPLEMENTATION_LIMIT_REASON_CODES | DELEGATED_REASON_CODES
+)
+
 # One-line reading of every reason code the implemented rules can emit. Reports
 # render these next to the counts so a finding is interpretable without the
 # source, and keeping them here prevents the wording from drifting.

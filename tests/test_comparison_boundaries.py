@@ -157,7 +157,7 @@ def test_negated_boundary_abstains_without_sql_negation_scope_analysis():
     )
 
     finding = _finding(features, "COMPARISON_BOUNDARY_NEGATION_UNRESOLVED")
-    assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert finding.status == ConsistencyStatus.NOT_ASSESSED
 
 
 def test_frequency_threshold_does_not_bind_to_a_row_level_value_column():
@@ -250,7 +250,7 @@ def test_exclusion_cues_abstain_instead_of_inverting_the_boundary(verb):
     assert features.contradicted_count == 0
     assert _finding(
         features, "COMPARISON_BOUNDARY_NEGATION_UNRESOLVED"
-    ).status == ConsistencyStatus.UNRESOLVED
+    ).status == ConsistencyStatus.NOT_ASSESSED
 
 
 def test_ambiguous_same_value_roles_remain_unresolved():
@@ -524,7 +524,7 @@ def test_indirect_sql_negation_forces_boundary_abstention(sql):
     assert features.supported_count == 0
     assert features.contradicted_count == 0
     assert all(
-        finding.status == ConsistencyStatus.UNRESOLVED
+        finding.status == ConsistencyStatus.NOT_ASSESSED
         for finding in features.findings
     )
 

@@ -8,7 +8,7 @@ from typing import Literal, Protocol, Sequence
 
 from sqlglot import exp
 
-from .consistency_registry import ConsistencyRule
+from .consistency_registry import ConsistencyRule, NOT_ASSESSED_REASON_CODES
 from .metrics import (
     ConsistencyAssumption,
     ConsistencyFinding,
@@ -923,7 +923,11 @@ def _unresolved_sql_finding(
     return ConsistencyFinding(
         rule_id=ConsistencyRule.STRING_MATCH_ALIGNMENT.value,
         target=ConsistencyTarget.SQL,
-        status=ConsistencyStatus.UNRESOLVED,
+        status=(
+            ConsistencyStatus.NOT_ASSESSED
+            if resolved_reason in NOT_ASSESSED_REASON_CODES
+            else ConsistencyStatus.UNRESOLVED
+        ),
         strength=EvidenceStrength.DERIVED,
         reason_code=resolved_reason,
         message=messages[resolved_reason],

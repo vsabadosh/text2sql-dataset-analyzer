@@ -77,6 +77,7 @@ QUESTION_SQL_CONSISTENCY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("supported_count", "INTEGER"),
     ("contradicted_count", "INTEGER"),
     ("unresolved_count", "INTEGER"),
+    ("not_assessed_count", "INTEGER"),
     # All rule/status/reason dimensions, independent of emit_supported.
     ("rule_records", "JSON"),
     # Compact all-obligation stream used by corpus-level report discriminators.
@@ -888,6 +889,7 @@ class DuckDBMetricsSink(MetricsSink):
                 features.get("supported_count"),
                 features.get("contradicted_count"),
                 features.get("unresolved_count"),
+                features.get("not_assessed_count"),
                 json.dumps(features.get("rule_records", [])),
                 json.dumps(features.get("corpus_records", [])),
                 json.dumps(findings),

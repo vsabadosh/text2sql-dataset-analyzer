@@ -19,6 +19,7 @@ class ConsistencyStatus(str, Enum):
     SUPPORTED = "SUPPORTED"
     CONTRADICTED = "CONTRADICTED"
     UNRESOLVED = "UNRESOLVED"
+    NOT_ASSESSED = "NOT_ASSESSED"
 
 
 class EvidenceSource(str, Enum):
@@ -92,7 +93,7 @@ class ConsistencyRuleRecord(BaseModel):
 class QuestionSqlConsistencyFeatures(BaseModel):
     """Per-item consistency outcome.
 
-    The three counters are always the full totals. `findings` carries only the
+    The four counters are always the full totals. `findings` carries only the
     emitted subset: SUPPORTED findings are omitted unless the analyzer runs
     with emit_supported, so consumers must aggregate over the counters and use
     `findings` for evidence.
@@ -104,6 +105,7 @@ class QuestionSqlConsistencyFeatures(BaseModel):
     supported_count: int = 0
     contradicted_count: int = 0
     unresolved_count: int = 0
+    not_assessed_count: int = 0
     findings: list[ConsistencyFinding] = Field(default_factory=list)
     rule_records: list[ConsistencyRuleRecord] = Field(default_factory=list)
     corpus_records: list[ConsistencyCorpusRecord] = Field(default_factory=list)
@@ -118,7 +120,7 @@ class QuestionSqlConsistencyStats(BaseModel):
 class QuestionSqlConsistencyTags(BaseModel):
     dialect: str = "sqlite"
     language: str = "en"
-    analyzer_version: str = "0.8.0"
+    analyzer_version: str = "0.9.0"
     enabled_rules: list[str] = Field(default_factory=list)
     resource_versions: dict[str, str] = Field(default_factory=dict)
     context_available: str = "false"

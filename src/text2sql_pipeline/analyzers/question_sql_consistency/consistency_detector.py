@@ -431,6 +431,9 @@ def detect_consistency(
     unresolved_count = sum(
         finding.status == ConsistencyStatus.UNRESOLVED for finding in findings
     )
+    not_assessed_count = sum(
+        finding.status == ConsistencyStatus.NOT_ASSESSED for finding in findings
+    )
 
     visible_findings = (
         findings
@@ -459,6 +462,7 @@ def detect_consistency(
         supported_count=supported_count,
         contradicted_count=contradicted_count,
         unresolved_count=unresolved_count,
+        not_assessed_count=not_assessed_count,
         findings=visible_findings,
         rule_records=rule_records,
         corpus_records=corpus_records,
@@ -3831,7 +3835,7 @@ def _evaluate_relative_cue(
     return _temporal_finding(
         cue.span,
         role_bound,
-        ConsistencyStatus.UNRESOLVED,
+        ConsistencyStatus.NOT_ASSESSED,
         ConsistencyTarget.SQL,
         "TEMPORAL_REALIZATION_UNSUPPORTED",
         "No supported SQL realization could be matched to the derived interval.",
@@ -3980,7 +3984,7 @@ def _evaluate_explicit_temporal(
         return _temporal_finding(
             cue.span,
             obligations,
-            ConsistencyStatus.UNRESOLVED,
+            ConsistencyStatus.NOT_ASSESSED,
             ConsistencyTarget.MAPPING,
             "TEMPORAL_TIME_GRANULARITY_UNRESOLVED",
             "The question names a time of day, but this rule compares calendar "
@@ -4035,7 +4039,7 @@ def _evaluate_explicit_temporal(
                 return _temporal_finding(
                     cue.span,
                     [*matching, *competing],
-                    ConsistencyStatus.UNRESOLVED,
+                    ConsistencyStatus.NOT_ASSESSED,
                     ConsistencyTarget.MAPPING,
                     "TEMPORAL_REALIZATION_UNSUPPORTED",
                     "The SQL derives a result from multiple temporal periods, "
@@ -4089,7 +4093,7 @@ def _evaluate_explicit_temporal(
         return _temporal_finding(
             cue.span,
             same_value,
-            ConsistencyStatus.UNRESOLVED,
+            ConsistencyStatus.NOT_ASSESSED,
             ConsistencyTarget.SQL,
             "TEMPORAL_OPERATOR_ALIGNMENT_DEFERRED",
             "The temporal value matches, but operator polarity or inclusivity "
@@ -4126,7 +4130,7 @@ def _evaluate_explicit_temporal(
         return _temporal_finding(
             cue.span,
             comparable,
-            ConsistencyStatus.UNRESOLVED,
+            ConsistencyStatus.NOT_ASSESSED,
             ConsistencyTarget.SQL,
             "TEMPORAL_REALIZATION_UNSUPPORTED",
             "The question negates the temporal value, but the SQL may realize "

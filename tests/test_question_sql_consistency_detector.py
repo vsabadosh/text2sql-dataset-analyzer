@@ -335,6 +335,8 @@ def test_hidden_qualitative_threshold_gets_a_specific_abstention():
 
     finding = _finding(features, "IMPLICIT_THRESHOLD_UNLICENSED")
     assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert features.unresolved_count == 1
+    assert features.not_assessed_count == 0
     assert finding.target.value == "CONTEXT"
     assert finding.details["qualitative_cue"] == "major"
     assert finding.details["column_name"] == "population"
@@ -1742,7 +1744,9 @@ def test_unsupported_derived_multi_periods_abstain(question, sql):
     assert features.contradicted_count == 0
     assert _finding(
         features, "TEMPORAL_REALIZATION_UNSUPPORTED"
-    ).status == ConsistencyStatus.UNRESOLVED
+    ).status == ConsistencyStatus.NOT_ASSESSED
+    assert features.unresolved_count == 0
+    assert features.not_assessed_count == 1
 
 
 def test_wrong_threshold_survives_multi_value_false_positive_guards():
@@ -1884,7 +1888,9 @@ def test_temporal_operator_mismatch_is_deferred_to_boundary_rule(question, sql):
     )
 
     finding = _finding(features, "TEMPORAL_OPERATOR_ALIGNMENT_DEFERRED")
-    assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert finding.status == ConsistencyStatus.NOT_ASSESSED
+    assert features.unresolved_count == 0
+    assert features.not_assessed_count == 1
     assert not any(
         candidate.reason_code == "EXPLICIT_TEMPORAL_VALUE_MATCH"
         for candidate in features.findings
@@ -2027,7 +2033,9 @@ def test_explicit_time_of_day_abstains_at_day_granularity(sql_time):
     assert features.supported_count == 0
     assert features.contradicted_count == 0
     finding = _finding(features, "TEMPORAL_TIME_GRANULARITY_UNRESOLVED")
-    assert finding.status == ConsistencyStatus.UNRESOLVED
+    assert finding.status == ConsistencyStatus.NOT_ASSESSED
+    assert features.unresolved_count == 0
+    assert features.not_assessed_count == 1
     assert finding.details["supported_granularity"] == "day"
 
 
