@@ -10,6 +10,7 @@ from text2sql_pipeline.db.manager import DbManager
 from text2sql_pipeline.pipeline.registry import register_analyzer
 
 from . import lexical_resources
+from .aggregation_alignment import AGGREGATION_LEXICON_VERSION
 from .comparison_boundaries import BOUNDARY_LEXICON_VERSION
 from .consistency_detector import detect_consistency
 from .consistency_registry import ConsistencyRule, select_rules
@@ -20,6 +21,7 @@ from .metrics import (
     QuestionSqlConsistencyStats,
     QuestionSqlConsistencyTags,
 )
+from .ordering_topk_alignment import ORDERING_TOPK_LEXICON_VERSION
 from .string_match_alignment import STRING_MATCH_LEXICON_VERSION
 
 
@@ -74,6 +76,12 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
         if enabled and ConsistencyRule.STRING_MATCH_ALIGNMENT in self.rules:
             self.resource_versions["string_match_lexicon"] = (
                 STRING_MATCH_LEXICON_VERSION
+            )
+        if enabled and ConsistencyRule.AGGREGATION_ALIGNMENT in self.rules:
+            self.resource_versions["aggregation_lexicon"] = AGGREGATION_LEXICON_VERSION
+        if enabled and ConsistencyRule.ORDERING_TOPK_ALIGNMENT in self.rules:
+            self.resource_versions["ordering_topk_lexicon"] = (
+                ORDERING_TOPK_LEXICON_VERSION
             )
 
     def analyze(

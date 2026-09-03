@@ -33,7 +33,13 @@ def _items(path: Path) -> list[DataItem]:
     ]
 
 
-def run_partition(input_path: Path, output_dir: Path) -> None:
+def run_partition(
+    input_path: Path,
+    output_dir: Path,
+    *,
+    rules: list[str] | None = None,
+    emit_supported: bool = False,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics_path = output_dir / "metrics.duckdb"
     annotated_path = output_dir / MarkdownReportGenerator.ANNOTATED_DATASET
@@ -45,6 +51,8 @@ def run_partition(input_path: Path, output_dir: Path) -> None:
     sink = DuckDBMetricsSink(str(metrics_path))
     analyzer = QuestionSqlConsistencyAnalyzer(
         _SqliteDialect(),
+        rules=rules,
+        emit_supported=emit_supported,
         context={"evidence_keys": ["evidence"]},
     )
     try:
@@ -82,12 +90,24 @@ def main() -> None:
         choices=("dev", "train"),
         default=("dev", "train"),
     )
+    parser.add_argument(
+        "--rules",
+        nargs="+",
+        help="Explicit consistency rules; omit to retain the default profile.",
+    )
+    parser.add_argument(
+        "--emit-supported",
+        action="store_true",
+        help="Retain SUPPORTED findings with their localized evidence.",
+    )
     args = parser.parse_args()
 
     for partition in args.partitions:
         run_partition(
             args.input_dir / f"{partition}.json",
             args.output_dir / partition,
+            rules=args.rules,
+            emit_supported=args.emit_supported,
         )
 
 

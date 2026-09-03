@@ -221,6 +221,8 @@ def test_metric_tags_freeze_rules_and_resource_versions():
         rules=[
             "comparison_boundary_alignment",
             "string_match_alignment",
+            "aggregation_alignment",
+            "ordering_topk_alignment",
         ]
     )
     sink = RecordingSink()
@@ -234,13 +236,17 @@ def test_metric_tags_freeze_rules_and_resource_versions():
     list(analyzer.analyze([item], sink, "fixture"))
 
     tags = sink.metrics[0].tags
-    assert tags.analyzer_version == "0.9.0"
+    assert tags.analyzer_version == "0.10.0"
     assert tags.enabled_rules == [
         "comparison_boundary_alignment",
         "string_match_alignment",
+        "aggregation_alignment",
+        "ordering_topk_alignment",
     ]
     assert tags.resource_versions["boundary_lexicon"] == "1.1.0"
     assert tags.resource_versions["string_match_lexicon"] == "1.0.0"
+    assert tags.resource_versions["aggregation_lexicon"] == "1.0.0"
+    assert tags.resource_versions["ordering_topk_lexicon"] == "1.0.3"
     assert tags.resource_versions["wordnet"] != "unavailable"
 
 
@@ -362,7 +368,7 @@ def test_metrics_land_in_dedicated_duckdb_table(tmp_path):
         "641": "warns",
         "99": "ok",
     }
-    assert {row[5] for row in rows} == {"0.9.0"}
+    assert {row[5] for row in rows} == {"0.10.0"}
     assert all("comparison_boundary_alignment" in json.loads(row[6]) for row in rows)
     assert all("boundary_lexicon" in json.loads(row[7]) for row in rows)
     reason_codes = {finding["reason_code"] for finding in json.loads(findings_json)}

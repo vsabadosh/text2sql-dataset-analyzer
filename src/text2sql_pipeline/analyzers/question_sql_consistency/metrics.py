@@ -120,7 +120,7 @@ class QuestionSqlConsistencyStats(BaseModel):
 class QuestionSqlConsistencyTags(BaseModel):
     dialect: str = "sqlite"
     language: str = "en"
-    analyzer_version: str = "0.9.0"
+    analyzer_version: str = "0.10.0"
     enabled_rules: list[str] = Field(default_factory=list)
     resource_versions: dict[str, str] = Field(default_factory=dict)
     context_available: str = "false"

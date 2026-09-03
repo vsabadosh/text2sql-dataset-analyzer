@@ -11,6 +11,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.optimizer.scope import traverse_scope
 
+from .aggregation_alignment import detect_aggregation_alignment
 from .comparison_boundaries import detect_comparison_boundaries
 from .consistency_registry import ConsistencyRule, select_rules
 from .context_manifest import ContextManifest
@@ -44,6 +45,7 @@ from .metrics import (
     ConsistencyRuleRecord,
     TextSpan,
 )
+from .ordering_topk_alignment import detect_ordering_topk_alignment
 from .question_normalization import (
     NormalizedQuestion,
     find_exact_spans,
@@ -420,6 +422,33 @@ def detect_consistency(
             manifest,
         )
         findings.extend(temporal_findings)
+        applicable_rules += int(applicable)
+
+    if ConsistencyRule.AGGREGATION_ALIGNMENT in selected_rules:
+        suppressed_columns = frozenset(
+            str(finding.details.get("column_name") or "")
+            for finding in findings
+            if finding.reason_code == "EVIDENCE_AGGREGATE_SUBSTITUTED"
+        )
+        aggregation_findings, applicable = detect_aggregation_alignment(
+            normalized_question,
+            ast,
+            dialect=dialect or "sqlite",
+            scope_index=scope_index,
+            suppressed_columns=suppressed_columns,
+        )
+        findings.extend(aggregation_findings)
+        applicable_rules += int(applicable)
+
+    if ConsistencyRule.ORDERING_TOPK_ALIGNMENT in selected_rules:
+        topk_findings, applicable = detect_ordering_topk_alignment(
+            normalized_question,
+            ast,
+            dialect=dialect or "sqlite",
+            scope_index=scope_index,
+            context=manifest,
+        )
+        findings.extend(topk_findings)
         applicable_rules += int(applicable)
 
     supported_count = sum(

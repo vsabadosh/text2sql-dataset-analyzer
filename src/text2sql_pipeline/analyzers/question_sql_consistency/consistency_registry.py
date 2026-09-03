@@ -21,6 +21,8 @@ IMPLEMENTED_RULES = frozenset(
         ConsistencyRule.COMPARISON_BOUNDARY_ALIGNMENT,
         ConsistencyRule.STRING_MATCH_ALIGNMENT,
         ConsistencyRule.TEMPORAL_ANCHOR_PROVENANCE,
+        ConsistencyRule.AGGREGATION_ALIGNMENT,
+        ConsistencyRule.ORDERING_TOPK_ALIGNMENT,
     }
 )
 
@@ -56,6 +58,8 @@ IMPLEMENTATION_LIMIT_REASON_CODES = frozenset(
         "COMPARISON_RANGE_NEGATION_UNRESOLVED",
         "COMPARISON_RANGE_MODIFIER_UNRESOLVED",
         "COMPARISON_BOOLEAN_CONTEXT_UNRESOLVED",
+        "AGGREGATION_REALIZATION_UNSUPPORTED",
+        "ORDERING_TOPK_REALIZATION_UNSUPPORTED",
     }
 )
 DELEGATED_REASON_CODES = frozenset({"TEMPORAL_OPERATOR_ALIGNMENT_DEFERRED"})
@@ -122,6 +126,53 @@ REASON_CODE_NOTES: dict[str, str] = {
     "SUPERLATIVE_SUBSTITUTED_BY_CONSTANT": (
         "A superlative request is implemented by a hard-coded equality rather "
         "than computing the extremum. Emission belongs to ordering_topk_alignment."
+    ),
+    "AGGREGATION_ALIGNMENT_MATCH": (
+        "A scalar AVG, MIN or MAX request binds to the same root-projection "
+        "column and compatible SQL realization."
+    ),
+    "AGGREGATION_OPERATOR_CONFLICT": (
+        "A scalar aggregation request binds to one root-projection column, but "
+        "SQL uses a different aggregate or an incompatible scalar realization."
+    ),
+    "AGGREGATION_ROLE_UNRESOLVED": (
+        "The scalar aggregation cue does not bind to exactly one root-projection "
+        "column, so the analyzer abstains."
+    ),
+    "AGGREGATION_SCOPE_UNRESOLVED": (
+        "The scalar aggregation request cannot be assigned to one reliable root "
+        "SQL scope."
+    ),
+    "AGGREGATION_REALIZATION_UNSUPPORTED": (
+        "The scalar aggregation is expressed with a SQL shape outside the "
+        "implemented AVG/MIN/MAX and ORDER BY LIMIT 1 allowlist."
+    ),
+    "ORDERING_TOPK_ALIGNMENT_MATCH": (
+        "The question's top-k size, ordering direction and target column agree "
+        "with root-scope ORDER BY and LIMIT."
+    ),
+    "ORDERING_TOPK_LIMIT_CONFLICT": (
+        "A bound top-k request and root ordered SQL disagree on LIMIT."
+    ),
+    "ORDERING_TOPK_DIRECTION_CONFLICT": (
+        "A bound top-k request and root ORDER BY use opposite directions."
+    ),
+    "ORDERING_TOPK_ORDER_MISSING": (
+        "An explicit top/bottom N request has no root-scope ORDER BY."
+    ),
+    "ORDERING_TOPK_ROLE_UNRESOLVED": (
+        "The top-k cue does not bind to exactly one root ORDER BY target."
+    ),
+    "ORDERING_TOPK_SCOPE_UNRESOLVED": (
+        "The top-k request cannot be assigned to one reliable root SQL scope."
+    ),
+    "ORDERING_TOPK_CONTEXT_CONVENTION_UNRESOLVED": (
+        "An explicit dataset-evidence MIN/MAX convention conflicts with the "
+        "default direction of the question cue, so the analyzer abstains."
+    ),
+    "ORDERING_TOPK_REALIZATION_UNSUPPORTED": (
+        "The top-k request uses OFFSET, ties, window ranking, a dynamic LIMIT, "
+        "or another SQL shape outside the root ORDER BY/LIMIT allowlist."
     ),
     "QUESTION_TOKEN_SQL_IDENTIFIER_NEAR_MISS": (
         "An out-of-vocabulary question token is one small edit from the unique "
