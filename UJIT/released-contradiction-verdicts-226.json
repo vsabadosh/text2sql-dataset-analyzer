@@ -300,7 +300,7 @@
       "consensus_verdict": "FALSE_POSITIVE"
     },
     "human_verdict": "FALSE_POSITIVE+CONSIDER_FIX",
-    "human_note": "The question date 6/1/2018 and SQL literal '6/1/18' denote the same calendar date. The regional_sales database stores OrderDate with two-digit years: '6/1/18' exists, while '6/1/2018' does not. Consider adding a general typed temporal normalizer that compares sets of possible date interpretations and abstains when formats remain ambiguous; this is not classified as a mandatory fix."
+    "human_note": "False positive. The evidence writes OrderDate = 6/1/2018 without quotes, so it identifies which date is meant rather than asserting an exact stored value; as SQL the unquoted form would be arithmetic. The database stores '6/1/18', and that rendering follows systematically from any observed row, unlike the lexical substitution needed in bird/train/492, where the evidence quotes 'rumoured' as an exact value that does not exist. Scope for evidence executability is therefore limited to quoted literal assertions, matching the convention used by the evidence-executability measurement."
   },
   {
     "id": "bird/train/3224#3bfd2cecbd1bc5d3cb25",
@@ -411,8 +411,8 @@
       "unanimous": true,
       "consensus_verdict": "FALSE_POSITIVE"
     },
-    "human_verdict": "NEED_INVESTIGATE",
-    "human_note": "In the author's view, a dataset validator should detect both mechanical misspellings and semantically equivalent spelling variants. These cases may be distinguished as an invalid mechanical misspelling versus a valid regional spelling variant with the same meaning. BIRD evidence explicitly maps 'rumoured movie' to movie_status = 'rumoured', but the database contains the canonical value 'Rumored' and the gold SQL correctly uses it. Thus, although the question and SQL are semantically consistent, the evidence provides a non-executable exact value. Therefore, this finding should not yet be accepted as a false positive. Further investigation is needed to define the validation policy and whether the target is question-SQL semantic consistency, evidence executability, or broader dataset quality."
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "Resolved as a true defect on evidence executability. BIRD evidence maps 'rumoured movie' to movie_status = 'rumoured', but that exact value does not exist in movies_4: the predicate returns 0 rows, and the mismatch is not a case variant, since COLLATE NOCASE also returns 0. The column holds only 'Released', 'Rumored' and 'Post Production'. The gold SQL correctly uses 'Rumored' and returns 2 Drama titles, so question and SQL are semantically consistent while the evidence states a non-executable exact value. Because the evidence text is passed to models verbatim, such a literal is a silent source of zero-row queries and is therefore counted as a dataset defect rather than a false positive. Screening channels had judged this a false positive on question-SQL semantics alone."
   },
   {
     "id": "bird/train/1502#73fff2d00678484d0bca",
