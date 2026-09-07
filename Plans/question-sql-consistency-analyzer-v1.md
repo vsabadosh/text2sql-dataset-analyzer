@@ -1,0 +1,444 @@
+# Question–SQL Consistency Analyzer: актуальний план v1
+
+Оновлено: **29 серпня 2026 року**
+Поточна версія аналізатора: **`0.8.0`**
+
+Цей документ є коротким source of truth для поточного стану аналізатора і
+підготовки статті. Історію проміжних реалізацій, старі change lists, stale runs
+та детальні журнали виправлень вилучено.
+
+## 1. Мета і межі
+
+`question_sql_consistency_analyzer` — окремий детермінований компонент, який
+перевіряє локальні відношення між природномовним питанням, доступним контекстом
+і gold SQL:
+
+```text
+question + context + gold SQL
+              ↓
+deterministic obligations with provenance
+              ↓
+SUPPORTED | CONTRADICTED | UNRESOLVED
+              ↓
+QUESTION | SQL | CONTEXT | MAPPING
+```
+
+Аналізатор постачає перевірні evidence, а не загальний semantic score і не
+автоматичний repair.
+
+У поточному scope:
+
+- англомовні питання і `SELECT`-запити;
+- SQLite/PostgreSQL syntax, який може розібрати SQLGlot;
+- explicit lexical, literal, string-match, temporal і comparison cues;
+- typed findings із question spans, SQL locations, evidence sources,
+  assumptions і reason codes;
+- детермінована робота без LLM та network calls під час аналізу.
+
+Поза scope:
+
+- повна семантична еквівалентність питання і SQL;
+- автоматичне виправлення benchmark annotations;
+- довільне domain knowledge, якого немає у question, evidence, schema або
+  context manifest;
+- один агрегований `semantic_quality_score`;
+- заміна execution-based validation, SQLDriller або LLM judge.
+
+Політика реалізації: жодних гілок за dataset, database чи item ID. Загальні
+підтверджені класи помилок виправляються універсально; неоднозначні або складні
+реалізації залишаються `UNRESOLVED` чи поза scope.
+
+## 2. Evidence model і pipeline contract
+
+### 2.1. Вхідний контекст
+
+Крім question, SQL, schema і dialect, analyzer може використовувати:
+
+- `evidence_texts` — нормативні пояснення конкретного dataset item;
+- `reference_datetime` / `as_of_date` — явний anchor для relative time;
+- `value_aliases` — явно задекларовані відповідності значень;
+- `column_domains` — наприклад, точний бінарний домен `[0, 1]`.
+
+Поточна дата машини не використовується як evidence.
+
+### 2.2. Verdicts
+
+- `SUPPORTED` — доступний доказ явно або детерміновано ліцензує mapping;
+- `CONTRADICTED` — question/context і SQL містять несумісні явні вимоги;
+- `UNRESOLVED` — доказу недостатньо або SQL/NL realization не входить до
+  versioned allowlist.
+
+`SUPPORTED` є локальним доказом, а не підтвердженням повної коректності SQL.
+`UNRESOLVED` не означає дефект.
+
+Analyzer не блокує downstream pipeline. За замовчуванням
+`emit_supported: false`: повні counters і compact records зберігаються, але
+детальні supported findings не роздувають output.
+
+### 2.3. Відтворюваність
+
+Кожний metric row зберігає:
+
+- `analyzer_version`;
+- `enabled_rules`;
+- versions lexical, boundary і string-match resources;
+- dialect, language, context availability та `emit_supported`.
+
+Markdown report показує persisted run identity і відхиляє агрегацію змішаних
+version/config/resource identities.
+
+### 2.4. Temporal anchors
+
+Кілька date/year mentions одного question role утворюють **одну temporal
+specification**, а не незалежні пари, які мають конфліктувати між собою.
+Поточний closed allowlist підтримує canonical sets, явні ranges та exact
+whole-year successor boundaries. Relative offsets і derived multi-period
+формули поза цим allowlist дають `UNRESOLVED`.
+
+Велика кількість temporal mentions у corpus сама по собі не доводить
+незадокументовану convention: для такого claim потрібні повторюваний pattern,
+item-level context/evidence і незалежна ручна перевірка.
+
+## 3. Статус детекторів
+
+### 3.1. Покрито кодом і входить у core статті
+
+| Detector | Поточне покриття | Межа verdict |
+|---|---|---|
+| `literal_alignment` | Ліцензування string/numeric literals; exact, quoted і near-miss conflicts; inflection, derivation, abbreviation, number words; hidden thresholds, boolean flags, evidence aggregate substitutions і corpus-gated filters | Неліцензований literal сам по собі лишається `UNRESOLVED` |
+| `question_lexical_integrity` | Question-side OOV near-miss до identifier, який реально використано gold SQL; trusted paraphrase evidence; report-only identical-SQL peers | Не сканує всю schema; непідтверджені peers не стають contradiction |
+| `string_match_alignment` | Explicit exact/prefix/suffix/contains cues і direct positive/negative polarity, зв’язані з одним static `LIKE`/`ILIKE` predicate | DQS, `_`, `ESCAPE`, internal/repeated `%`, wrappers, dynamic patterns, whole-word claims, Boolean/negation complexity, ambiguous value/role/source і nested/set scopes дають abstention |
+| `temporal_anchor_provenance` | Explicit dates/years, canonical sets, ranges, whole-year half-open successors і supported relative-time derivations лише з явним anchor | Time-of-day, відсутній anchor і derived/unsupported multi-period realization дають abstention |
+| `comparison_boundary_alignment` | Explicit single boundaries і ranges, зв’язані з direct-column filter; evidence-aware target attribution для affirmative numeric conventions | Bare `until`, evidence-conflicted `since`, negation, OR, nested/set scopes, ambiguous roles та unsupported modifiers дають abstention |
+
+У shipped config увімкнені саме ці п’ять правил.
+
+### 3.2. Треба покрити до подачі статті
+
+Новий detector зараз **не є обов’язковим**. Exhaustive diagnostic audit усіх
+residual temporal і boundary contradictions виконано, але він не замінює blind
+human annotation. До подачі треба:
+
+1. `literal_alignment`: вручну розмітити всі decisive reason-code families,
+   окремо near-miss, quoted mismatch, unrequested filters і fragile-gold
+   aggregate substitutions.
+2. `question_lexical_integrity`: виміряти precision/recall для SQL-identifier
+   findings; trusted paraphrases і identical-SQL peer candidates рахувати
+   окремо.
+3. `temporal_anchor_provenance` і `comparison_boundary_alignment`: повторити
+   validation на held-out sample двома незалежними annotators; regression
+   fixtures не включати до evaluation sample.
+4. Corpus layer: підтвердити, що recurrence описує benchmark convention, але
+   не перетворює `UNRESOLVED` на дефект без item-level evidence.
+5. `string_match_alignment`: оцінювати як supporting detector, окремо по
+   mode/polarity; current corpus не покриває всі advertised класи достатньою
+   кількістю незалежних contradictions.
+
+Implementation coverage не вважати scientific validation: потрібні held-out
+annotations, baselines і confidence intervals.
+
+### 3.3. Реалізоване supporting rule
+
+`string_match_alignment` реалізовано у strict allowlist і пройшло незалежне
+adversarial review без blocker/high findings. На поточному корпусі воно дало
+один новий confirmed intensional defect, який інші правила лише ліцензували як
+literal. Це incremental value для system-level audit, але не достатня
+самостійна наукова новизна: у статті правило слід подавати як supporting
+component/ablation, а не окремий contribution.
+
+### 3.4. Опційні правила без достатньої самостійної наукової новизни
+
+- `aggregation_alignment` — корисне product rule, але значно перетинається з
+  checks PV-SQL. Вже реалізований вузький evidence-driven
+  `EVIDENCE_AGGREGATE_SUBSTITUTED` лишається частиною `literal_alignment`.
+- `ordering_topk_alignment` — корисне engineering coverage, але
+  `ORDER BY`/`LIMIT`/top-k checks уже представлені у prior art.
+- ширший relative-time parser, schema-linking coverage, автоматичне database
+  value probing, великі alias dictionaries і multilingual support — майбутні
+  capability improvements, а не core contribution.
+- automatic repair і fusion з LLM/execution verdicts — окреме дослідження.
+
+Ці задачі не повинні затримувати поточну статтю, доки не сформульовано і не
+перевірено окремий науковий claim.
+
+## 4. Реалізовані outputs
+
+Головний output — `QuestionSqlConsistencyMetricEvent`.
+
+На рівні item уже збираються:
+
+- `applicable_rules`, `supported_count`, `contradicted_count`,
+  `unresolved_count`;
+- `findings`: rule, target, status, evidence strength, reason code, spans,
+  SQL locations, evidence sources, assumptions і details;
+- `rule_records`: компактні verdict dimensions незалежно від emission mode;
+- `corpus_records`: predicate role, table/column, operator, SQL value,
+  question evidence, license kind і evidence sources;
+- parser/runtime diagnostics і run provenance.
+
+Артефакти:
+
+- dedicated DuckDB table `metrics_question_sql_consistency`;
+- анотація item metadata у JSONL;
+- окремий Markdown report із verdict/reason distributions, evidence,
+  corpus-level sections і provenance.
+
+Специфікація reason codes живе в
+`src/text2sql_pipeline/analyzers/question_sql_consistency/consistency_registry.py`,
+а operational contract — у README пакета.
+
+## 5. Корпусні механізми для статті
+
+Corpus aggregation виконується у report layer, а не змінює item-level
+detector verdict заднім числом.
+
+Frozen `0.8.0` run охоплює всі 22 802 Spider+BIRD items. Він містить 224
+`CONTRADICTED` obligations:
+
+- 125 `question_lexical_integrity`;
+- 55 `literal_alignment`;
+- 28 `comparison_boundary_alignment`;
+- 15 `temporal_anchor_provenance`;
+- 1 `string_match_alignment`.
+
+Подвійний незалежний model-assisted engineering audit з третім adjudication
+дав 204 `TRUE_DEFECT`, 15 `FALSE_POSITIVE` і 5 `AMBIGUOUS`; full-census
+precision на decidable findings — 93.2%. Після додаткового exclusion audit
+leakage-filtered частина містить 159 findings: 141 true, 13 false і 5
+ambiguous; descriptive provisional precision — 91.6%. Вона складається зі
+120 lexical, 38 literal і 1 temporal findings, тому не оцінює boundary та
+string-match правила.
+Початкова згода agent-review runs — 88.4%, Cohen's κ = 0.560. Це не замінює
+людську held-out annotation.
+
+Окремий документ експерименту та повний machine-readable ledger:
+
+- `research/question-sql-consistency-v0.8-validation/question_sql_consistency_experiment_findings.md`;
+- `research/question-sql-consistency-v0.8-validation/audits/verified-findings.jsonl`.
+
+Інші corpus mechanisms:
+
+- **106 hidden-threshold records**: повторювані неявні пороги є evidence
+  benchmark convention, а не автоматично SQL bugs;
+- **3 corpus-confirmed unrequested filters**;
+- **986/5 406 (18.2%) evidence-only numeric obligations у BIRD**: частина
+  SQL-обмежень пояснюється лише dataset evidence;
+- **10/10 BIRD aggregate substitutions** на поточних БД повертають той самий
+  extremum, але hardcoded constant робить gold крихким до зміни даних;
+- lexical peer corroboration має розділяти trusted paraphrases і лише
+  identical-SQL candidates.
+
+Ці механізми підтримують framing про hidden conventions, provenance і fragile
+gold, але не повинні подаватися як універсальна поширеність без frozen run та
+незалежної розмітки.
+
+## 6. Підготовка до статті
+
+### 6.1. Тема і теза
+
+Основна робоча тема:
+
+> **Provenance- and Corpus-Aware Question–SQL Consistency Auditing in
+> Text-to-SQL Benchmarks: Evidence from Spider and BIRD**
+
+Альтернативний акцент:
+
+> **Hidden Conventions and Fragile Gold in Text-to-SQL Benchmarks:
+> A Deterministic Audit of Spider and BIRD**
+
+Захищений claim:
+
+> Детермінований post-hoc audit gold annotations, який двосторонньо перевіряє
+> локальні question–SQL obligations, зберігає source provenance, розрізняє
+> target дефекту і явно abstain-иться за недостатніх доказів.
+
+Не заявляти новизну окремих keyword rules, edit distance, WordNet або
+`COUNT`/`ORDER BY` checks. Наукова цінність має бути показана комбінацією
+evidence model, target attribution, abstention, corpus mechanisms і новими
+перевіреними benchmark findings.
+
+Основні research questions:
+
+1. Які типи question–SQL inconsistencies детерміновано виявляються у Spider і
+   BIRD та яка їхня поширеність?
+2. Який precision/recall, coverage і abstention rate має кожне правило?
+3. Як dataset evidence і corpus recurrence змінюють інтерпретацію
+   «неліцензованих» SQL constraints?
+4. Скільки знахідок є унікальними відносно baselines і скільки неправильних
+   repairs вони можуть попередити?
+
+### 6.2. Метрики
+
+З уже зібраних events для frozen corpus run треба обчислити:
+
+- verdict і reason-code counts: findings та distinct items;
+- applicability/coverage і abstention rate per rule;
+- target distribution: `QUESTION | SQL | CONTEXT | MAPPING`;
+- evidence-source і evidence-strength distributions;
+- частку question-licensed, evidence-only і unlicensed obligations;
+- corpus recurrence, peer corroboration і fragile-gold counts;
+- parser failures, runtime та run provenance.
+
+Після незалежної ручної розмітки:
+
+- `TP/FP/FN`, precision, recall, F1 і confidence intervals per rule/reason;
+- macro і micro aggregation без змішування obligation та item denominators;
+- agreement двох annotators і adjudication rate;
+- overlap та unique confirmed findings проти baselines;
+- review minutes per confirmed defect;
+- curation-action accuracy і false-repair rate.
+
+### 6.3. Evaluation design
+
+1. Заморозити commit, config, enabled rules, dependency/resource versions,
+   input hashes і output artifact checksums.
+2. Побудувати незалежний obligation-level sample, окремий від regression
+   fixtures і прикладів, на яких налаштовувались правила.
+3. Провести blind dual annotation із adjudication; спочатку оцінювати
+   question/context evidence, потім SQL realization.
+4. Порівняти з exact/keyword baseline, відтворюваною підмножиною PV-SQL,
+   LLM committee і SQLDriller там, де їхні scopes справді перетинаються.
+5. Провести окремий false-repair experiment на residual Spider predicates і
+   BIRD fragile-gold cases.
+6. Опублікувати annotation protocol, manifests, report queries і confidence
+   intervals разом з artifact.
+
+### 6.4. Publication gate
+
+Paper-result можна фіксувати лише коли:
+
+- усі `CONTRADICTED` families пройшли manual validation;
+- є frozen reproducible Spider/BIRD run;
+- є independent annotations, baselines та uncertainty estimates;
+- diagnostic claims чітко відділені від verified defect counts;
+- правила не містять benchmark-specific tuning branches.
+
+## 7. Останній run
+
+Єдина актуальна історія запуску в цьому документі:
+
+- дата: **29 серпня 2026 року**;
+- analyzer: **`0.8.0`**; boundary lexicon: **`1.1.0`**; string-match
+  lexicon: **`1.0.0`**;
+- full suite: **1 109 passed, 1 skipped**;
+- linter diagnostics і `git diff --check`: без нових помилок.
+
+Diagnostic pipeline totals — це **кількість rule verdicts, не item count**:
+
+| Corpus | Items | SUPPORTED | CONTRADICTED | UNRESOLVED |
+|---|---:|---:|---:|---:|
+| Spider dev | 1 034 | 702 | 11 | 67 |
+| Spider test | 2 147 | 1 390 | 14 | 113 |
+| Spider train | 8 659 | 7 246 | 73 | 771 |
+| BIRD dev | 1 534 | 2 339 | 9 | 242 |
+| BIRD train | 9 428 | 14 605 | 117 | 1 421 |
+
+Стабільні diagnostic anchors:
+
+- **31** literal near-miss contradictions;
+- **14** explicit quoted-literal mismatches;
+- **106** hidden thresholds;
+- **3** corpus-confirmed filters;
+- **986/5 406 (18.2%)** BIRD evidence-only numeric obligations;
+- **10/10** BIRD fragile-gold aggregate substitutions, перевірені на поточних
+  SQLite snapshots;
+- **15 residual temporal contradictions** пройшли exhaustive engineering
+  audit: 14 true defects і 1 false positive;
+- **28 residual boundary contradictions** пройшли audit: 27 true defects і
+  1 false positive; 9 evidence-licensed SQL cases правильно target-яться як
+  `MAPPING`;
+- `string_match_alignment`: **22 SUPPORTED / 1 CONTRADICTED / 84 UNRESOLVED**;
+  єдина contradiction — independently checked true defect і unique finding,
+  а 70 DQS cases консервативно abstain-яться;
+- baseline audit `0.6.2` мав 75 findings: 42 true, 31 false verdicts і
+  2 ambiguous. У `0.7.0` усі 30 temporal false contradictions усунуто, bare
+  `until` і 2 evidence-conflicted `since` cases переведено в `UNRESOLVED`;
+  додатковий full-corpus pass знайшов один новий підтверджений temporal defect.
+
+Ці значення відтворено у frozen run та manifest для commit
+`f77551b3c43bfd698a1fa454356756a4024147ab`. Model-assisted audit є
+інженерним свідченням, а не фінальною людською validation.
+
+## 8. Наступні кроки
+
+### P0 — завершити scientific audit
+
+- temporal і comparison boundary/range engineering audit завершено;
+- повний 224-obligation model-assisted census audit завершено і збережено
+  окремим experiment artifact;
+- literal, lexical, boundary, temporal і string-match findings пройшли
+  подвійний review та adjudication;
+- leakage-safe held-out sample, phase-separated queues і adjudication protocol
+  сформовано;
+- regression і audit examples не використовувати як paper test set.
+
+### P1 — frozen release run
+
+- analyzer source зафіксовано commit
+  `f77551b3c43bfd698a1fa454356756a4024147ab`;
+- input, output, schema, dependency, resource й audit-artifact hashes
+  зафіксовано у manifests;
+- повні Spider/BIRD runs збережено в
+  `research/question-sql-consistency-v0.8-validation/frozen-run/`.
+
+### P2 — scientific validation
+
+- annotation set і protocol створено;
+- провести **людську** blind dual annotation та adjudication;
+- порахувати per-rule metrics, confidence intervals, baselines і review cost.
+
+### P3 — false-repair experiment
+
+- перевірити, чи LLM/automatic repair псує hidden conventions або fragile gold,
+  якщо abstention і provenance не показані;
+- виміряти false-repair rate та зміну curation actions.
+
+### P4 — рішення про scope статті
+
+- лишити `string_match_alignment` supporting component, доки held-out
+  evaluation не покаже ширший incremental signal;
+- `aggregation_alignment` і `ordering_topk_alignment` не включати без нового
+  contribution proof.
+
+### P5 — написання
+
+- Method: evidence model, obligations, provenance, abstention і detector scope;
+- Results: verified findings, coverage/precision, corpus mechanisms, baseline
+  overlap і repair experiment;
+- Limitations: English-only, local obligations, allowlist coverage,
+  annotation uncertainty та corpus dependence.
+
+## 9. Обмеження формулювань
+
+Не використовувати у статті без додаткової валідації такі твердження:
+
+- «Analyzer перевіряє повну семантичну коректність SQL».
+- «Кожний unlicensed literal або hidden threshold є багом».
+- «Fragile-gold queries уже повертають неправильну відповідь».
+- «Diagnostic totals v0.8.0 є фінальною оцінкою поширеності».
+- «Fixture precision є corpus-wide precision».
+- «WordNet/fuzzy matching або keyword rules самі по собі є науковою новизною».
+- «Ідентичний SQL автоматично доводить, що два питання є парафразами».
+
+## 10. Актуальні джерела істини
+
+- package contract:
+  `src/text2sql_pipeline/analyzers/question_sql_consistency/README.md`;
+- registry і reason codes:
+  `src/text2sql_pipeline/analyzers/question_sql_consistency/consistency_registry.py`;
+- metric schema:
+  `src/text2sql_pipeline/analyzers/question_sql_consistency/metrics.py`;
+- shipped configuration: `configs/pipeline.example.yaml`;
+- detector tests: `tests/test_question_sql_consistency_detector.py`,
+  `tests/test_comparison_boundaries.py`,
+  `tests/test_string_match_alignment.py`;
+- analyzer/report integration tests:
+  `tests/test_question_sql_consistency_analyzer.py`,
+  `tests/test_question_sql_consistency_report.py`;
+- BIRD reproduction: `scripts/run_bird_consistency_experiment.py`;
+- fragile-gold validation:
+  `scripts/validate_bird_aggregate_substitutions.py`;
+- frozen validation protocol:
+  `Plans/question-sql-consistency-validation-protocol.md`;
+- experiment findings:
+  `research/question-sql-consistency-v0.8-validation/question_sql_consistency_experiment_findings.md`.

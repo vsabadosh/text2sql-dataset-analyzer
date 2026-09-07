@@ -22,6 +22,13 @@ dependencies = [
   "pyarrow==18.1.0",
   "dependency-injector==4.48.2",
   "duckdb==1.4.1",
+  # Lexical layer of the question-SQL consistency analyzer. Pinned because
+  # findings depend on their behaviour, so a silent upgrade would change
+  # measured results. The WordNet corpus is data, not code, and is fetched
+  # separately: `text2sql lexical-data`.
+  "rapidfuzz==3.14.5",
+  "nltk==3.10.3",
+  "inflect==7.5.0",
 ]
 
 [project.optional-dependencies]

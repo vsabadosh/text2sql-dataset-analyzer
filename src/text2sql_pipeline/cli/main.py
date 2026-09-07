@@ -47,9 +47,15 @@ def main():
         required=False,
         help="Output path for markdown report (required for individual reports)"
     )
+    # Lexical data command
+    subparsers.add_parser(
+        "lexical-data",
+        help="Fetch the lexical corpora used by the question-SQL consistency analyzer"
+    )
+
     report_parser.add_argument(
         "--type",
-        choices=["summary", "schema-validation", "llm-judge-issues", "query-execution-issues", "query-structure", "table-coverage", "query-quality", "all"],
+        choices=["summary", "schema-validation", "llm-judge-issues", "query-execution-issues", "query-structure", "table-coverage", "query-quality", "question-sql-consistency", "all"],
         default="summary",
         help="Type of report to generate (default: summary, only used with --database)"
     )
@@ -64,6 +70,21 @@ def main():
         print(f"📁 Output directory: {output_dir}")
         return 0
     
+    elif args.command == "lexical-data":
+        from text2sql_pipeline.analyzers.question_sql_consistency import (
+            lexical_resources,
+        )
+
+        results = lexical_resources.download()
+        for corpus, ok in results.items():
+            print(f"{'✅' if ok else '❌'} {corpus}")
+        if not all(results.values()):
+            print("❌ Error: some corpora could not be fetched", file=sys.stderr)
+            return 1
+        for name, version in lexical_resources.resource_versions().items():
+            print(f"   {name}: {version}")
+        return 0
+
     elif args.command == "report":
         try:
             # Handle config-based report generation
@@ -120,6 +141,7 @@ def main():
                     generate_query_structure_profile_report,
                     generate_table_coverage_report,
                     generate_query_quality_report,
+                    generate_question_sql_consistency_report,
                 )
 
                 report_type = args.type
@@ -145,8 +167,11 @@ def main():
                 elif report_type == "query-quality":
                     generate_query_quality_report(args.database, args.output)
                     print(f"✅ Query Quality report generated: {args.output}")
+                elif report_type == "question-sql-consistency":
+                    generate_question_sql_consistency_report(args.database, args.output)
+                    print(f"✅ Question-SQL Consistency report generated: {args.output}")
                 elif report_type == "all":
-                    # Generate all 7 reports with appropriate filenames
+                    # Generate all 8 reports with appropriate filenames
                     import os
                     output_dir = os.path.dirname(args.output) or "."
                     base_name = os.path.splitext(os.path.basename(args.output))[0]
@@ -159,6 +184,7 @@ def main():
                     structure_path = os.path.join(output_dir, f"{base_name}_structure.md")
                     coverage_path = os.path.join(output_dir, f"{base_name}_coverage.md")
                     quality_path = os.path.join(output_dir, f"{base_name}_quality.md")
+                    consistency_path = os.path.join(output_dir, f"{base_name}_question_sql_consistency.md")
 
                     generate_summary_report(args.database, summary_path)
                     print(f"✅ Summary report: {summary_path}")
@@ -181,7 +207,10 @@ def main():
                     generate_query_quality_report(args.database, quality_path)
                     print(f"✅ Query quality: {quality_path}")
 
-                    print(f"\n🎉 All 7 reports generated successfully!")
+                    generate_question_sql_consistency_report(args.database, consistency_path)
+                    print(f"✅ Question-SQL consistency: {consistency_path}")
+
+                    print(f"\n🎉 All 8 reports generated successfully!")
 
                 return 0
             else:

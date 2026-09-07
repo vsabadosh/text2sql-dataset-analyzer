@@ -1,10 +1,51 @@
 """
 Tests for DbManager DDL schema generation with examples.
 """
+import sqlite3
+
 import pytest
 from text2sql_pipeline.db.adapters.base.schema_identity import SchemaIdentity
 from text2sql_pipeline.db.adapters.factory import make_adapter
 from text2sql_pipeline.db.manager import DbManager
+
+
+def test_column_value_exists_uses_exact_parameterized_probe(tmp_path):
+    database_dir = tmp_path / "dates"
+    database_dir.mkdir()
+    database_path = database_dir / "dates.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE events (event_date TEXT)")
+        connection.executemany(
+            "INSERT INTO events VALUES (?)",
+            [("2018-06-01",), ("2018-06-02",)],
+        )
+
+    adapter = make_adapter(
+        dialect="sqlite",
+        kind="file",
+        endpoint=str(tmp_path),
+        identity=SchemaIdentity(),
+    )
+    manager = DbManager(adapter=adapter)
+
+    assert (
+        manager.column_value_exists(
+            "dates", "events", "event_date", "2018-06-01"
+        )
+        is True
+    )
+    assert (
+        manager.column_value_exists(
+            "dates", "events", "event_date", "2018-06-03"
+        )
+        is False
+    )
+    assert (
+        manager.column_value_exists(
+            "dates", "events", "missing", "2018-06-01"
+        )
+        is None
+    )
 
 
 class TestDbManagerDDLWithExamples:
