@@ -29,6 +29,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+*Plans/
 
 # Installer logs
 pip-log.txt
@@ -180,6 +181,9 @@ BIRD_*
 Spider_TRAIN*
 Spider_TEST*
 Spider_DEV*
+
+# Output of the bundled demo (README quick start)
+my_analysis_*/
 
 # Allow committing selected "For_Article" deliverables under MainSpiderResults/
 !MainSpiderResults/

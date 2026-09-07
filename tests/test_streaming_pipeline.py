@@ -58,6 +58,7 @@ def test_full_pipeline(tmp_path, student_assessment_root, monkeypatch):
         "annotatedOutputDataset.jsonl",
         "schema_validation_metrics.jsonl",
         "query_syntax_metrics.jsonl",
+        "question_sql_consistency_metrics.jsonl",
         "query_execution_metrics.jsonl",
         "query_antipattern_metrics.jsonl",
     ]:
@@ -77,6 +78,7 @@ def test_full_pipeline(tmp_path, student_assessment_root, monkeypatch):
 
         assert "schema_analysis" in step_names
         assert "query_syntax" in step_names
+        assert "question_sql_consistency" in step_names
         assert "query_execution" in step_names
 
 

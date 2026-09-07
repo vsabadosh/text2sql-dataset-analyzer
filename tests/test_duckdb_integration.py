@@ -21,6 +21,11 @@ from text2sql_pipeline.analyzers.query_execution.metrics import (
     QueryExecutionStats,
     QueryExecutionTags
 )
+from text2sql_pipeline.analyzers.query_antipattern.metrics import (
+    AntipatternInstance,
+    QueryAntipatternFeatures,
+    QueryAntipatternMetricEvent,
+)
 
 
 def test_duckdb_sink_creates_database():
@@ -229,6 +234,114 @@ def test_multiple_analyzers():
         assert "metrics_query_syntax" in table_names
         assert "metrics_query_execution" in table_names
         conn.close()
+
+
+def test_antipattern_sink_migrates_and_stores_appended_flags():
+    """An existing antipattern table is widened without losing new flags."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.duckdb")
+        sink = DuckDBMetricsSink(db_path)
+
+        old_schema = sink._query_antipattern_table(
+            "metrics_query_antipattern"
+        ).replace(
+            "            has_chained_comparison_semantics BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_conditional_count_non_null_else BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_unquoted_date_arithmetic BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_literal_division_by_zero BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_scalar_subquery_cardinality BOOLEAN,\n",
+            "",
+        ).replace(
+            "            has_template_placeholder_literal BOOLEAN,\n",
+            "",
+        )
+        sink.conn.execute(old_schema)
+
+        metric = QueryAntipatternMetricEvent(
+            dataset_id="test_dataset",
+            item_id="bird_train_1931",
+            db_id="soccer_2016",
+            status="warns",
+            success=False,
+            duration_ms=1.0,
+            features=QueryAntipatternFeatures(
+                has_chained_comparison_semantics=True,
+                has_conditional_count_non_null_else=True,
+                has_unquoted_date_arithmetic=True,
+                has_literal_division_by_zero=True,
+                has_scalar_subquery_cardinality=True,
+                has_template_placeholder_literal=True,
+                total_antipatterns=6,
+                quality_score=0,
+                quality_level="poor",
+                antipatterns=[
+                    AntipatternInstance(
+                        pattern="chained_comparison_semantics",
+                        severity="critical",
+                        message="SQL does not implement mathematical chained comparisons.",
+                        location="2011 < Season_Year < 2015",
+                    ),
+                    AntipatternInstance(
+                        pattern="conditional_count_non_null_else",
+                        severity="critical",
+                        message="COUNT counts a non-NULL ELSE value.",
+                        location="COUNT(CASE WHEN won THEN 1 ELSE 0 END)",
+                    ),
+                    AntipatternInstance(
+                        pattern="unquoted_date_arithmetic",
+                        severity="critical",
+                        message="Unquoted date is numeric subtraction.",
+                        location="2018 - 06 - 01",
+                    ),
+                    AntipatternInstance(
+                        pattern="literal_division_by_zero",
+                        severity="critical",
+                        message="Division by a literal zero.",
+                        location="amount / 0",
+                    ),
+                    AntipatternInstance(
+                        pattern="scalar_subquery_cardinality",
+                        severity="high",
+                        message="Scalar subquery lacks an at-most-one-row proof.",
+                        location="(SELECT user_id FROM users)",
+                    ),
+                    AntipatternInstance(
+                        pattern="template_placeholder_literal",
+                        severity="high",
+                        message="SQL contains an unexpanded template placeholder.",
+                        location='"region0"',
+                    ),
+                ],
+            ),
+        )
+
+        sink.write(metric)
+        sink.close()
+
+        import duckdb
+
+        conn = duckdb.connect(db_path, read_only=True)
+        stored = conn.execute(
+            "SELECT has_chained_comparison_semantics, "
+            "has_conditional_count_non_null_else, "
+            "has_unquoted_date_arithmetic, "
+            "has_literal_division_by_zero, "
+            "has_scalar_subquery_cardinality, "
+            "has_template_placeholder_literal, "
+            "json_array_length(antipatterns) "
+            "FROM metrics_query_antipattern"
+        ).fetchone()
+        conn.close()
+
+        assert stored == (True, True, True, True, True, True, 6)
 
 
 if __name__ == "__main__":

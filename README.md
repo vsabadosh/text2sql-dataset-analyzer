@@ -199,8 +199,8 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, unsafe_update_delete, cartesian_product]
-          high: [not_in_nullable, limit_without_order_by, offset_without_order_by, missing_group_by]
+          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, literal_division_by_zero, unsafe_update_delete, cartesian_product]
+          high: [not_in_nullable, scalar_subquery_cardinality, limit_without_order_by, offset_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery, leading_wildcard_like]
           low: [select_star, redundant_distinct, select_in_exists]
   - name: query_execution_analyzer
@@ -258,16 +258,30 @@ Parses SQL with sqlglot and extracts structural features:
 
 ### 3. Query Antipattern Analyzer
 
-Detects 13 SQL antipatterns with configurable severity and dialect-specific rules:
+Detects 18 SQL antipatterns with configurable severity and dialect-specific rules:
 
 | Severity | Antipatterns |
 |----------|-------------|
-| **CRITICAL** | `null_comparison_equals`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
-| **HIGH** | `not_in_nullable`, `limit_without_order_by`, `offset_without_order_by` |
+| **CRITICAL** | `null_comparison_equals`, `chained_comparison_semantics`, `conditional_count_non_null_else`, `unquoted_date_arithmetic`, `literal_division_by_zero`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
+| **HIGH** | `not_in_nullable`, `scalar_subquery_cardinality`, `limit_without_order_by`, `offset_without_order_by` |
 | **MEDIUM** | `function_in_where`, `correlated_subquery`, `leading_wildcard_like` |
 | **LOW** | `select_star`, `redundant_distinct`, `select_in_exists` |
 
+`not_in_nullable` is schema-aware: it is suppressed only when the subquery
+output is statically proven non-null by DDL, a dialect guarantee such as
+SQLite's `INTEGER PRIMARY KEY` rowid alias, or a guaranteed null-rejecting
+predicate. Snapshot-only PK evidence is deliberately insufficient. Scalar
+subqueries in value lists remain conservative because an empty scalar
+subquery evaluates to `NULL`; wrapped forms and `IN` nested under negated
+`AND`/`OR` predicates are also covered. Unsupported shapes or unavailable
+schema retain the conservative warning.
+
 Quality score: `100 - sum(penalty * count_per_severity)`. Quality levels: excellent / good / fair / poor.
+
+`unquoted_date_arithmetic` uses evidence-tiered severity. A declared temporal
+type or an exact date-shaped value found in the bound database column retains
+the configured critical severity. TEXT, unknown, or unavailable schema is
+reported as high-risk, while a declared numeric role is suppressed.
 
 ### 4. Query Execution Analyzer
 
@@ -470,8 +484,8 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, unsafe_update_delete, cartesian_product]
-          high: [not_in_nullable, limit_without_order_by, missing_group_by]
+          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, literal_division_by_zero, unsafe_update_delete, cartesian_product]
+          high: [not_in_nullable, scalar_subquery_cardinality, limit_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery]
           low: [select_star, redundant_distinct]
 ```

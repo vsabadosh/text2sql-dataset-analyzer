@@ -4,19 +4,29 @@ Core antipattern detection logic using sqlglot AST analysis.
 This module detects common SQL antipatterns and code smells:
 - Unsafe UPDATE/DELETE (no WHERE) - data safety
 - = NULL comparison (correctness)
+- Non-mathematical chained comparisons (silent boolean coercion or execution failure)
+- Conditional COUNT with a non-NULL ELSE branch (condition is not counted selectively)
+- Unquoted date-shaped subtraction in temporal predicates
+- Division by a static numeric zero
+- Unexpanded zero-suffixed template placeholders in predicate values
+- Scalar subqueries without a static at-most-one-row proof
 - Cartesian product (missing JOIN) - correctness
 - Missing GROUP BY (correctness)
 - Functions in WHERE clause (index prevention)
 - NOT IN with nullable columns (correctness)
 - Leading wildcard LIKE (index prevention)
-- Redundant DISTINCT with GROUP BY (performance)
+- DISTINCT proven redundant by grouping or schema keys (performance)
 - Correlated subqueries (performance)
 - SELECT * (maintainability, performance)
 - SELECT columns in EXISTS (cosmetic)
 """
 
 from __future__ import annotations
-from typing import Optional, List, Dict, Set, Tuple, Type
+from datetime import date
+from decimal import Decimal, InvalidOperation
+from enum import Enum
+import re
+from typing import Callable, Optional, List, Dict, Set, Tuple, Type
 from sqlglot import exp
 import sqlglot
 
@@ -28,6 +38,31 @@ from .antipattern_registry import (
     get_severity_penalties,
 )
 
+_CHAINABLE_COMPARISON_TYPES: Tuple[Type[exp.Expression], ...] = (
+    exp.EQ,
+    exp.NEQ,
+    exp.LT,
+    exp.GT,
+    exp.LTE,
+    exp.GTE,
+)
+_SET_VALUED_SUBQUERY_PARENTS: Tuple[Type[exp.Expression], ...] = tuple(
+    node_type
+    for node_type in (
+        exp.In,
+        exp.From,
+        exp.Join,
+        exp.Any,
+        getattr(exp, "All", None),
+        exp.Lateral,
+        exp.CTE,
+    )
+    if node_type is not None
+)
+_TEMPLATE_PLACEHOLDER_LITERAL_RE = re.compile(
+    r"^(?P<base>[a-z][a-z_]{2,})0$"
+)
+
 # Default antipattern configuration (enables all antipatterns for backwards compatibility)
 # In production, use dialect-specific configs from pipeline.yaml
 DEFAULT_CONFIG = {
@@ -36,13 +71,19 @@ DEFAULT_CONFIG = {
         AntipatternPattern.NULL_COMPARISON_EQUALS,
         AntipatternPattern.CARTESIAN_PRODUCT,
         AntipatternPattern.MISSING_GROUP_BY,
+        AntipatternPattern.CHAINED_COMPARISON_SEMANTICS,
+        AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE,
+        AntipatternPattern.UNQUOTED_DATE_ARITHMETIC,
+        AntipatternPattern.LITERAL_DIVISION_BY_ZERO,
     ],
     "high": [
+        AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL,
         AntipatternPattern.FUNCTION_IN_WHERE,
         AntipatternPattern.NOT_IN_NULLABLE,
         AntipatternPattern.LEADING_WILDCARD_LIKE,
         AntipatternPattern.LIMIT_WITHOUT_ORDER_BY,
         AntipatternPattern.OFFSET_WITHOUT_ORDER_BY,
+        AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY,
     ],
     "medium": [
         AntipatternPattern.REDUNDANT_DISTINCT,
@@ -57,7 +98,18 @@ def detect_antipatterns(
     sql: str, 
     dialect: Optional[str] = "sqlite",
     config: Optional[Dict[str, List[str]]] = None,
-    penalties: Optional[Dict[str, int]] = None
+    penalties: Optional[Dict[str, int]] = None,
+    primary_keys: Optional[Dict[str, List[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ] = None,
+    column_nullability: Optional[Dict[str, Dict[str, bool]]] = None,
+    star_expanded_columns: Optional[Dict[str, List[str]]] = None,
+    column_types: Optional[Dict[str, Dict[str, str]]] = None,
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ] = None,
 ) -> QueryAntipatternFeatures:
     """
     Pure public API for antipattern detection.
@@ -70,6 +122,34 @@ def detect_antipatterns(
         penalties: Optional dict mapping severity levels to penalty points for scoring.
                    If None, uses DEFAULT_SEVERITY_PENALTIES from registry.
                    Example: {"critical": 30, "high": 15, "medium": 5, "low": 2}
+        primary_keys: Optional table name -> primary key columns. Grouping by a
+                   whole primary key determines every other column of that table,
+                   so ungrouped columns are then legal and deterministic rather
+                   than an antipattern. Without this map the check stays purely
+                   syntactic and reports those cases too. Callers must include
+                   only effective non-null keys; the pipeline integration
+                   verifies this against SQLite's current snapshot.
+        table_columns: Optional table name -> all column names. This lets
+                   unqualified references and GROUP BY alias/input-name
+                   collisions be bound without guessing.
+        column_comparators: Optional table -> column -> (affinity, collation).
+                   Equality-based key propagation is enabled only when both
+                   operands have the same verified comparison semantics.
+        column_nullability: Optional table -> column -> nullable boolean.
+                   This must describe semantic schema nullability, including
+                   dialect guarantees such as SQLite's INTEGER PRIMARY KEY
+                   rowid alias. The NOT IN rule never treats a current-row
+                   scan as a static non-null proof.
+        star_expanded_columns: Optional table name -> the columns SELECT *
+                   projects. This is narrower than table_columns for a virtual
+                   table, whose hidden columns bind normally but are never
+                   expanded. Defaults to table_columns, which is exact for
+                   every ordinary table.
+        column_types: Optional table -> column -> declared SQL type. Temporal
+                   types strengthen unquoted-date detection.
+        date_value_probe: Optional exact-value existence probe accepting
+                   (physical table, column, date-shaped text). It enriches
+                   TEXT/unknown columns with snapshot evidence.
         
     Returns:
         QueryAntipatternFeatures with detected antipatterns
@@ -101,14 +181,118 @@ def detect_antipatterns(
                 enabled_patterns.add(pattern)
                 pattern_severity_map[pattern] = severity_level
     
-    return _analyze_ast(ast, enabled_patterns, pattern_severity_map, effective_penalties)
+    normalized_primary_keys = None
+    if primary_keys is not None:
+        normalized_primary_keys = {
+            str(table).lower(): [str(column).lower() for column in columns]
+            for table, columns in primary_keys.items()
+        }
+    normalized_table_columns = None
+    if table_columns is not None:
+        normalized_table_columns = {
+            str(table).lower(): [str(column).lower() for column in columns]
+            for table, columns in table_columns.items()
+        }
+    normalized_star_columns = None
+    if star_expanded_columns is not None:
+        normalized_star_columns = {
+            str(table).lower(): [str(column).lower() for column in columns]
+            for table, columns in star_expanded_columns.items()
+        }
+    normalized_nullability = None
+    if column_nullability is not None:
+        normalized_nullability = {
+            str(table).lower(): {
+                str(column).lower(): bool(nullable)
+                for column, nullable in columns.items()
+            }
+            for table, columns in column_nullability.items()
+        }
+    normalized_comparators = None
+    if column_comparators is not None:
+        normalized_comparators = {
+            str(table).lower(): {
+                str(column).lower(): (
+                    str(signature[0]).upper(),
+                    str(signature[1]).upper(),
+                )
+                for column, signature in columns.items()
+            }
+            for table, columns in column_comparators.items()
+        }
+    normalized_column_types = None
+    if column_types is not None:
+        normalized_column_types = {
+            str(table).lower(): {
+                str(column).lower(): str(sql_type).upper()
+                for column, sql_type in columns.items()
+            }
+            for table, columns in column_types.items()
+        }
+
+    # PostgreSQL quoted identifiers are case-sensitive, while several schema
+    # catalogs are normalized case-insensitively. Disable guarantees that
+    # depend on those lossy catalogs; projection/grouping binders separately
+    # reject quoted column references before making an FD proof.
+    if (dialect or "").lower() in {"postgres", "postgresql"}:
+        query_has_quoted_name = any(
+            isinstance(identifier, exp.Identifier)
+            and bool(identifier.args.get("quoted"))
+            for identifier in ast.find_all(exp.Identifier)
+        )
+        catalog_names = [
+            name
+            for metadata in (primary_keys, column_nullability)
+            if metadata
+            for table, columns in metadata.items()
+            for name in (table, *columns)
+        ]
+        catalog_has_case_sensitive_name = any(
+            str(name) != str(name).lower() for name in catalog_names
+        )
+        if query_has_quoted_name or catalog_has_case_sensitive_name:
+            normalized_primary_keys = None
+            normalized_nullability = None
+            normalized_comparators = None
+            normalized_column_types = None
+
+    return _analyze_ast(
+        ast,
+        enabled_patterns,
+        pattern_severity_map,
+        effective_penalties,
+        normalized_primary_keys,
+        normalized_table_columns,
+        normalized_nullability,
+        normalized_comparators,
+        (dialect or "").lower() not in {"postgres", "postgresql"},
+        normalized_star_columns,
+        normalized_column_types,
+        date_value_probe,
+        (dialect or "sqlite").lower(),
+    )
 
 
 def _analyze_ast(
     ast: exp.Expression, 
     enabled_patterns: Set[str], 
     pattern_severity_map: Dict[str, str],
-    penalties: Dict[str, int]
+    penalties: Dict[str, int],
+    primary_keys: Optional[Dict[str, List[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_nullability: Optional[
+        Dict[str, Dict[str, bool]]
+    ] = None,
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ] = None,
+    quoted_identifier_proofs_safe: bool = True,
+    star_expanded_columns: Optional[Dict[str, List[str]]] = None,
+    column_types: Optional[Dict[str, Dict[str, str]]] = None,
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ] = None,
+    dialect: str = "sqlite",
 ) -> QueryAntipatternFeatures:
     """
     Analyze parsed AST and detect antipatterns.
@@ -118,6 +302,15 @@ def _analyze_ast(
         enabled_patterns: Set of enabled pattern names
         pattern_severity_map: Mapping of pattern name to severity level
         penalties: Mapping of severity level to penalty points for scoring
+        primary_keys: Optional table name -> primary key columns
+        table_columns: Optional table name -> all columns
+        column_nullability: Optional table -> column -> nullable boolean
+        column_comparators: Optional verified comparison signatures
+        quoted_identifier_proofs_safe: Whether case-folded binding is sound
+        star_expanded_columns: Optional table -> columns projected by SELECT *
+        column_types: Optional declared SQL types for temporal-role proofs
+        date_value_probe: Optional exact-value snapshot probe
+        dialect: SQL dialect used to parse the query
     """
     features = QueryAntipatternFeatures(parseable=True)
     antipatterns: List[AntipatternInstance] = []
@@ -131,11 +324,62 @@ def _analyze_ast(
     if AntipatternPattern.CARTESIAN_PRODUCT in enabled_patterns:
         _detect_cartesian_product(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.MISSING_GROUP_BY in enabled_patterns:
-        _detect_missing_group_by(ast, antipatterns, features, pattern_severity_map)
+        _detect_missing_group_by(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            primary_keys,
+            table_columns,
+            column_comparators,
+        )
+    if AntipatternPattern.CHAINED_COMPARISON_SEMANTICS in enabled_patterns:
+        _detect_chained_comparison_semantics(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE in enabled_patterns:
+        _detect_conditional_count_non_null_else(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.UNQUOTED_DATE_ARITHMETIC in enabled_patterns:
+        _detect_unquoted_date_arithmetic(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            table_columns,
+            column_types,
+            date_value_probe,
+        )
+    if AntipatternPattern.LITERAL_DIVISION_BY_ZERO in enabled_patterns:
+        _detect_literal_division_by_zero(
+            ast, antipatterns, features, pattern_severity_map
+        )
+    if AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL in enabled_patterns:
+        _detect_template_placeholder_literal(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            table_columns,
+            dialect,
+        )
+    if AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY in enabled_patterns:
+        _detect_scalar_subquery_cardinality(
+            ast, antipatterns, features, pattern_severity_map
+        )
     if AntipatternPattern.FUNCTION_IN_WHERE in enabled_patterns:
         _detect_function_in_where(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.NOT_IN_NULLABLE in enabled_patterns:
-        _detect_not_in_nullable(ast, antipatterns, features, pattern_severity_map)
+        _detect_not_in_nullable(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            table_columns,
+            column_nullability,
+            quoted_identifier_proofs_safe,
+        )
     if AntipatternPattern.LEADING_WILDCARD_LIKE in enabled_patterns:
         _detect_leading_wildcard_like(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.LIMIT_WITHOUT_ORDER_BY in enabled_patterns:
@@ -143,7 +387,16 @@ def _analyze_ast(
     if AntipatternPattern.OFFSET_WITHOUT_ORDER_BY in enabled_patterns:
         _detect_offset_without_order_by(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.REDUNDANT_DISTINCT in enabled_patterns:
-        _detect_redundant_distinct(ast, antipatterns, features, pattern_severity_map)
+        _detect_redundant_distinct(
+            ast,
+            antipatterns,
+            features,
+            pattern_severity_map,
+            primary_keys,
+            table_columns,
+            column_comparators,
+            star_expanded_columns,
+        )
     if AntipatternPattern.CORRELATED_SUBQUERY in enabled_patterns:
         _detect_correlated_subquery(ast, antipatterns, features, pattern_severity_map)
     if AntipatternPattern.SELECT_STAR in enabled_patterns:
@@ -167,6 +420,542 @@ def _analyze_ast(
 # ============================================================================
 # Detection Rules
 # ============================================================================
+
+def _detect_chained_comparison_semantics(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect unparenthesized mathematical-style comparison chains.
+
+    SQL does not define ``low < value < high`` as a range predicate. Dialects
+    such as SQLite evaluate it left-to-right and coerce the first comparison
+    to 0/1, which silently admits unrelated rows. Other dialects reject the
+    resulting boolean-to-scalar comparison. Explicit parentheses are retained
+    by SQLGlot and are not flagged because they make the intermediate boolean
+    operation intentional.
+    """
+    pattern = AntipatternPattern.CHAINED_COMPARISON_SEMANTICS.value
+    severity = severity_map.get(pattern, "critical")
+
+    for node in ast.walk():
+        if not isinstance(node, _CHAINABLE_COMPARISON_TYPES):
+            continue
+        if not isinstance(
+            node.this, _CHAINABLE_COMPARISON_TYPES
+        ) and not isinstance(node.expression, _CHAINABLE_COMPARISON_TYPES):
+            continue
+
+        features.has_chained_comparison_semantics = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "SQL does not implement mathematical chained comparisons. "
+                    "Rewrite the range as two predicates joined by AND or use "
+                    "BETWEEN; otherwise some dialects silently compare an "
+                    "intermediate boolean value while others reject the query."
+                ),
+                location=node.sql(),
+            )
+        )
+        return
+
+
+def _detect_conditional_count_non_null_else(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect conditional COUNT expressions that are non-NULL on every branch.
+
+    COUNT counts non-NULL values, not truthy values. Consequently,
+    ``COUNT(CASE WHEN p THEN 1 ELSE 0 END)`` counts every input row. The rule
+    stays conservative: it reports only non-DISTINCT COUNT expressions whose
+    CASE/IIF result is provably non-NULL from literal or boolean branches.
+    """
+    pattern = AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE.value
+    severity = severity_map.get(pattern, "critical")
+
+    for count in ast.find_all(exp.Count):
+        conditional = count.this
+        if isinstance(conditional, exp.Distinct):
+            continue
+        if not _conditional_is_statically_non_null(conditional):
+            continue
+
+        features.has_conditional_count_non_null_else = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "COUNT counts every non-NULL CASE/IIF result, including "
+                    "the ELSE value. Use SUM(CASE ... ELSE 0 END) or omit ELSE "
+                    "so non-matching rows yield NULL."
+                ),
+                location=count.sql(),
+            )
+        )
+        return
+
+
+def _conditional_is_statically_non_null(
+    expression: exp.Expression | None,
+) -> bool:
+    """Whether a CASE/IIF returns a proven non-NULL literal on every branch."""
+    if isinstance(expression, exp.Case):
+        branches = expression.args.get("ifs") or []
+        default = expression.args.get("default")
+        return (
+            bool(branches)
+            and _is_statically_non_null_literal(default)
+            and all(
+                isinstance(branch, exp.If)
+                and _is_statically_non_null_literal(branch.args.get("true"))
+                for branch in branches
+            )
+        )
+
+    if isinstance(expression, exp.If):
+        return _is_statically_non_null_literal(
+            expression.args.get("true")
+        ) and _is_statically_non_null_literal(expression.args.get("false"))
+
+    return False
+
+
+def _is_statically_non_null_literal(
+    expression: exp.Expression | None,
+) -> bool:
+    while isinstance(expression, exp.Paren):
+        expression = expression.this
+    if isinstance(expression, exp.Neg):
+        return isinstance(expression.this, exp.Literal)
+    return isinstance(expression, (exp.Literal, exp.Boolean))
+
+
+def _detect_unquoted_date_arithmetic(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ],
+) -> None:
+    """Detect unquoted numeric dates parsed as arithmetic expressions."""
+    pattern = AntipatternPattern.UNQUOTED_DATE_ARITHMETIC.value
+    configured_severity = severity_map.get(pattern, "critical")
+
+    for arithmetic in ast.walk():
+        if not isinstance(arithmetic, (exp.Sub, exp.Div)):
+            continue
+        date_shape = _date_shaped_arithmetic(arithmetic)
+        if date_shape is None:
+            continue
+        shape, _year_digits = date_shape
+        role = _predicate_role_for_value(arithmetic)
+        if role is None:
+            continue
+        evidence, explanation = _date_role_evidence(
+            role,
+            shape,
+            table_columns,
+            column_types,
+            date_value_probe,
+        )
+        if evidence == "numeric":
+            continue
+        severity = (
+            configured_severity
+            if evidence == "confirmed"
+            else (
+                "high"
+                if configured_severity == "critical"
+                else configured_severity
+            )
+        )
+
+        features.has_unquoted_date_arithmetic = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    f"Unquoted date-shaped value {shape} is evaluated as "
+                    "numeric arithmetic. Quote the date literal or use a "
+                    f"dialect-specific DATE constructor. {explanation}"
+                ),
+                location=shape,
+            )
+        )
+        return
+
+
+def _date_shaped_arithmetic(
+    expression: exp.Expression,
+) -> tuple[str, int] | None:
+    """Return a plausible Y-M-D, M-D-Y, or D-M-Y arithmetic shape."""
+    operator_type = type(expression)
+    if operator_type not in {exp.Sub, exp.Div}:
+        return None
+    if isinstance(expression.parent, operator_type) or not isinstance(
+        expression.this, operator_type
+    ):
+        return None
+
+    raw_parts = (
+        expression.this.this,
+        expression.this.expression,
+        expression.expression,
+    )
+    if not all(
+        isinstance(part, exp.Literal)
+        and part.is_number
+        and str(part.this).isdigit()
+        for part in raw_parts
+    ):
+        return None
+
+    texts = tuple(str(part.this) for part in raw_parts)
+    numbers = tuple(int(value) for value in texts)
+    year_digits = _plausible_date_year_width(texts, numbers)
+    if year_digits is None:
+        return None
+    separator = "-" if operator_type is exp.Sub else "/"
+    return separator.join(texts), year_digits
+
+
+def _plausible_date_year_width(
+    texts: tuple[str, str, str],
+    numbers: tuple[int, int, int],
+) -> int | None:
+    """Return the strongest plausible year width across common date orders."""
+    candidates: list[int] = []
+    for year_index, month_index, day_index in (
+        (0, 1, 2),  # Y-M-D
+        (2, 0, 1),  # M-D-Y
+        (2, 1, 0),  # D-M-Y
+    ):
+        year_text = texts[year_index]
+        if len(year_text) not in {1, 2, 4}:
+            continue
+        raw_year = numbers[year_index]
+        if len(year_text) == 4:
+            if not 1 <= raw_year <= 9999:
+                continue
+            calendar_year = raw_year
+        else:
+            calendar_year = 2000 + raw_year
+        try:
+            date(
+                calendar_year,
+                numbers[month_index],
+                numbers[day_index],
+            )
+        except ValueError:
+            continue
+        candidates.append(len(year_text))
+    return max(candidates) if candidates else None
+
+
+def _predicate_role_for_value(
+    expression: exp.Expression,
+) -> exp.Expression | None:
+    """Return the expression compared with an arithmetic value candidate."""
+    value_expression: exp.Expression = expression
+    parent = expression.parent
+    while isinstance(parent, exp.Paren):
+        value_expression = parent
+        parent = parent.parent
+
+    if isinstance(parent, _CHAINABLE_COMPARISON_TYPES):
+        return (
+            parent.expression
+            if parent.this is value_expression
+            else parent.this
+        )
+    if isinstance(parent, exp.Between) and value_expression in {
+        parent.args.get("low"),
+        parent.args.get("high"),
+    }:
+        return parent.this
+    if isinstance(parent, exp.In) and value_expression in parent.expressions:
+        return parent.this
+    return None
+
+
+def _date_role_evidence(
+    role: exp.Expression,
+    date_shape: str,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+    date_value_probe: Optional[
+        Callable[[str, str, str], Optional[bool]]
+    ],
+) -> tuple[str, str]:
+    """Classify schema/snapshot evidence for one date-shaped predicate role."""
+    bound_columns: list[tuple[str, str, str]] = []
+    for column in role.find_all(exp.Column):
+        binding = _bound_column_schema(
+            column, table_columns, column_types
+        )
+        if binding is not None:
+            bound_columns.append(binding)
+
+    if any(
+        _declared_type_family(sql_type) == "temporal"
+        for _, _, sql_type in bound_columns
+    ):
+        return (
+            "confirmed",
+            "The bound column has a declared temporal SQL type.",
+        )
+
+    if bound_columns and all(
+        _declared_type_family(sql_type) == "numeric"
+        for _, _, sql_type in bound_columns
+    ):
+        return (
+            "numeric",
+            "The bound role is declared numeric, so arithmetic may be intentional.",
+        )
+
+    if date_value_probe is not None:
+        for table, column, _ in bound_columns:
+            if date_value_probe(table, column, date_shape) is True:
+                return (
+                    "confirmed",
+                    "The exact date-shaped text exists in the bound database column.",
+                )
+
+    return (
+        "unresolved",
+        "The column is TEXT, unknown, or unavailable and no exact domain match "
+        "confirms date intent.",
+    )
+
+
+def _bound_column_schema(
+    column: exp.Column,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_types: Optional[Dict[str, Dict[str, str]]],
+) -> tuple[str, str, str] | None:
+    """Resolve a role column to physical table, name, and declared type."""
+    current = column.parent
+    while current is not None and not isinstance(current, exp.Select):
+        current = current.parent
+    select = current
+    if not isinstance(select, exp.Select):
+        return None
+
+    sources = _from_table_aliases(select)
+    binding = _resolve_column(
+        column.table, column.name, sources, table_columns
+    )
+    if binding is None:
+        return None
+    source_identity, column_name = binding
+    physical_table = sources.get(source_identity)
+    if physical_table is None:
+        return None
+    sql_type = ""
+    if column_types:
+        table_key = _metadata_table_key(physical_table, column_types)
+        if table_key is not None:
+            sql_type = column_types.get(table_key, {}).get(column_name, "")
+    return physical_table, column_name, sql_type
+
+
+def _declared_type_family(sql_type: str) -> str:
+    """Classify only standard declared type signals, not identifier words."""
+    tokens = set(re.findall(r"[A-Z]+", sql_type.upper()))
+    if tokens & {"DATE", "DATETIME", "TIME", "TIMESTAMP"}:
+        return "temporal"
+    if tokens & {
+            "INT",
+            "INTEGER",
+            "BIGINT",
+            "SMALLINT",
+            "TINYINT",
+            "REAL",
+            "NUMERIC",
+            "DECIMAL",
+            "FLOAT",
+            "DOUBLE",
+            "NUMBER",
+    }:
+        return "numeric"
+    if tokens & {"CHAR", "CHARACTER", "VARCHAR", "NCHAR", "TEXT", "CLOB"}:
+        return "text"
+    return "unknown"
+
+
+def _detect_template_placeholder_literal(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    table_columns: Optional[Dict[str, List[str]]],
+    dialect: str,
+) -> None:
+    """Detect unexpanded zero-suffixed template values in SQL predicates."""
+    pattern = AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL.value
+    severity = severity_map.get(pattern, "high")
+
+    candidates: list[tuple[exp.Expression, str]] = []
+    for literal in ast.find_all(exp.Literal):
+        if literal.is_string:
+            candidates.append((literal, str(literal.this)))
+
+    if dialect == "sqlite":
+        for column in ast.find_all(exp.Column):
+            identifier = column.this
+            if (
+                column.table
+                or not isinstance(identifier, exp.Identifier)
+                or not bool(identifier.args.get("quoted"))
+            ):
+                continue
+            if (
+                table_columns is not None
+                and _bound_column_schema(column, table_columns, None) is not None
+            ):
+                continue
+            candidates.append((column, column.name))
+
+    for candidate, value in candidates:
+        match = _TEMPLATE_PLACEHOLDER_LITERAL_RE.fullmatch(value)
+        if match is None:
+            continue
+        role = _predicate_role_for_value(candidate)
+        if role is None or not _placeholder_base_matches_role(
+            match.group("base"), role
+        ):
+            continue
+
+        features.has_template_placeholder_literal = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    f"Predicate value {value!r} has the zero-suffixed shape of "
+                    "an unexpanded template variable derived from the compared "
+                    "column. Replace it with the intended domain value before "
+                    "executing the query."
+                ),
+                location=candidate.sql(),
+            )
+        )
+
+
+def _placeholder_base_matches_role(
+    base: str,
+    role: exp.Expression,
+) -> bool:
+    """Whether a placeholder base names the predicate's compared column."""
+    columns = (
+        [role]
+        if isinstance(role, exp.Column)
+        else list(role.find_all(exp.Column))
+    )
+    return any(
+        base == column.name.lower()
+        or base.endswith(f"_{column.name.lower()}")
+        for column in columns
+        if column.name
+    )
+
+
+def _detect_literal_division_by_zero(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect a division whose divisor is a static numeric zero literal."""
+    pattern = AntipatternPattern.LITERAL_DIVISION_BY_ZERO.value
+    severity = severity_map.get(pattern, "critical")
+
+    for division in ast.find_all(exp.Div):
+        if not _is_static_numeric_zero(division.expression):
+            continue
+
+        features.has_literal_division_by_zero = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "Division by a literal zero yields NULL in SQLite and an "
+                    "execution error in stricter dialects. Replace the divisor "
+                    "or guard a dynamic denominator explicitly."
+                ),
+                location=(
+                    f"{division.this.sql()} / {division.expression.sql()}"
+                ),
+            )
+        )
+        return
+
+
+def _is_static_numeric_zero(expression: exp.Expression | None) -> bool:
+    while isinstance(expression, (exp.Paren, exp.Cast)):
+        expression = expression.this
+    if isinstance(expression, exp.Neg):
+        expression = expression.this
+    if not isinstance(expression, exp.Literal) or not expression.is_number:
+        return False
+    try:
+        return Decimal(str(expression.this)) == 0
+    except InvalidOperation:
+        return False
+
+
+def _detect_scalar_subquery_cardinality(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+) -> None:
+    """Detect scalar subqueries without a syntactic <=1-row guarantee."""
+    pattern = AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY.value
+    severity = severity_map.get(pattern, "high")
+
+    for subquery in ast.find_all(exp.Subquery):
+        parent = subquery.parent
+        while isinstance(parent, exp.Paren):
+            parent = parent.parent
+        if isinstance(parent, _SET_VALUED_SUBQUERY_PARENTS):
+            continue
+
+        query = subquery.this
+        if _is_provably_scalar_query(query):
+            continue
+
+        features.has_scalar_subquery_cardinality = True
+        antipatterns.append(
+            AntipatternInstance(
+                pattern=pattern,
+                severity=severity,
+                message=(
+                    "Scalar subquery is not statically guaranteed to return at "
+                    "most one row. SQLite silently keeps its first row, while "
+                    "stricter dialects raise a cardinality error. Add an "
+                    "intentional aggregate/LIMIT 1 or use a set-valued operator."
+                ),
+                location=subquery.sql(),
+            )
+        )
+        return
+
 
 def _detect_unsafe_update_delete(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
     """Detect UPDATE/DELETE without WHERE clause (data safety issue)."""
@@ -534,16 +1323,21 @@ def _detect_missing_group_by(
     antipatterns: List[AntipatternInstance],
     features: QueryAntipatternFeatures,
     severity_map: Dict[str, str],
+    primary_keys: Optional[Dict[str, List[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ] = None,
 ) -> None:
     """
-    Detect misuse of aggregate functions without a proper GROUP BY clause.
+    Detect projections not determined by an aggregate query's grouping grain.
 
     A SELECT block is flagged when ALL of the following are true:
 
-      1. It contains at least one non-window aggregate function at this SELECT level.
+      1. It contains a non-window aggregate or an explicit GROUP BY.
       2. It contains at least one non-aggregated column (or SELECT *) at this level.
       3. Either:
-         - there is no GROUP BY clause; or
+         - an aggregate is used without any GROUP BY; or
          - GROUP BY exists but does not cover all non-aggregated columns.
 
     Notes:
@@ -558,6 +1352,11 @@ def _detect_missing_group_by(
 
     # Walk all SELECT statements (including subqueries).
     for select in ast.find_all(exp.Select):
+        # Resolve this SELECT's sources before normalizing GROUP BY.  A source
+        # identity is the relation instance (alias), not merely the physical
+        # table name: two aliases in a self-join must remain distinct.
+        sources = _from_table_aliases(select)
+
         # Build alias map and positional references for this SELECT.
         alias_map, select_items_for_position = _build_select_alias_map(select)
 
@@ -566,23 +1365,32 @@ def _detect_missing_group_by(
             select,
             alias_map,
             select_items_for_position,
+            sources,
+            table_columns,
         )
 
         # Collect non-aggregated columns and detect aggregates / SELECT *.
         has_non_window_aggregate, has_star, non_aggregate_columns = (
-            _collect_non_aggregated_columns_for_select(select, normalized_group_exprs)
+            _collect_non_aggregated_columns_for_select(
+                select,
+                normalized_group_exprs,
+                sources,
+                table_columns,
+            )
         )
 
-        # If this SELECT has no non-window aggregates, there is no missing GROUP BY here.
-        if not has_non_window_aggregate:
+        group = select.args.get("group")
+
+        # GROUP BY itself creates grouping semantics even without an explicit
+        # aggregate. SQLite still permits an arbitrary non-grouped projection
+        # in queries such as ``SELECT payload FROM t GROUP BY category``.
+        if not has_non_window_aggregate and group is None:
             continue
 
         # If there are no non-aggregated columns and no SELECT *,
         # this SELECT is either pure aggregate or does not need GROUP BY.
         if not non_aggregate_columns and not has_star:
             continue
-
-        group = select.args.get("group")
 
         # Case 1: No GROUP BY at all → classic missing GROUP BY (including SELECT *).
         if group is None and (non_aggregate_columns or has_star):
@@ -604,24 +1412,64 @@ def _detect_missing_group_by(
 
         # Case 2: GROUP BY exists – check for partial GROUP BY (missing columns).
         missing_from_group: List[exp.Column] = [
-            col for col in non_aggregate_columns if not _column_in_group(col, normalized_group_exprs)
+            col
+            for col in non_aggregate_columns
+            if not _column_in_group(
+                col, normalized_group_exprs, sources, table_columns
+            )
         ]
 
-        if missing_from_group:
+        # A column the GROUP BY key already determines has exactly one value per
+        # group, so nothing arbitrary is returned. Standard SQL permits it for
+        # this reason, and reporting it would bury the cases that are genuinely
+        # undetermined.
+        star_undetermined = has_star
+        if primary_keys:
+            grouped = _grouped_column_pairs(
+                normalized_group_exprs, sources, table_columns
+            )
+            equated = _equated_columns(
+                select,
+                sources,
+                table_columns,
+                column_comparators,
+            )
+            missing_from_group = [
+                col for col in missing_from_group
+                if not _functionally_determined(
+                    col,
+                    sources,
+                    grouped,
+                    primary_keys,
+                    equated,
+                    table_columns,
+                )
+            ]
+            if has_star:
+                star_undetermined = not _all_sources_functionally_determined(
+                    sources, grouped, primary_keys, equated
+                )
+
+        if missing_from_group or star_undetermined:
             features.has_missing_group_by = True
 
             missing_cols_str = ", ".join({col.sql() for col in missing_from_group})
+            if star_undetermined:
+                missing_cols_str = (
+                    f"{missing_cols_str}, *" if missing_cols_str else "*"
+                )
 
             antipatterns.append(
                 AntipatternInstance(
                     pattern=pattern,
                     severity=severity,
                     message=(
-                        "Aggregate functions with non-aggregated columns require a complete "
-                        f"GROUP BY; the following columns are not grouped: {missing_cols_str}. "
+                        "A grouping query requires every projected column to be grouped "
+                        "or functionally determined; the following projections are "
+                        f"undetermined: {missing_cols_str}. "
                         "SQLite allows this but can return arbitrary values for these columns."
                     ),
-                    location="SELECT with aggregates and partial GROUP BY",
+                    location="SELECT with incomplete GROUP BY",
                 )
             )
             # Stop after the first offending SELECT for this antipattern
@@ -924,49 +1772,427 @@ def _detect_leading_wildcard_like(ast: exp.Expression, antipatterns: List[Antipa
                 break
 
 
-def _detect_not_in_nullable(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+class _NullabilityVerdict(str, Enum):
+    """Static proof state for one scalar subquery output."""
+
+    NON_NULL = "non_null"
+    POTENTIALLY_NULLABLE = "potentially_nullable"
+    UNKNOWN = "unknown"
+
+
+def _detect_not_in_nullable(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_nullability: Optional[
+        Dict[str, Dict[str, bool]]
+    ] = None,
+    quoted_identifier_proofs_safe: bool = True,
+) -> None:
+    """Detect NOT IN whose subquery output is not proven non-null.
+
+    The public rule identifier remains ``not_in_nullable``.  With schema
+    metadata, direct-column subqueries are suppressed only when semantic
+    nullability metadata or a guaranteed null-rejecting predicate proves the
+    output non-null. Snapshot-verified keys used by the GROUP BY rule are not
+    accepted as static nullability evidence. Missing metadata and unsupported
+    shapes retain the historical conservative warning.
+
+    Explicit NULL literals in value lists remain the responsibility of
+    ``_detect_null_comparison_equals``.
     """
-    Detect NOT IN with nullable subquery.
-    
-    `NOT IN (subquery)` is dangerous when the subquery can return NULL rows,
-    because the entire NOT IN expression evaluates to NULL (unknown) and
-    no rows are returned. Use NOT EXISTS instead.
-    
-    Note: NOT IN with explicit NULL literals in value lists (e.g. NOT IN (1, NULL))
-    is handled by _detect_null_comparison_equals as it's the same root cause —
-    NULL used in a comparison context.
-    """
+    candidates = _not_in_subquery_candidates(ast)
+    if not candidates:
+        return
+
+    verdicts = [
+        _not_in_subquery_nullability(
+            in_expr,
+            subquery,
+            scalar_list_element,
+            table_columns,
+            column_nullability,
+            quoted_identifier_proofs_safe,
+        )
+        for in_expr, subquery, scalar_list_element in candidates
+    ]
+    if all(verdict is _NullabilityVerdict.NON_NULL for verdict in verdicts):
+        return
+
     pattern = AntipatternPattern.NOT_IN_NULLABLE.value
     severity = severity_map.get(pattern, "high")
-    
-    # Method 1: Look for Not(In(...)) pattern
-    for not_expr in ast.find_all(exp.Not):
-        in_exprs = list(not_expr.find_all(exp.In))
-        for in_expr in in_exprs:
-            subqueries = list(in_expr.find_all(exp.Subquery))
-            if subqueries:
-                features.has_not_in_nullable = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message="NOT IN with subquery: if subquery returns any NULL, the entire expression evaluates to NULL (use NOT EXISTS instead)",
-                    location="WHERE clause"
-                ))
-                return
-    
-    # Method 2: Check if sqlglot has a separate NotIn expression type
-    if not features.has_not_in_nullable and hasattr(exp, 'NotIn'):
-        for not_in in ast.find_all(exp.NotIn):
-            subqueries = list(not_in.find_all(exp.Subquery))
-            if subqueries:
-                features.has_not_in_nullable = True
-                antipatterns.append(AntipatternInstance(
-                    pattern=pattern,
-                    severity=severity,
-                    message="NOT IN with subquery: if subquery returns any NULL, the entire expression evaluates to NULL (use NOT EXISTS instead)",
-                    location="WHERE clause"
-                ))
-                return
+    has_potential = any(
+        verdict is _NullabilityVerdict.POTENTIALLY_NULLABLE
+        for verdict in verdicts
+    )
+    message = (
+        "NOT IN subquery output is nullable and may make the predicate "
+        "evaluate to UNKNOWN; use NOT EXISTS or exclude NULL explicitly"
+        if has_potential
+        else
+        "NOT IN subquery output could not be proven non-null; NULL would make "
+        "the predicate evaluate to UNKNOWN"
+    )
+    features.has_not_in_nullable = True
+    antipatterns.append(
+        AntipatternInstance(
+            pattern=pattern,
+            severity=severity,
+            message=message,
+            location="NOT IN subquery",
+        )
+    )
+
+
+def _not_in_subquery_candidates(
+    ast: exp.Expression,
+) -> List[Tuple[exp.Expression, exp.Subquery, bool]]:
+    """Return scalar subqueries in IN expressions under logical negation."""
+    candidates: List[Tuple[exp.Expression, exp.Subquery, bool]] = []
+    for in_expr in ast.find_all(exp.In):
+        if not _in_is_logically_negated(in_expr):
+            continue
+        query = in_expr.args.get("query")
+        if isinstance(query, exp.Subquery):
+            candidates.append((in_expr, query, False))
+        for expression in in_expr.args.get("expressions") or []:
+            subquery = (
+                expression
+                if isinstance(expression, exp.Subquery)
+                else next(expression.find_all(exp.Subquery), None)
+            )
+            if subquery is not None:
+                candidates.append((in_expr, subquery, True))
+    return candidates
+
+
+def _in_is_logically_negated(in_expr: exp.In) -> bool:
+    """Track NOT parity through transparent Boolean ancestors in one scope."""
+    negated = False
+    current = in_expr.parent
+    while isinstance(current, (exp.Not, exp.Paren, exp.And, exp.Or)):
+        if isinstance(current, exp.Not):
+            negated = not negated
+        current = current.parent
+    return negated
+
+
+def _not_in_subquery_nullability(
+    in_expr: exp.Expression,
+    subquery: exp.Subquery,
+    scalar_list_element: bool,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_nullability: Optional[Dict[str, Dict[str, bool]]],
+    quoted_identifier_proofs_safe: bool,
+) -> _NullabilityVerdict:
+    """Classify one RHS without consulting the current database rows."""
+    if scalar_list_element:
+        # Unlike set-valued IN (SELECT ...), an empty scalar subquery produces
+        # one NULL value. Column nullability alone cannot prove safety; doing
+        # so would also require a static exactly-one-row cardinality proof.
+        return _NullabilityVerdict.UNKNOWN
+    if isinstance(getattr(in_expr, "this", None), exp.Tuple):
+        return _NullabilityVerdict.UNKNOWN
+    if not quoted_identifier_proofs_safe and any(
+        isinstance(identifier, exp.Identifier)
+        and bool(identifier.args.get("quoted"))
+        for identifier in subquery.find_all(exp.Identifier)
+    ):
+        # The shared binding helpers normalize identifiers to lowercase.
+        # Until they preserve PostgreSQL's quoted case semantics, a proof here
+        # could conflate distinct names such as x and "X".
+        return _NullabilityVerdict.UNKNOWN
+    return _query_output_nullability(
+        subquery.this,
+        table_columns,
+        column_nullability,
+    )
+
+
+def _query_output_nullability(
+    query: exp.Expression,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_nullability: Optional[Dict[str, Dict[str, bool]]],
+) -> _NullabilityVerdict:
+    """Classify a one-column SELECT or UNION output."""
+    if isinstance(query, exp.Subquery):
+        return _query_output_nullability(
+            query.this,
+            table_columns,
+            column_nullability,
+        )
+    if isinstance(query, exp.Union):
+        branch_verdicts = [
+            _query_output_nullability(
+                branch,
+                table_columns,
+                column_nullability,
+            )
+            for branch in (query.this, query.expression)
+        ]
+        if all(
+            verdict is _NullabilityVerdict.NON_NULL
+            for verdict in branch_verdicts
+        ):
+            return _NullabilityVerdict.NON_NULL
+        if any(
+            verdict is _NullabilityVerdict.POTENTIALLY_NULLABLE
+            for verdict in branch_verdicts
+        ):
+            return _NullabilityVerdict.POTENTIALLY_NULLABLE
+        return _NullabilityVerdict.UNKNOWN
+    if not isinstance(query, exp.Select):
+        return _NullabilityVerdict.UNKNOWN
+    return _select_output_nullability(
+        query,
+        table_columns,
+        column_nullability,
+    )
+
+
+def _select_output_nullability(
+    select: exp.Select,
+    table_columns: Optional[Dict[str, List[str]]],
+    column_nullability: Optional[Dict[str, Dict[str, bool]]],
+) -> _NullabilityVerdict:
+    """Classify the direct scalar projection of one SELECT."""
+    if len(select.expressions) != 1:
+        return _NullabilityVerdict.UNKNOWN
+
+    projection = select.expressions[0]
+    while isinstance(projection, (exp.Alias, exp.Paren)):
+        projection = projection.this
+    if not isinstance(projection, exp.Column):
+        return _NullabilityVerdict.UNKNOWN
+
+    group = select.args.get("group")
+    if isinstance(group, exp.Group) and any(
+        group.args.get(extension)
+        for extension in ("rollup", "cube", "grouping_sets")
+    ):
+        # These extensions synthesize subtotal rows whose grouping columns are
+        # NULL even when the underlying source column is declared NOT NULL.
+        return _NullabilityVerdict.UNKNOWN
+
+    sources = _from_table_aliases(select)
+    if not sources or any(table is None for table in sources.values()):
+        return _NullabilityVerdict.UNKNOWN
+    if any(_join_can_null_extend(join) for join in select.args.get("joins") or []):
+        return _NullabilityVerdict.UNKNOWN
+    if _has_unresolved_qualified_reference(
+        select, sources, table_columns
+    ):
+        return _NullabilityVerdict.UNKNOWN
+
+    resolved = _resolve_column(
+        projection.table,
+        projection.name,
+        sources,
+        table_columns,
+    )
+    if resolved is None:
+        return _NullabilityVerdict.UNKNOWN
+
+    if resolved in _guaranteed_non_null_columns_for_select(
+        select, sources, table_columns
+    ):
+        return _NullabilityVerdict.NON_NULL
+
+    source, column = resolved
+    table = sources.get(source)
+    if not table:
+        return _NullabilityVerdict.UNKNOWN
+
+    if column_nullability is None:
+        return _NullabilityVerdict.UNKNOWN
+    table_key = _metadata_table_key(table, column_nullability)
+    if not table_key:
+        return _NullabilityVerdict.UNKNOWN
+    nullable = column_nullability[table_key].get(column)
+    if nullable is False:
+        return _NullabilityVerdict.NON_NULL
+    if nullable is True:
+        return _NullabilityVerdict.POTENTIALLY_NULLABLE
+    return _NullabilityVerdict.UNKNOWN
+
+
+def _join_can_null_extend(join: exp.Join) -> bool:
+    side = str(join.args.get("side") or "").upper()
+    kind = str(join.args.get("kind") or "").upper()
+    return (
+        side in {"LEFT", "RIGHT", "FULL"}
+        or kind not in {"", "INNER", "CROSS"}
+    )
+
+
+def _has_unresolved_qualified_reference(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> bool:
+    """Detect a qualified reference to an outer or otherwise unknown source."""
+    for column in select.find_all(exp.Column):
+        if not column.table or not _belongs_to_select_scope(column, select):
+            continue
+        if _resolve_column(
+            column.table, column.name, sources, table_columns
+        ) is None:
+            return True
+    return False
+
+
+def _belongs_to_select_scope(
+    node: exp.Expression,
+    select: exp.Select,
+) -> bool:
+    current = node.parent
+    while current is not None and current is not select:
+        if isinstance(current, exp.Select):
+            return False
+        current = current.parent
+    return current is select
+
+
+def _guaranteed_non_null_columns_for_select(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Set[Tuple[str, str]]:
+    """Columns rejected when NULL by predicates guaranteed for every row."""
+    result: Set[Tuple[str, str]] = set()
+    where = select.args.get("where")
+    if where is not None and where.this is not None:
+        result.update(
+            _guaranteed_non_null_columns(
+                where.this, sources, table_columns
+            )
+        )
+    having = select.args.get("having")
+    if having is not None and having.this is not None:
+        result.update(
+            _guaranteed_non_null_columns(
+                having.this, sources, table_columns
+            )
+        )
+    for join in select.args.get("joins") or []:
+        if _join_can_null_extend(join):
+            continue
+        on_clause = join.args.get("on")
+        if on_clause is not None:
+            result.update(
+                _guaranteed_non_null_columns(
+                    on_clause, sources, table_columns
+                )
+            )
+    return result
+
+
+def _guaranteed_non_null_columns(
+    condition: exp.Expression,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Set[Tuple[str, str]]:
+    """Return direct columns a true predicate guarantees are not NULL."""
+    if isinstance(condition, exp.Paren):
+        return _guaranteed_non_null_columns(
+            condition.this, sources, table_columns
+        )
+    if isinstance(condition, exp.And):
+        return (
+            _guaranteed_non_null_columns(
+                condition.left, sources, table_columns
+            )
+            | _guaranteed_non_null_columns(
+                condition.right, sources, table_columns
+            )
+        )
+    if isinstance(condition, exp.Or):
+        return (
+            _guaranteed_non_null_columns(
+                condition.left, sources, table_columns
+            )
+            & _guaranteed_non_null_columns(
+                condition.right, sources, table_columns
+            )
+        )
+    if isinstance(condition, exp.Not):
+        inner = condition.this
+        if (
+            isinstance(inner, exp.Is)
+            and isinstance(inner.expression, exp.Null)
+        ):
+            return _resolved_direct_columns(
+                [inner.this], sources, table_columns
+            )
+        if isinstance(
+            inner,
+            (
+                exp.EQ,
+                exp.NEQ,
+                exp.GT,
+                exp.GTE,
+                exp.LT,
+                exp.LTE,
+                exp.Like,
+                exp.ILike,
+                exp.Between,
+            ),
+        ):
+            return _guaranteed_non_null_columns(
+                inner, sources, table_columns
+            )
+        return set()
+    if isinstance(
+        condition,
+        (
+            exp.EQ,
+            exp.NEQ,
+            exp.GT,
+            exp.GTE,
+            exp.LT,
+            exp.LTE,
+            exp.Like,
+            exp.ILike,
+        ),
+    ):
+        if any(
+            type(node).__name__ in {"All", "Any", "Subquery"}
+            for node in condition.walk()
+        ):
+            # Quantified comparisons can be vacuously true on an empty RHS:
+            # NULL <> ALL(empty) is TRUE, so they do not prove non-nullness.
+            return set()
+        return _resolved_direct_columns(
+            [condition.left, condition.right],
+            sources,
+            table_columns,
+        )
+    if isinstance(condition, (exp.Between, exp.In)):
+        return _resolved_direct_columns(
+            [condition.this], sources, table_columns
+        )
+    return set()
+
+
+def _resolved_direct_columns(
+    nodes: List[exp.Expression],
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Set[Tuple[str, str]]:
+    result: Set[Tuple[str, str]] = set()
+    for node in nodes:
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if not isinstance(node, exp.Column):
+            continue
+        resolved = _resolve_column(
+            node.table, node.name, sources, table_columns
+        )
+        if resolved is not None:
+            result.add(resolved)
+    return result
 
 
 def _detect_limit_without_order_by(
@@ -1269,12 +2495,21 @@ def _extract_join_source_name(source: exp.Expression) -> Optional[str]:
             return str(source.alias).lower()
         parts = [part.name.lower() for part in source.parts if part.name]
         return ".".join(parts) or None
-    if isinstance(source, exp.Subquery) and source.alias:
+    if source.alias:
         return str(source.alias).lower()
     return None
 
 
-_SQLITE_AGGREGATE_NAMES = frozenset({"total", "group_concat"})
+_SQLITE_AGGREGATE_NAMES = frozenset(
+    {
+        "total",
+        "group_concat",
+        "json_group_array",
+        "json_group_object",
+        "jsonb_group_array",
+        "jsonb_group_object",
+    }
+)
 
 
 def _is_aggregate_like(node: exp.Expression) -> bool:
@@ -1486,7 +2721,7 @@ def _closest_parent_of_type(node: exp.Expression, cls: Type[exp.Expression]) -> 
         parent = parent.parent
     return parent
 
-def _is_window_aggregate(agg: exp.AggFunc) -> bool:
+def _is_window_aggregate(agg: exp.Expression) -> bool:
     """
     Return True if this aggregate function is used as a window function,
     i.e. it is inside a Window node (AVG(...) OVER (...)).
@@ -1506,7 +2741,7 @@ def _has_aggregate_not_in_subquery(expr: exp.Expression) -> bool:
     This prevents false positives when checking for aggregates in SELECT clauses
     that have subqueries with aggregates in WHERE or other clauses.
     """
-    if isinstance(expr, exp.AggFunc):
+    if _is_aggregate_like(expr):
         return True
     
     # Don't recurse into subqueries
@@ -1519,6 +2754,18 @@ def _has_aggregate_not_in_subquery(expr: exp.Expression) -> bool:
             return True
     
     return False
+
+
+def _has_non_window_aggregate_not_in_subquery(expr: exp.Expression) -> bool:
+    """Find a non-window aggregate without crossing a nested query boundary."""
+    if _is_aggregate_like(expr):
+        return not _is_window_aggregate(expr)
+    if isinstance(expr, (exp.Select, exp.Subquery)):
+        return False
+    return any(
+        _has_non_window_aggregate_not_in_subquery(child)
+        for child in expr.iter_expressions()
+    )
 
 
 def _find_columns_not_in_subquery(expr: exp.Expression) -> List[exp.Column]:
@@ -1544,47 +2791,436 @@ def _find_columns_not_in_subquery(expr: exp.Expression) -> List[exp.Column]:
     return results
 
 
-def _detect_redundant_distinct(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
+def _strip_projection_wrapper(expression: exp.Expression) -> exp.Expression:
+    """Remove the output alias and redundant parentheses from a projection item."""
+    current = expression
+    while True:
+        if isinstance(current, exp.Alias):
+            current = current.this
+            continue
+        if isinstance(current, exp.Paren):
+            current = current.this
+            continue
+        return current
+
+
+def _projected_columns(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Tuple[Set[str], Set[Tuple[str, str]], Set[str], bool]:
+    """Describe a projection for uniqueness reasoning.
+
+    Returns the normalized text of each projected expression, the relation
+    instances resolved from bare column references, sources covered by a
+    qualified star, and whether an unqualified star is present. Only a bare
+    column carries its source value unchanged; ``id + 0`` is not injective and
+    therefore proves nothing.
     """
-    Detect redundant DISTINCT when it applies to the whole SELECT together with GROUP BY.
+    normalized: Set[str] = set()
+    resolved: Set[Tuple[str, str]] = set()
+    starred: Set[str] = set()
+    unqualified_star = False
 
-    We intentionally **do not** flag DISTINCT that appears only inside aggregate
-    functions such as COUNT(DISTINCT col). In those cases DISTINCT changes the
-    semantics of the aggregate and is not redundant.
+    for item in select.expressions or []:
+        base = _strip_projection_wrapper(item)
+        # Normalize unquoted identifiers only. Lowercasing the complete SQL
+        # would also change string literals and quoted identifiers.
+        normalized.add(base.sql(comments=False, normalize=True))
 
-    sqlglot represents these two cases differently:
-      - Top‑level `SELECT DISTINCT ...`:
-            select.args.get("distinct") is a `Distinct` node attached to Select
-            and there is no Distinct node under any aggregate.
-      - Aggregate‑level `COUNT(DISTINCT col)`:
-            select.args.get("distinct") is None
-            the Distinct node lives under the aggregate expression.
+        if isinstance(base, exp.Star):
+            unqualified_star = True
+            continue
+        if not isinstance(base, exp.Column):
+            continue
+        if isinstance(base.this, exp.Star):
+            binding = _resolve_column(base.table, "", sources)
+            if binding is not None:
+                starred.add(binding[0])
+            continue
+
+        # Catalog keys are case-folded. Exact serialized-expression matching
+        # above remains valid for quoted identifiers, but relation/column
+        # binding would conflate names such as PostgreSQL "A" and "a".
+        if any(
+            identifier.args.get("quoted")
+            for identifier in base.find_all(exp.Identifier)
+        ):
+            continue
+        binding = _resolve_column(base.table, base.name, sources, table_columns)
+        if binding is not None:
+            resolved.add(binding)
+
+    return normalized, resolved, starred, unqualified_star
+
+
+def _projection_pins_key(
+    source: str,
+    key_columns: List[str],
+    resolved: Set[Tuple[str, str]],
+    starred: Set[str],
+    unqualified_star: bool,
+    sources: Dict[str, Optional[str]],
+    star_expanded_columns: Optional[Dict[str, List[str]]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> bool:
+    """Whether the projection carries every component of one relation's key."""
+    star_covers_source = unqualified_star or source in starred
+    return all(
+        (key := (source, column.lower())) in resolved
+        or bool(equated.get(key, set()) & resolved)
+        or (
+            star_covers_source
+            and _column_in_catalog(key, sources, star_expanded_columns)
+        )
+        for column in key_columns
+    )
+
+
+def _group_key_is_projected(
+    normalized_group_exprs: List[exp.Expression],
+    normalized_projection: Set[str],
+    resolved_projection: Set[Tuple[str, str]],
+    starred_sources: Set[str],
+    unqualified_star: bool,
+    merged_join_columns: bool,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+    star_expanded_columns: Optional[Dict[str, List[str]]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> bool:
+    """Whether distinct groups necessarily produce distinct projected rows.
+
+    Every GROUP BY expression must survive into the projection, either as the
+    same expression or through a column the query forces it to equal.  When a
+    key component is dropped, two groups can collapse to one output row and
+    DISTINCT is doing real work.
+    """
+    for group_expr in normalized_group_exprs:
+        if (
+            group_expr.sql(comments=False, normalize=True)
+            in normalized_projection
+        ):
+            continue
+        if not isinstance(group_expr, exp.Column):
+            return False
+        if any(
+            identifier.args.get("quoted")
+            for identifier in group_expr.find_all(exp.Identifier)
+        ):
+            return False
+        binding = _resolve_column(
+            group_expr.table, group_expr.name, sources, table_columns
+        )
+        if binding is None:
+            return False
+        if binding in resolved_projection:
+            continue
+        if equated.get(binding, set()) & resolved_projection:
+            continue
+        covered_by_star = binding[0] in starred_sources or (
+            unqualified_star and not merged_join_columns
+        )
+        # A star proves nothing about a key it does not project, such as a
+        # pseudo-column or a virtual table's hidden column.
+        if covered_by_star and _column_in_catalog(
+            binding, sources, star_expanded_columns
+        ):
+            continue
+        return False
+    return True
+
+
+def _column_in_catalog(
+    binding: Tuple[str, str],
+    sources: Dict[str, Optional[str]],
+    catalog: Optional[Dict[str, List[str]]],
+) -> bool:
+    """Whether a relation's catalog lists a column.
+
+    Two catalogs answer two different questions.  ``table_columns`` says which
+    names bind to a relation, while the star catalog says which of them a
+    ``*`` actually projects.  They differ for a virtual table, whose hidden
+    columns are addressable but never expanded.
+    """
+    if catalog is None:
+        return False
+    metadata_key = _metadata_table_key(sources.get(binding[0]), catalog)
+    return metadata_key is not None and binding[1] in catalog[metadata_key]
+
+
+def _relation_key(
+    source: str,
+    sources: Dict[str, Optional[str]],
+    primary_keys: Dict[str, List[str]],
+) -> Optional[List[str]]:
+    """Primary key columns of the physical table behind a relation instance."""
+    table = sources.get(source)
+    if not table:
+        return None
+    metadata_key = _metadata_table_key(table, primary_keys)
+    if metadata_key is None:
+        return None
+    key_columns = primary_keys.get(metadata_key)
+    return list(key_columns) if key_columns else None
+
+
+def _joins_preserve_grain(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+    primary_keys: Dict[str, List[str]],
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ],
+) -> bool:
+    """Whether no join can multiply the rows of the leading relation.
+
+    A join keeps the grain only when the joined relation is matched on its
+    complete key, so each driving row finds at most one partner.  Matching a
+    non-key column, or a key only in part, fans the driving rows out and makes
+    DISTINCT meaningful again.
+    """
+    from_clause = select.args.get("from")
+    driving = (
+        _extract_join_source_name(from_clause.this)
+        if from_clause is not None
+        else None
+    )
+    if driving is None:
+        return False
+    available = {driving}
+
+    for join in select.args.get("joins") or []:
+        side = str(join.args.get("side") or "").upper()
+        kind = str(join.args.get("kind") or "").upper()
+        if (side, kind) not in {
+            ("", ""),
+            ("", "INNER"),
+            ("LEFT", ""),
+            ("LEFT", "OUTER"),
+        }:
+            return False
+
+        joined = _extract_join_source_name(join.this)
+        if joined is None or joined in available:
+            return False
+
+        key_columns = _relation_key(joined, sources, primary_keys)
+        if not key_columns:
+            return False
+
+        pinned: Set[str] = set()
+        on_clause = join.args.get("on")
+        if on_clause is not None:
+            for left, right in _guaranteed_column_equalities(on_clause):
+                left_binding = _resolve_column(
+                    left.table, left.name, sources, table_columns
+                )
+                right_binding = _resolve_column(
+                    right.table, right.name, sources, table_columns
+                )
+                if left_binding is None or right_binding is None:
+                    continue
+                if not _columns_compare_compatibly(
+                    left_binding, right_binding, sources, column_comparators
+                ):
+                    continue
+                for near, far in (
+                    (left_binding, right_binding),
+                    (right_binding, left_binding),
+                ):
+                    if near[0] == joined and far[0] in available:
+                        pinned.add(near[1])
+        else:
+            using = {
+                str(identifier.name).lower()
+                for identifier in join.args.get("using") or []
+            }
+            natural = (
+                str(join.args.get("method") or "").upper() == "NATURAL"
+            )
+            if not using and not natural:
+                return False
+
+            # USING/NATURAL names refer to the composite source on the left.
+            # Resolve them only when one already joined physical relation owns
+            # the name; otherwise its comparator is ambiguous.
+            for key_column in key_columns:
+                key = key_column.lower()
+                if using and key not in using:
+                    continue
+                owners = [
+                    (source, key)
+                    for source in available
+                    if _column_in_catalog((source, key), sources, table_columns)
+                ]
+                if len(owners) == 1 and _columns_compare_compatibly(
+                    owners[0], (joined, key), sources, column_comparators
+                ):
+                    pinned.add(key)
+
+        if not {column.lower() for column in key_columns} <= pinned:
+            return False
+        available.add(joined)
+
+    return True
+
+
+def _detect_redundant_distinct(
+    ast: exp.Expression,
+    antipatterns: List[AntipatternInstance],
+    features: QueryAntipatternFeatures,
+    severity_map: Dict[str, str],
+    primary_keys: Optional[Dict[str, List[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ] = None,
+    star_expanded_columns: Optional[Dict[str, List[str]]] = None,
+) -> None:
+    """
+    Detect a SELECT-level DISTINCT that cannot remove any row.
+
+    Two independent proofs are accepted:
+
+      1. Grouping query: the projection carries the complete GROUP BY key, so
+         one row per group is already one distinct row.  A projection that
+         drops part of the key, or projects only aggregates, may repeat values
+         across groups and is therefore left alone.
+      2. Schema proof without GROUP BY: the projection carries the complete
+         primary key of the leading relation and no join multiplies its rows.
+
+    DISTINCT inside an aggregate such as ``COUNT(DISTINCT col)`` changes the
+    aggregate's meaning and is never reported; sqlglot attaches that node to
+    the aggregate rather than to the SELECT.
     """
     pattern = AntipatternPattern.REDUNDANT_DISTINCT.value
     severity = severity_map.get(pattern, "medium")
-    for select in ast.find_all(exp.Select):
-        # We only care about DISTINCT that applies to the whole SELECT.
-        # sqlglot exposes this via the Select's `distinct` argument.
-        top_level_distinct = select.args.get("distinct")
+    if star_expanded_columns is None:
+        # Without a dedicated star catalog the two coincide, which holds for
+        # every ordinary table.
+        star_expanded_columns = table_columns
 
-        # Short‑circuit if this SELECT is not DISTINCT at the top level.
-        if not isinstance(top_level_distinct, exp.Distinct):
-            continue
-
-        # There is a top‑level DISTINCT; now check whether *this* SELECT has GROUP BY.
-        # We must NOT recurse into subqueries — a GROUP BY in a nested subquery
-        # does not make the outer DISTINCT redundant.
-        has_group_by = select.args.get("group") is not None
-
-        if has_group_by:
-            features.has_redundant_distinct = True
-            antipatterns.append(AntipatternInstance(
+    def report(message: str, location: str) -> None:
+        features.has_redundant_distinct = True
+        antipatterns.append(
+            AntipatternInstance(
                 pattern=pattern,
                 severity=severity,
-                message="DISTINCT with GROUP BY is redundant (GROUP BY already ensures uniqueness)",
-                location="SELECT with GROUP BY"
-            ))
-            break
+                message=message,
+                location=location,
+            )
+        )
+
+    for select in ast.find_all(exp.Select):
+        # Inspect DISTINCT attached to this SELECT, not one inside an aggregate.
+        top_level_distinct = select.args.get("distinct")
+        if not isinstance(top_level_distinct, exp.Distinct):
+            continue
+        if top_level_distinct.args.get("on") is not None:
+            # DISTINCT ON keeps one row per key expression and is not the same
+            # proposition as plain DISTINCT.
+            continue
+
+        sources = _from_table_aliases(select)
+        alias_map, select_items_for_position = _build_select_alias_map(select)
+        (
+            normalized_projection,
+            resolved_projection,
+            starred_sources,
+            unqualified_star,
+        ) = _projected_columns(select, sources, table_columns)
+        equated = _equated_columns(
+            select, sources, table_columns, column_comparators
+        )
+
+        group = select.args.get("group")
+        if group is not None:
+            if isinstance(group, exp.Group) and any(
+                group.args.get(extension)
+                for extension in ("rollup", "cube", "grouping_sets")
+            ):
+                continue
+            normalized_group_exprs = _normalize_group_by_expressions(
+                select,
+                alias_map if table_columns is not None else {},
+                select_items_for_position,
+                sources,
+                table_columns,
+            )
+            if not normalized_group_exprs:
+                continue
+            if not _group_key_is_projected(
+                normalized_group_exprs,
+                normalized_projection,
+                resolved_projection,
+                starred_sources,
+                unqualified_star,
+                any(
+                    join.args.get("using")
+                    or str(join.args.get("method") or "").upper() == "NATURAL"
+                    for join in select.args.get("joins") or []
+                ),
+                sources,
+                table_columns,
+                star_expanded_columns,
+                equated,
+            ):
+                continue
+
+            report(
+                "DISTINCT is redundant: the projection carries the complete "
+                "GROUP BY key, so the grouping already returns distinct rows.",
+                "SELECT with GROUP BY",
+            )
+            return
+
+        if not primary_keys:
+            continue
+        if select.args.get("having") is not None or any(
+            _has_non_window_aggregate_not_in_subquery(item)
+            for item in select.expressions or []
+        ):
+            # HAVING or a non-window aggregate without GROUP BY changes
+            # cardinality independently of the projected relation key. This
+            # key-based proof intentionally leaves those cases unresolved.
+            continue
+        if any(table is None for table in sources.values()) or not sources:
+            # Derived tables and CTEs carry no declared key at this level.
+            continue
+
+        driving = next(iter(sources))
+        key_columns = _relation_key(driving, sources, primary_keys)
+        if not key_columns:
+            continue
+        if not _joins_preserve_grain(
+            select,
+            sources,
+            table_columns,
+            primary_keys,
+            column_comparators,
+        ):
+            continue
+        if not _projection_pins_key(
+            driving,
+            key_columns,
+            resolved_projection,
+            starred_sources,
+            unqualified_star,
+            sources,
+            star_expanded_columns,
+            equated,
+        ):
+            continue
+
+        report(
+            "DISTINCT is redundant: the projection carries the primary key of "
+            f"'{sources[driving]}' and no join multiplies its rows, so every "
+            "row is already unique.",
+            "SELECT with a projected key",
+        )
+        return
 
 
 def _detect_select_in_exists(ast: exp.Expression, antipatterns: List[AntipatternInstance], features: QueryAntipatternFeatures, severity_map: Dict[str, str]) -> None:
@@ -1703,6 +3339,7 @@ def _build_select_alias_map(select: exp.Select) -> Tuple[Dict[str, exp.Expressio
         (alias_map, select_items_for_position)
     """
     alias_map: Dict[str, exp.Expression] = {}
+    duplicate_aliases: Set[str] = set()
     select_items_for_position: List[exp.Expression] = []
 
     select_expressions = list(select.expressions or [])
@@ -1723,7 +3360,12 @@ def _build_select_alias_map(select: exp.Select) -> Tuple[Dict[str, exp.Expressio
                     alias_identifier, "this", None
                 )
                 if isinstance(alias_name, str):
-                    alias_map[alias_name] = expr.this
+                    normalized_alias = alias_name.lower()
+                    if normalized_alias in alias_map:
+                        alias_map.pop(normalized_alias, None)
+                        duplicate_aliases.add(normalized_alias)
+                    elif normalized_alias not in duplicate_aliases:
+                        alias_map[normalized_alias] = expr.this
 
     return alias_map, select_items_for_position
 
@@ -1732,6 +3374,8 @@ def _normalize_group_by_expressions(
     select: exp.Select,
     alias_map: Dict[str, exp.Expression],
     select_items_for_position: List[exp.Expression],
+    sources: Optional[Dict[str, Optional[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
 ) -> List[exp.Expression]:
     """
     Normalize GROUP BY expressions for a SELECT:
@@ -1771,10 +3415,19 @@ def _normalize_group_by_expressions(
                 normalized.append(gb_expr)
             continue
 
-        # GROUP BY alias -> replace with underlying expression
+        # GROUP BY alias -> replace with underlying expression.  SQLite and
+        # PostgreSQL give an input column precedence when it has the same name,
+        # so schema-aware callers must not blindly substitute that collision.
         if isinstance(gb_expr, exp.Column) and not gb_expr.table:
-            alias_name = gb_expr.name
-            if alias_name and alias_name in alias_map:
+            alias_name = (gb_expr.name or "").lower()
+            input_name_exists = (
+                sources is not None
+                and table_columns is not None
+                and _input_column_may_exist(
+                    alias_name, sources, table_columns
+                )
+            )
+            if alias_name in alias_map and not input_name_exists:
                 normalized.append(alias_map[alias_name])
                 continue
 
@@ -1787,6 +3440,8 @@ def _normalize_group_by_expressions(
 def _expression_grouped(
     expr: exp.Expression,
     normalized_group_exprs: List[exp.Expression],
+    sources: Optional[Dict[str, Optional[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
 ) -> bool:
     """
     Return True if the *whole* expression is considered grouped.
@@ -1799,7 +3454,9 @@ def _expression_grouped(
     and rely on sqlglot to normalize SQL formatting.
     """
     if isinstance(expr, exp.Column):
-        return _column_in_group(expr, normalized_group_exprs)
+        return _column_in_group(
+            expr, normalized_group_exprs, sources, table_columns
+        )
 
     expr_sql = expr.sql()
     for gb in normalized_group_exprs:
@@ -1809,13 +3466,473 @@ def _expression_grouped(
     return False
 
 
-def _column_in_group(col: exp.Column, normalized_group_exprs: List[exp.Expression]) -> bool:
+def _visible_cte_names(select: exp.Select) -> Set[str]:
+    """Return CTE names visible from this SELECT.
+
+    CTE references parse as ``Table`` nodes.  They must not inherit primary-key
+    metadata from an unrelated physical table with the same name.
+    """
+    names: Set[str] = set()
+    current: Optional[exp.Expression] = select
+    while current is not None:
+        with_clause = current.args.get("with")
+        if isinstance(with_clause, exp.With):
+            for cte in with_clause.expressions:
+                if isinstance(cte, exp.CTE) and cte.alias_or_name:
+                    names.add(str(cte.alias_or_name).lower())
+        current = current.parent
+    return names
+
+
+def _from_table_aliases(select: exp.Select) -> Dict[str, Optional[str]]:
+    """Map each relation identity to its physical table, when known.
+
+    Only sources of this level are collected; a table named inside a subquery
+    belongs to that subquery's scope, not this one.
+
+    The key is the alias/correlation name used by columns in this SELECT.  The
+    value is the physical table name used for schema lookup.  Derived tables,
+    CTEs, and other non-physical sources are retained with ``None`` so they can
+    never accidentally inherit a same-named physical table's key.
+    """
+    sources: Dict[str, Optional[str]] = {}
+    cte_names = _visible_cte_names(select)
+
+    candidates: List[exp.Expression] = []
+    from_clause = select.args.get("from")
+    if from_clause is not None:
+        candidates.append(getattr(from_clause, "this", from_clause))
+    for join in select.args.get("joins") or []:
+        candidates.append(join.this)
+
+    for source_index, node in enumerate(candidates):
+        identity = _extract_join_source_name(node)
+        if not identity:
+            # Anonymous non-physical sources still contribute columns to
+            # unqualified SELECT *. Retain a synthetic identity so star-based
+            # dependency checks fail closed instead of silently omitting them.
+            if not isinstance(node, exp.Table):
+                sources[f"__anonymous_source_{source_index}"] = None
+            continue
+
+        if isinstance(node, exp.Table):
+            is_cte = (
+                not node.args.get("db")
+                and not node.args.get("catalog")
+                and node.name.lower() in cte_names
+            )
+            if is_cte:
+                sources[identity] = None
+                continue
+
+            parts = [part.name.lower() for part in node.parts if part.name]
+            sources[identity] = ".".join(parts) or None
+        else:
+            # Subqueries, VALUES, table functions, and similar sources have no
+            # physical-table key unless provenance is proved separately.
+            sources[identity] = None
+
+    return sources
+
+
+def _resolve_column(
+    qualifier: str,
+    name: str,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]] = None,
+) -> Optional[Tuple[str, str]]:
+    """Resolve a column to this SELECT's relation instance.
+
+    Distinct aliases remain distinct even when they reference the same physical
+    table.  Unqualified columns are accepted only for a single-source SELECT;
+    without a column catalog, binding one across several sources would be a
+    guess and could create an unsafe functional-dependency proof.
+    """
+    qualifier = (qualifier or "").lower()
+    if qualifier:
+        if qualifier in sources:
+            return (qualifier, name.lower())
+        matches = [
+            identity
+            for identity in sources
+            if identity.endswith(f".{qualifier}")
+        ]
+        if len(matches) == 1:
+            return (matches[0], name.lower())
+        return None
+    if table_columns is not None:
+        candidates: List[str] = []
+        has_unknown_source = False
+        for identity, table in sources.items():
+            metadata_key = _metadata_table_key(table, table_columns)
+            if not metadata_key:
+                has_unknown_source = True
+                continue
+            if name.lower() in table_columns[metadata_key]:
+                candidates.append(identity)
+        if len(candidates) == 1 and not has_unknown_source:
+            return (candidates[0], name.lower())
+        return None
+    if len(sources) == 1:
+        return (next(iter(sources)), name.lower())
+    return None
+
+
+def _metadata_table_key(
+    table: Optional[str],
+    metadata: Dict[str, object],
+) -> Optional[str]:
+    """Resolve qualified physical names against an unqualified catalog safely."""
+    if not table:
+        return None
+    normalized = table.lower()
+    if normalized in metadata:
+        return normalized
+    qualifier, separator, base = normalized.rpartition(".")
+    # SQLite's adapter catalogs the default `main` schema under bare table
+    # names. Do not apply that shortcut to arbitrary schemas: `other.users`
+    # may be a different attached table with a different key.
+    if separator and qualifier == "main" and base in metadata:
+        return base
+    return None
+
+
+def _input_column_may_exist(
+    name: str,
+    sources: Dict[str, Optional[str]],
+    table_columns: Dict[str, List[str]],
+) -> bool:
+    """Whether an unqualified GROUP BY name may bind to an input column.
+
+    An unknown/derived source makes the answer uncertain, which must be treated
+    as a possible collision rather than as permission to substitute an output
+    alias.
+    """
+    for table in sources.values():
+        metadata_key = _metadata_table_key(table, table_columns)
+        if not metadata_key:
+            return True
+        if name.lower() in table_columns[metadata_key]:
+            return True
+    return False
+
+
+def _grouped_column_pairs(
+    normalized_group_exprs: List[exp.Expression],
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]] = None,
+) -> Set[Tuple[str, str]]:
+    """Direct columns named by GROUP BY, resolved to relation instances.
+
+    A column merely contained in a non-injective expression is not grouped:
+    ``GROUP BY id % 2`` does not determine ``id``.  Alias and ordinal
+    normalization has already happened before this function is called.
+    """
+    pairs: Set[Tuple[str, str]] = set()
+    for gb_expr in normalized_group_exprs:
+        if isinstance(gb_expr, exp.Column):
+            resolved = _resolve_column(
+                gb_expr.table, gb_expr.name, sources, table_columns
+            )
+            if resolved is not None:
+                pairs.add(resolved)
+    return pairs
+
+
+def _guaranteed_column_equalities(
+    condition: exp.Expression,
+) -> List[Tuple[exp.Column, exp.Column]]:
+    """Return only equalities guaranteed by a conjunctive predicate.
+
+    Recursing only through parentheses and ``AND`` prevents equalities inside
+    CASE expressions, boolean comparisons, functions, OR/NOT branches, and
+    nested SELECTs from leaking into the proof.  Tuple equality is decomposed
+    positionally when both sides consist solely of columns.
+    """
+    if isinstance(condition, exp.Paren):
+        return _guaranteed_column_equalities(condition.this)
+    if isinstance(condition, exp.And):
+        return (
+            _guaranteed_column_equalities(condition.left)
+            + _guaranteed_column_equalities(condition.right)
+        )
+    if not isinstance(condition, (exp.EQ, exp.NullSafeEQ)):
+        return []
+
+    left, right = condition.left, condition.right
+    if isinstance(left, exp.Column) and isinstance(right, exp.Column):
+        return [(left, right)]
+    if (
+        isinstance(left, exp.Tuple)
+        and isinstance(right, exp.Tuple)
+        and len(left.expressions) == len(right.expressions)
+        and all(isinstance(node, exp.Column) for node in left.expressions)
+        and all(isinstance(node, exp.Column) for node in right.expressions)
+    ):
+        return list(zip(left.expressions, right.expressions))
+    return []
+
+
+def _comparison_signature(
+    column: Tuple[str, str],
+    sources: Dict[str, Optional[str]],
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ],
+) -> Optional[Tuple[str, str]]:
+    if column_comparators is None:
+        return None
+    source, name = column
+    metadata_key = _metadata_table_key(
+        sources.get(source), column_comparators
+    )
+    if not metadata_key:
+        return None
+    return column_comparators[metadata_key].get(name.lower())
+
+
+def _columns_compare_compatibly(
+    left: Tuple[str, str],
+    right: Tuple[str, str],
+    sources: Dict[str, Optional[str]],
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ],
+) -> bool:
+    """Whether equality uses the same verified semantics as key uniqueness."""
+    left_signature = _comparison_signature(
+        left, sources, column_comparators
+    )
+    return (
+        left_signature is not None
+        and left_signature
+        == _comparison_signature(right, sources, column_comparators)
+    )
+
+
+def _equated_columns(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]] = None,
+    column_comparators: Optional[
+        Dict[str, Dict[str, Tuple[str, str]]]
+    ] = None,
+) -> Dict[Tuple[str, str], Set[Tuple[str, str]]]:
+    """Group columns that an inner join or a WHERE equality forces to be equal.
+
+    Grouping by one member of such a class groups by all of them, which is what
+    makes ``GROUP BY T2.vehicle_id`` determine ``T1.vehicle_id`` when the join
+    equates the two.
+    """
+    parent: Dict[Tuple[str, str], Tuple[str, str]] = {}
+
+    def find(node):
+        parent.setdefault(node, node)
+        while parent[node] != node:
+            parent[node] = parent[parent[node]]
+            node = parent[node]
+        return node
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[left_root] = right_root
+
+    conditions: List[exp.Expression] = []
+    source_order = list(sources)
+    left_sources: List[str] = source_order[:1]
+    for join in select.args.get("joins") or []:
+        right_source = _extract_join_source_name(join.this)
+        side = (join.args.get("side") or "").upper()
+        kind = (join.args.get("kind") or "").upper()
+        if side in {"LEFT", "RIGHT", "FULL"} or kind == "OUTER":
+            # An outer join pads unmatched rows with NULL, so the equality does
+            # not hold for every row it returns.
+            if right_source:
+                left_sources.append(right_source)
+            continue
+        on_clause = join.args.get("on")
+        if on_clause is not None:
+            conditions.append(on_clause)
+
+        # INNER JOIN ... USING (col) guarantees equality between the new
+        # source and the uniquely identifiable source on its left.  With an
+        # unknown or ambiguous left binding we remain conservative.
+        if right_source:
+            for identifier in join.args.get("using") or []:
+                column_name = str(identifier.name).lower()
+                if table_columns is None:
+                    candidates = left_sources if len(left_sources) == 1 else []
+                    right_known = True
+                else:
+                    candidates = [
+                        source
+                        for source in left_sources
+                        if _metadata_table_key(
+                            sources.get(source), table_columns
+                        )
+                        and column_name
+                        in table_columns[
+                            _metadata_table_key(
+                                sources.get(source), table_columns
+                            )
+                        ]
+                    ]
+                    right_table = sources.get(right_source)
+                    right_metadata_key = _metadata_table_key(
+                        right_table, table_columns
+                    )
+                    right_known = bool(
+                        right_metadata_key
+                        and column_name
+                        in table_columns[right_metadata_key]
+                    )
+                if len(candidates) == 1 and right_known:
+                    left_column = (candidates[0], column_name)
+                    right_column = (right_source, column_name)
+                    if _columns_compare_compatibly(
+                        left_column,
+                        right_column,
+                        sources,
+                        column_comparators,
+                    ):
+                        union(left_column, right_column)
+            left_sources.append(right_source)
+
+    where = select.args.get("where")
+    if where is not None and where.this is not None:
+        conditions.append(where.this)
+
+    for condition in conditions:
+        for left, right in _guaranteed_column_equalities(condition):
+            left_resolved = _resolve_column(
+                left.table, left.name, sources, table_columns
+            )
+            right_resolved = _resolve_column(
+                right.table, right.name, sources, table_columns
+            )
+            if left_resolved is not None and right_resolved is not None:
+                if _columns_compare_compatibly(
+                    left_resolved,
+                    right_resolved,
+                    sources,
+                    column_comparators,
+                ):
+                    union(left_resolved, right_resolved)
+
+    classes: Dict[Tuple[str, str], Set[Tuple[str, str]]] = {}
+    for node in list(parent):
+        classes.setdefault(find(node), set()).add(node)
+    return {node: classes[find(node)] for node in list(parent)}
+
+
+def _functionally_determined(
+    col: exp.Column,
+    sources: Dict[str, Optional[str]],
+    grouped: Set[Tuple[str, str]],
+    primary_keys: Dict[str, List[str]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+    table_columns: Optional[Dict[str, List[str]]] = None,
+) -> bool:
+    """Whether GROUP BY fixes this column to a single value per group.
+
+    True only when every primary key column of the column's own table is
+    grouped, directly or through a column the query equates it to. A partial key
+    leaves several rows per group, and a table with no known key determines
+    nothing.
+    """
+    resolved = _resolve_column(
+        col.table, col.name, sources, table_columns
+    )
+    if resolved is None:
+        return False
+    source, _ = resolved
+    table = sources.get(source)
+    if not table:
+        return False
+
+    metadata_key = _metadata_table_key(table, primary_keys)
+    key_columns = (
+        primary_keys.get(metadata_key) if metadata_key is not None else None
+    )
+    if not key_columns:
+        return False
+
+    return _source_key_is_grouped(
+        source, key_columns, grouped, equated
+    )
+
+
+def _source_key_is_grouped(
+    source: str,
+    key_columns: List[str],
+    grouped: Set[Tuple[str, str]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> bool:
+    """Whether every component of one relation instance's key is grouped."""
+    for key_column in key_columns:
+        key = (source, key_column.lower())
+        candidates = {key} | equated.get(key, set())
+        if candidates & grouped:
+            continue
+        return False
+
+    return True
+
+
+def _all_sources_functionally_determined(
+    sources: Dict[str, Optional[str]],
+    grouped: Set[Tuple[str, str]],
+    primary_keys: Dict[str, List[str]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> bool:
+    """Whether an unqualified ``SELECT *`` is fixed for every source."""
+    if not sources:
+        return False
+    for source, table in sources.items():
+        if not table:
+            return False
+        metadata_key = _metadata_table_key(table, primary_keys)
+        key_columns = (
+            primary_keys.get(metadata_key)
+            if metadata_key is not None
+            else None
+        )
+        if not key_columns or not _source_key_is_grouped(
+            source, key_columns, grouped, equated
+        ):
+            return False
+    return True
+
+
+def _column_in_group(
+    col: exp.Column,
+    normalized_group_exprs: List[exp.Expression],
+    sources: Optional[Dict[str, Optional[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
+) -> bool:
     """
     Check if a column is covered by GROUP BY.
 
     We treat a column as grouped if there is a column in GROUP BY
     with the same name and compatible table qualifier.
     """
+    if sources is not None:
+        resolved = _resolve_column(
+            col.table, col.name, sources, table_columns
+        )
+        if resolved is None:
+            return False
+        for gb in normalized_group_exprs:
+            if not isinstance(gb, exp.Column):
+                continue
+            grouped = _resolve_column(
+                gb.table, gb.name, sources, table_columns
+            )
+            if grouped == resolved:
+                return True
+        return False
+
     for gb in normalized_group_exprs:
         if isinstance(gb, exp.Column) and _same_column(col, gb):
             return True
@@ -1823,9 +3940,53 @@ def _column_in_group(col: exp.Column, normalized_group_exprs: List[exp.Expressio
     return False
 
 
+def _correlated_outer_columns(
+    expression: exp.Expression,
+    outer_select: exp.Select,
+    outer_sources: Optional[Dict[str, Optional[str]]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> List[exp.Column]:
+    """Find nested-query references that bind to the current SELECT's sources."""
+    if not outer_sources:
+        return []
+
+    correlated: List[exp.Column] = []
+    for column in expression.find_all(exp.Column):
+        owner = _closest_parent_of_type(column, exp.Select)
+        if owner is None or owner is outer_select:
+            continue
+
+        local_sources = _from_table_aliases(owner)
+        qualifier = (column.table or "").lower()
+        if qualifier:
+            if _resolve_column(
+                qualifier, column.name, local_sources, table_columns
+            ) is not None:
+                continue
+            if _resolve_column(
+                qualifier, column.name, outer_sources, table_columns
+            ) is not None:
+                correlated.append(column)
+            continue
+
+        # An unqualified name binds locally whenever that can be established.
+        if _resolve_column(
+            "", column.name, local_sources, table_columns
+        ) is not None:
+            continue
+        if _resolve_column(
+            "", column.name, outer_sources, table_columns
+        ) is not None:
+            correlated.append(column)
+
+    return correlated
+
+
 def _collect_non_aggregated_columns_for_select(
     select: exp.Select,
     normalized_group_exprs: List[exp.Expression],
+    sources: Optional[Dict[str, Optional[str]]] = None,
+    table_columns: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[bool, bool, List[exp.Column]]:
     """
     Collect non-aggregated columns for a given SELECT.
@@ -1855,12 +4016,8 @@ def _collect_non_aggregated_columns_for_select(
                 has_star = True
 
         # Detect non-window aggregates at this level (ignoring aggregates only in subqueries)
-        if _has_aggregate_not_in_subquery(expr):
-            # But we still need to ensure they are not window aggregates
-            for agg in expr.find_all(exp.AggFunc):
-                if not _is_window_aggregate(agg):
-                    has_non_window_aggregate = True
-                    break
+        if _has_non_window_aggregate_not_in_subquery(expr):
+            has_non_window_aggregate = True
 
     # If we still haven't seen a non-window aggregate in the SELECT list,
     # also look for aggregates at this SELECT level in HAVING / ORDER BY.
@@ -1877,28 +4034,19 @@ def _collect_non_aggregated_columns_for_select(
         # HAVING clause aggregates
         having_clause = select.args.get("having")
         if isinstance(having_clause, exp.Having):
-            for agg in having_clause.find_all(exp.AggFunc):
-                if _is_window_aggregate(agg):
-                    continue
-                # Ensure this aggregate belongs to the current SELECT level
-                agg_select = _closest_parent_of_type(agg, exp.Select)
-                if agg_select is select:
-                    has_non_window_aggregate = True
-                    break
+            has_non_window_aggregate = (
+                _has_non_window_aggregate_not_in_subquery(having_clause)
+            )
 
     if not has_non_window_aggregate:
         # ORDER BY clause aggregates
         order_clause = select.args.get("order")
         if isinstance(order_clause, exp.Order):
-            for agg in order_clause.find_all(exp.AggFunc):
-                if _is_window_aggregate(agg):
-                    continue
-                agg_select = _closest_parent_of_type(agg, exp.Select)
-                if agg_select is select:
-                    has_non_window_aggregate = True
-                    break
+            has_non_window_aggregate = (
+                _has_non_window_aggregate_not_in_subquery(order_clause)
+            )
 
-    if not has_non_window_aggregate:
+    if not has_non_window_aggregate and select.args.get("group") is None:
         return False, has_star, []
 
     # Second pass: collect non-aggregated columns
@@ -1910,11 +4058,16 @@ def _collect_non_aggregated_columns_for_select(
             resolved_expr = expr
 
         # If the entire expression is an aggregate at this level, skip it
-        if isinstance(resolved_expr, exp.AggFunc) and not _is_window_aggregate(resolved_expr):
+        if _is_aggregate_like(resolved_expr) and not _is_window_aggregate(resolved_expr):
             continue
 
         # If the entire expression is grouped by GROUP BY, skip it
-        if _expression_grouped(resolved_expr, normalized_group_exprs):
+        if _expression_grouped(
+            resolved_expr,
+            normalized_group_exprs,
+            sources,
+            table_columns,
+        ):
             continue
 
         # Otherwise inspect columns inside the expression
@@ -1929,7 +4082,14 @@ def _collect_non_aggregated_columns_for_select(
             inside_nonwindow_aggregate = False
 
             while parent is not None and parent is not select:
-                if isinstance(parent, exp.AggFunc) and not _is_window_aggregate(parent):
+                if _is_aggregate_like(parent) and not _is_window_aggregate(parent):
+                    inside_nonwindow_aggregate = True
+                    break
+                if (
+                    isinstance(parent, exp.Filter)
+                    and _is_aggregate_like(parent.this)
+                    and not _is_window_aggregate(parent.this)
+                ):
                     inside_nonwindow_aggregate = True
                     break
                 if isinstance(parent, exp.Subquery):
@@ -1941,6 +4101,15 @@ def _collect_non_aggregated_columns_for_select(
                 continue
 
             non_aggregate_columns.append(col)
+
+        non_aggregate_columns.extend(
+            _correlated_outer_columns(
+                resolved_expr,
+                select,
+                sources,
+                table_columns,
+            )
+        )
 
     return has_non_window_aggregate, has_star, non_aggregate_columns
 
