@@ -83,12 +83,17 @@ analyze:
     params:
       enabled: true
       language: en
+      # Every implemented rule family. The published corpus run enabled the
+      # first six; aggregation_alignment contributes 965 further records and
+      # no contradictions, so it is not part of the manuscript totals.
       rules:
         - literal_alignment
         - question_lexical_integrity
         - comparison_boundary_alignment
         - string_match_alignment
         - temporal_anchor_provenance
+        - ordering_topk_alignment
+        - aggregation_alignment
       emit_supported: false
       context:
         evidence_keys: [evidence]
