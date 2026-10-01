@@ -420,6 +420,36 @@ def test_hidden_threshold_corpus_classification(
     )
 
 
+@pytest.mark.parametrize(
+    ("unique_items", "expected"),
+    [
+        (2, "ISOLATED_UNDOCUMENTED_MAPPING"),
+        (3, "LOW_SUPPORT_UNDOCUMENTED_MAPPING"),
+        (11, "LOW_SUPPORT_UNDOCUMENTED_MAPPING"),
+        (12, "RECURRENT_UNDOCUMENTED_MAPPING"),
+    ],
+)
+def test_hidden_threshold_corpus_classification_uses_configured_cutoffs(
+    unique_items,
+    expected,
+):
+    assert (
+        MarkdownReportGenerator._hidden_threshold_corpus_classification(
+            unique_items,
+            recurrent_min_items=12,
+            low_support_min_items=3,
+        )
+        == expected
+    )
+
+
+def test_report_rejects_inconsistent_recurrence_cutoffs():
+    with pytest.raises(ValueError):
+        MarkdownReportGenerator(
+            ":memory:", recurrent_min_items=3, low_support_min_items=4,
+        )
+
+
 def test_report_counts_dataset_evidence_only_licenses():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = os.path.join(tmpdir, "metrics.duckdb")

@@ -28,10 +28,13 @@ from .lexical_resources import (
     is_pertainym_variant,
     is_productive_derivative,
     multiplicative_number_forms,
+    NearMissSettings,
     near_miss_distance,
+    near_miss_settings,
     number_inflection_forms,
     ordinal_number_forms,
     resource_versions,
+    use_near_miss_settings,
 )
 from .metrics import (
     ConsistencyAssumption,
@@ -155,9 +158,6 @@ _PREDICATE_TYPES = (*_COMPARISON_TYPES, exp.In, exp.Between, *_LIKE_TYPES)
 _TECHNICAL_VALUES = frozenset(
     {"null", "none", "n/a", "na", "unknown", "true", "false", "yes", "no"}
 )
-# Under four characters a single edit is as likely to separate two genuinely
-# different values as to be a slip.
-_MIN_NEAR_MISS_LENGTH = 4
 # Operators whose value the question is expected to name outright. A negated
 # predicate names what the answer must exclude, so finding its value in the
 # question licenses nothing and it cannot vouch for a neighbouring predicate.
@@ -334,8 +334,29 @@ def detect_consistency(
     context: ContextManifest | None = None,
     rules: Iterable[str | ConsistencyRule] | None = None,
     emit_supported: bool = False,
+    near_miss: NearMissSettings | None = None,
 ) -> QuestionSqlConsistencyFeatures:
     """Run deterministic question–SQL checks without executing the query."""
+    with use_near_miss_settings(near_miss):
+        return _detect_consistency(
+            question,
+            sql,
+            dialect=dialect,
+            context=context,
+            rules=rules,
+            emit_supported=emit_supported,
+        )
+
+
+def _detect_consistency(
+    question: str | None,
+    sql: str | None,
+    *,
+    dialect: str,
+    context: ContextManifest | None,
+    rules: Iterable[str | ConsistencyRule] | None,
+    emit_supported: bool,
+) -> QuestionSqlConsistencyFeatures:
     selected_rules = select_rules(rules)
     question_present = bool(question and question.strip())
 
@@ -1099,7 +1120,7 @@ def _dqs_value_columns(ast: exp.Expression) -> set[int]:
 
 def _is_question_typo_candidate(token: str) -> bool:
     return (
-        len(token) >= _MIN_NEAR_MISS_LENGTH
+        len(token) >= near_miss_settings().min_length
         and token.isalpha()
         and not is_function_word(token)
         and not is_known_word_or_form(token)
@@ -2905,7 +2926,7 @@ def _near_miss_contradictions(
     targets = [
         obligation
         for obligation in unlicensed
-        if len(fold(obligation.normalized)) >= _MIN_NEAR_MISS_LENGTH
+        if len(fold(obligation.normalized)) >= near_miss_settings().min_length
     ]
     if not targets:
         return []

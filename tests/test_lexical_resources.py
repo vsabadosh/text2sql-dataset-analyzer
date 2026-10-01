@@ -168,6 +168,29 @@ def test_only_longer_strings_get_a_two_edit_budget():
     assert lex.near_miss_distance("mortage", "mortgages") == 2
 
 
+def test_near_miss_settings_apply_only_inside_their_block():
+    wider = lex.NearMissSettings(short_length=3)
+    with lex.use_near_miss_settings(wider):
+        assert lex.near_miss_settings() is wider
+        assert lex.near_miss_distance("anna", "ande") == 2
+    assert lex.near_miss_settings() == lex.NearMissSettings()
+    assert lex.near_miss_distance("anna", "ande") is None
+
+
+@pytest.mark.parametrize(
+    "config",
+    [{"min_length": 0}, {"short_budget": 0}, {"short_budget": 3, "long_budget": 2}],
+)
+def test_near_miss_settings_reject_inconsistent_thresholds(config):
+    with pytest.raises(ValueError):
+        lex.NearMissSettings.from_config(config)
+
+
+def test_near_miss_settings_reject_unknown_keys():
+    with pytest.raises(TypeError):
+        lex.NearMissSettings.from_config({"max_distance": 3})
+
+
 @pytest.mark.parametrize(
     "candidate, value, expected",
     [

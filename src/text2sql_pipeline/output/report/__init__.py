@@ -52,9 +52,14 @@ def generate_query_quality_report(duckdb_path: str, output_path: str) -> None:
     finally:
         gen.close()
 
-def generate_question_sql_consistency_report(duckdb_path: str, output_path: str) -> None:
-    """Generate Question-SQL Consistency Report."""
-    gen = MarkdownReportGenerator(duckdb_path)
+def generate_question_sql_consistency_report(
+    duckdb_path: str, output_path: str, recurrence: dict | None = None,
+) -> None:
+    """Generate Question-SQL Consistency Report.
+
+    `recurrence` may set `recurrent_min_items` and `low_support_min_items`.
+    """
+    gen = MarkdownReportGenerator(duckdb_path, **(recurrence or {}))
     try:
         gen.generate_question_sql_consistency_report(output_path)
     finally:
@@ -69,6 +74,7 @@ def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None)
         config: Report configuration dict. If None, generates all reports.
     """
     import os
+    from functools import partial
     from ...core.utils import get_logger
 
     logger = get_logger("text2sql.report_generator")
@@ -107,7 +113,8 @@ def generate_all_reports(output_dir: str, duckdb_path: str, config: dict = None)
         ("query_structure_profile", "query_structure_profile_report.md", "generating Query Structure Profile report", generate_query_structure_profile_report),
         ("table_coverage", "table_coverage_report.md", "generating Table Coverage report", generate_table_coverage_report),
         ("query_quality", "query_quality_report.md", "generating Query Quality report", generate_query_quality_report),
-        ("question_sql_consistency", "question_sql_consistency_report.md", "generating Question-SQL Consistency report", generate_question_sql_consistency_report),
+        ("question_sql_consistency", "question_sql_consistency_report.md", "generating Question-SQL Consistency report",
+         partial(generate_question_sql_consistency_report, recurrence=config.get("question_sql_consistency_recurrence"))),
     ]
 
     # Generate only enabled reports
