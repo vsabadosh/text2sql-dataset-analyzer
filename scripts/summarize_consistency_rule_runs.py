@@ -21,6 +21,8 @@ _PARTITIONS = (
 _TABLE = "metrics_question_sql_consistency"
 _ROLE_BOUND_BINDING_KINDS = frozenset(
     {
+        "DATASET_EVIDENCE_TO_ROOT_ORDER_BY",
+        "QUESTION_COUNT_ROLE_TO_ROOT_ORDER_BY",
         "QUESTION_ROLE_TO_ROOT_ORDER_BY",
         "QUESTION_ROLE_TO_ROOT_PROJECTION",
     }

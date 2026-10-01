@@ -72,6 +72,16 @@ analyze:
         value_aliases_file: null
         # Per-item metadata may also provide context.column_domains,
         # e.g. {is_buyer: [0, 1]}, to confirm boolean encodings.
+      # Near-miss relation of literal_alignment and question_lexical_integrity.
+      # The SQL literal (literal alignment) or question token (lexical
+      # integrity) needs min_length characters; the case-folded Levenshtein
+      # distance may reach short_budget when the shorter string has at most
+      # short_length characters, long_budget otherwise.
+      near_miss:
+        min_length: 4
+        short_length: 5
+        short_budget: 1
+        long_budget: 2
 
   - name: query_antipattern_analyzer
     params:
@@ -311,3 +321,8 @@ output:
     table_coverage: true              # Table usage coverage
     query_quality: true               # Quality assessment
     question_sql_consistency: true    # Deterministic question-SQL findings
+    # Corpus-level classes of undocumented threshold mappings. They are
+    # reported next to the exact support and never change an item verdict.
+    question_sql_consistency_recurrence:
+      recurrent_min_items: 4
+      low_support_min_items: 2

@@ -246,7 +246,7 @@ def test_metric_tags_freeze_rules_and_resource_versions():
     assert tags.resource_versions["boundary_lexicon"] == "1.1.0"
     assert tags.resource_versions["string_match_lexicon"] == "1.0.0"
     assert tags.resource_versions["aggregation_lexicon"] == "1.0.0"
-    assert tags.resource_versions["ordering_topk_lexicon"] == "1.0.3"
+    assert tags.resource_versions["ordering_topk_lexicon"] == "1.1.0"
     assert tags.resource_versions["wordnet"] != "unavailable"
 
 

@@ -36,8 +36,22 @@ class MarkdownReportGenerator:
     
     ANNOTATED_DATASET = "annotatedOutputDataset.jsonl"
     HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS = 4
+    HIDDEN_THRESHOLD_LOW_SUPPORT_MIN_ITEMS = 2
 
-    def __init__(self, duckdb_path: str):
+    def __init__(
+        self,
+        duckdb_path: str,
+        *,
+        recurrent_min_items: int = HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS,
+        low_support_min_items: int = HIDDEN_THRESHOLD_LOW_SUPPORT_MIN_ITEMS,
+    ):
+        if not 2 <= low_support_min_items <= recurrent_min_items:
+            raise ValueError(
+                "recurrence thresholds must satisfy "
+                "2 <= low_support_min_items <= recurrent_min_items"
+            )
+        self.recurrent_min_items = recurrent_min_items
+        self.low_support_min_items = low_support_min_items
         self.duckdb_path = duckdb_path
         self.conn = duckdb.connect(duckdb_path, read_only=True)
         self.available_tables = self._detect_tables()
@@ -1706,14 +1720,19 @@ class MarkdownReportGenerator:
 
     @classmethod
     def _hidden_threshold_corpus_classification(
-        cls, unique_items: int, distinct_thresholds: int = 1,
+        cls,
+        unique_items: int,
+        distinct_thresholds: int = 1,
+        *,
+        recurrent_min_items: int = HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS,
+        low_support_min_items: int = HIDDEN_THRESHOLD_LOW_SUPPORT_MIN_ITEMS,
     ) -> str:
         """Classify corpus support without changing the item-level verdict."""
         if distinct_thresholds > 1:
             return "INTERNALLY_VARIABLE_UNDOCUMENTED_MAPPING"
-        if unique_items >= cls.HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS:
+        if unique_items >= recurrent_min_items:
             return "RECURRENT_UNDOCUMENTED_MAPPING"
-        if unique_items >= 2:
+        if unique_items >= low_support_min_items:
             return "LOW_SUPPORT_UNDOCUMENTED_MAPPING"
         return "ISOLATED_UNDOCUMENTED_MAPPING"
 
@@ -1767,6 +1786,8 @@ class MarkdownReportGenerator:
                 self._hidden_threshold_corpus_classification(
                     len(stats["item_ids"]),
                     stats["distinct_thresholds"],
+                    recurrent_min_items=self.recurrent_min_items,
+                    low_support_min_items=self.low_support_min_items,
                 )
             )
         return recurrence
@@ -1838,9 +1859,10 @@ class MarkdownReportGenerator:
                 "Counts are unique items within this report partition. Recurrence "
                 "is a corpus-level classification and does not change the "
                 "`UNRESOLVED` item verdict. Signatures found in at least "
-                f"{self.HIDDEN_THRESHOLD_RECURRENCE_MIN_ITEMS} unique items are "
-                "`RECURRENT_UNDOCUMENTED_MAPPING`; two or three items are "
-                "`LOW_SUPPORT_UNDOCUMENTED_MAPPING`, and one item is "
+                f"{self.recurrent_min_items} unique items are "
+                "`RECURRENT_UNDOCUMENTED_MAPPING`; at least "
+                f"{self.low_support_min_items} are "
+                "`LOW_SUPPORT_UNDOCUMENTED_MAPPING`, and fewer are "
                 "`ISOLATED_UNDOCUMENTED_MAPPING`. Exact support is always shown. "
                 "No class proves that a threshold is semantically correct.",
                 "",
@@ -2034,7 +2056,11 @@ class MarkdownReportGenerator:
             corpus_classification = (
                 recurrence["corpus_classification"]
                 if recurrence is not None
-                else self._hidden_threshold_corpus_classification(1)
+                else self._hidden_threshold_corpus_classification(
+                    1,
+                    recurrent_min_items=self.recurrent_min_items,
+                    low_support_min_items=self.low_support_min_items,
+                )
             )
             question, _ = self.item_details.get(str(item_id), ("", ""))
             sections.append(

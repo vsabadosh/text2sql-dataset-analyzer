@@ -12,9 +12,13 @@ recorded with it.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 import re
+from typing import Iterator
 
 REQUIRED_CORPORA = ("wordnet", "stopwords")
 
@@ -325,18 +329,73 @@ def is_derivational_variant(candidate: str, value: str) -> bool:
     )
 
 
-def near_miss_distance(left: str, right: str, *, short_len: int = 5) -> int | None:
+@dataclass(frozen=True)
+class NearMissSettings:
+    """Thresholds of the near-miss relation used by literal alignment and
+    question lexical integrity.
+
+    `min_length` bounds the SQL literal in literal alignment and the question
+    token in question lexical integrity: under four characters a single edit is
+    as likely to separate two genuinely different values as to be a slip.
+    Strings whose shorter side has at most `short_length` characters get
+    `short_budget` edits, longer ones `long_budget`; the second edit lets a
+    transposition, which Levenshtein distance counts twice, through.
+    """
+
+    min_length: int = 4
+    short_length: int = 5
+    short_budget: int = 1
+    long_budget: int = 2
+
+    def __post_init__(self) -> None:
+        if self.min_length < 1 or self.short_length < 1:
+            raise ValueError("near-miss lengths must be positive")
+        if not 1 <= self.short_budget <= self.long_budget:
+            raise ValueError(
+                "near-miss budgets must satisfy 1 <= short_budget <= long_budget"
+            )
+
+    @classmethod
+    def from_config(cls, config: dict | None) -> NearMissSettings:
+        return cls(**(config or {}))
+
+
+_NEAR_MISS_SETTINGS: ContextVar[NearMissSettings] = ContextVar(
+    "near_miss_settings", default=NearMissSettings()
+)
+
+
+def near_miss_settings() -> NearMissSettings:
+    return _NEAR_MISS_SETTINGS.get()
+
+
+@contextmanager
+def use_near_miss_settings(settings: NearMissSettings | None) -> Iterator[None]:
+    """Apply `settings` to every near-miss check made inside the block."""
+    token = _NEAR_MISS_SETTINGS.set(settings or near_miss_settings())
+    try:
+        yield
+    finally:
+        _NEAR_MISS_SETTINGS.reset(token)
+
+
+def near_miss_distance(left: str, right: str) -> int | None:
     """Edit distance when two strings are one small slip apart, else None.
 
-    The budget scales with the shorter string: one edit for short values, two
-    for longer ones. Identical strings are not a near miss.
+    The budget scales with the shorter string, as set by `NearMissSettings`.
+    Identical strings are not a near miss.
     """
     from rapidfuzz.distance import Levenshtein
 
+    settings = near_miss_settings()
     left, right = fold(left), fold(right)
     if not left or not right:
         return None
-    budget = 1 if min(len(left), len(right)) <= short_len else 2
+    budget = (
+        settings.short_budget
+        if min(len(left), len(right)) <= settings.short_length
+        else settings.long_budget
+    )
     distance = Levenshtein.distance(left, right, score_cutoff=budget)
     if 0 < distance <= budget:
         return distance

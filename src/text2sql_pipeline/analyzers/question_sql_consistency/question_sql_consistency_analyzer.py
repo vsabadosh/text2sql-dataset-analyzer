@@ -40,6 +40,7 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
         rules: list[str] | None = None,
         emit_supported: bool = False,
         context: dict | None = None,
+        near_miss: dict | None = None,
     ) -> None:
         if language.casefold() != "en":
             raise ValueError(
@@ -50,6 +51,7 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
         self.rules: tuple[ConsistencyRule, ...] = select_rules(rules)
         self.emit_supported = emit_supported
         self.context_config = context or {}
+        self.near_miss = lexical_resources.NearMissSettings.from_config(near_miss)
         self.db_dialect = db_manager.get_sqlglot_dialect() or "sqlite"
         # Read the optional alias file once: a bad path must fail at wiring
         # time instead of turning every item into a per-item error.
@@ -131,6 +133,7 @@ class QuestionSqlConsistencyAnalyzer(AnnotatingAnalyzer):
                     context=context_manifest,
                     rules=self.rules,
                     emit_supported=self.emit_supported,
+                    near_miss=self.near_miss,
                 )
             except Exception as exc:
                 features = QuestionSqlConsistencyFeatures(
