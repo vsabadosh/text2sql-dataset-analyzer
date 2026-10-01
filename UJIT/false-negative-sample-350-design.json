@@ -1,0 +1,90 @@
+{
+  "seed": 2026092702,
+  "targets": {
+    "supported_only": 175,
+    "unresolved_only": 175
+  },
+  "minimum_per_stratum": 10,
+  "not_applicable_in_denominator_only": 6019,
+  "not_applicable_before_exclusions": 6205,
+  "contradicted_excluded": 227,
+  "held_out_frame": 21862,
+  "eligible_after_exclusions": {
+    "supported_only": 13556,
+    "unresolved_only": 2287
+  },
+  "strata": {
+    "spider/train/supported_only": {
+      "population_size": 4129,
+      "sample_size": 48,
+      "inclusion_probability": 0.01162509082102204,
+      "sampling_weight": 86.02083333333333
+    },
+    "spider/dev/supported_only": {
+      "population_size": 419,
+      "sample_size": 14,
+      "inclusion_probability": 0.03341288782816229,
+      "sampling_weight": 29.928571428571427
+    },
+    "spider/test/supported_only": {
+      "population_size": 852,
+      "sample_size": 18,
+      "inclusion_probability": 0.02112676056338028,
+      "sampling_weight": 47.333333333333336
+    },
+    "bird/train/supported_only": {
+      "population_size": 7018,
+      "sample_size": 75,
+      "inclusion_probability": 0.010686805357651753,
+      "sampling_weight": 93.57333333333334
+    },
+    "bird/dev/supported_only": {
+      "population_size": 1138,
+      "sample_size": 20,
+      "inclusion_probability": 0.01757469244288225,
+      "sampling_weight": 56.9
+    },
+    "spider/train/unresolved_only": {
+      "population_size": 679,
+      "sample_size": 47,
+      "inclusion_probability": 0.06921944035346098,
+      "sampling_weight": 14.446808510638299
+    },
+    "spider/dev/unresolved_only": {
+      "population_size": 40,
+      "sample_size": 12,
+      "inclusion_probability": 0.3,
+      "sampling_weight": 3.3333333333333335
+    },
+    "spider/test/unresolved_only": {
+      "population_size": 89,
+      "sample_size": 14,
+      "inclusion_probability": 0.15730337078651685,
+      "sampling_weight": 6.357142857142857
+    },
+    "bird/train/unresolved_only": {
+      "population_size": 1273,
+      "sample_size": 81,
+      "inclusion_probability": 0.0636292223095051,
+      "sampling_weight": 15.716049382716049
+    },
+    "bird/dev/unresolved_only": {
+      "population_size": 206,
+      "sample_size": 21,
+      "inclusion_probability": 0.10194174757281553,
+      "sampling_weight": 9.80952380952381
+    }
+  },
+  "sample_counts": {
+    "ANALYZER_ABSTAINED": 175,
+    "ANALYZER_SUPPORTED": 175
+  },
+  "rules": [
+    "literal_alignment",
+    "question_lexical_integrity",
+    "comparison_boundary_alignment",
+    "string_match_alignment",
+    "temporal_anchor_provenance",
+    "ordering_topk_alignment"
+  ]
+}

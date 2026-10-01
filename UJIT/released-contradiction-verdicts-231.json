@@ -8407,5 +8407,85 @@
     },
     "human_verdict": "TRUE_DEFECT",
     "human_note": "Database execution confirms three independent inconsistencies: only four films pass the threshold, the percentage is wrong, and no movie names are projected."
+  },
+  {
+    "id": "bird/dev/1029#cbfa4e08095bc79da11b",
+    "frame": "A",
+    "question": "What are the speed in which attacks are put together of the top 4 teams with the highest build Up Play Speed?",
+    "evidence": "speed in which attacks are put together refers to buildUpPlaySpeed;highest build up play speed refers to MAX(buildUpPlaySpeed)",
+    "sql": "SELECT t1.buildUpPlaySpeed FROM Team_Attributes AS t1 INNER JOIN Team AS t2 ON t1.team_api_id = t2.team_api_id ORDER BY t1.buildUpPlaySpeed ASC LIMIT 4",
+    "detector_finding": "The question requests DESC ordering by buildupplayspeed, but SQL uses ASC.",
+    "screening_reviews": [],
+    "screening_summary": {
+      "channel_count": 0,
+      "unanimous": null,
+      "consensus_verdict": null
+    },
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "The question and evidence both require the four teams with the highest buildUpPlaySpeed (MAX), but the gold SQL orders buildUpPlaySpeed ASC LIMIT 4 and therefore returns the lowest four values. Added after ordering/top-k hardening v1.1.0; not part of the manuscript 226-row census."
+  },
+  {
+    "id": "bird/dev/484#5978469a977264962cdd",
+    "frame": "A",
+    "question": "Please list the Italian names of the cards in the set Coldsnap with the highest converted mana cost.",
+    "evidence": "card set Coldsnap refers to name = 'Coldsnap'; Italian refers to language = 'Italian'; highest converted mana cost refers to MAX(convertedManaCost)",
+    "sql": "SELECT T2.name FROM foreign_data AS T1 INNER JOIN cards AS T2 ON T2.uuid = T1.uuid INNER JOIN sets AS T3 ON T3.code = T2.setCode WHERE T3.name = 'Coldsnap' AND T1.language = 'Italian' ORDER BY T2.convertedManaCost DESC",
+    "detector_finding": "The question requests 1 result(s), but the root ordered query has no LIMIT.",
+    "screening_reviews": [],
+    "screening_summary": {
+      "channel_count": 0,
+      "unanimous": null,
+      "consensus_verdict": null
+    },
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "The question asks for the Italian Coldsnap cards with the highest converted mana cost, and evidence maps that cue to MAX(convertedManaCost). The gold SQL orders convertedManaCost DESC but has no LIMIT or MAX filter, so it returns the full set rather than the extremum. The question is plural, so the exact cardinality may be one row or all ties at the maximum; either realization differs from the unrestricted ordered list. Added after ordering/top-k hardening v1.1.0; not part of the manuscript 226-row census."
+  },
+  {
+    "id": "bird/train/6834#685ff2ceb9e94c23c280",
+    "frame": "A",
+    "question": "What are the top 5 nations of suppliers with the lowest account balance?",
+    "evidence": "nation refers to n_name; the lowest account balance refers to min(s_acctbal)",
+    "sql": "SELECT T2.n_name FROM supplier AS T1 INNER JOIN nation AS T2 ON T1.s_nationkey = T2.n_nationkey ORDER BY T1.s_acctbal LIMIT 1",
+    "detector_finding": "The question requests 5 result(s), but SQL uses LIMIT 1.",
+    "screening_reviews": [],
+    "screening_summary": {
+      "channel_count": 0,
+      "unanimous": null,
+      "consensus_verdict": null
+    },
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "The question asks for the top 5 nations of suppliers with the lowest account balance. Direction is consistent with MIN/ASC, but the gold SQL uses LIMIT 1 instead of LIMIT 5. Added after ordering/top-k hardening v1.1.0; not part of the manuscript 226-row census."
+  },
+  {
+    "id": "spider/train/6519#56eaac09838a158f8ff4",
+    "frame": "A",
+    "question": "Give the name of the wine with the highest score.",
+    "evidence": "",
+    "sql": "SELECT Name FROM WINE ORDER BY Score LIMIT 1",
+    "detector_finding": "The question requests DESC ordering by score, but SQL uses ASC.",
+    "screening_reviews": [],
+    "screening_summary": {
+      "channel_count": 0,
+      "unanimous": null,
+      "consensus_verdict": null
+    },
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "The question asks for the wine with the highest score. The gold SQL uses ORDER BY Score LIMIT 1, which is ascending by default, so it returns the lowest score. Added after ordering/top-k hardening v1.1.0; not part of the manuscript 226-row census."
+  },
+  {
+    "id": "spider/train/6521#c156e47fe73bf035df9f",
+    "frame": "A",
+    "question": "What is the winery at which the wine with the highest score was made?",
+    "evidence": "",
+    "sql": "SELECT Winery FROM WINE ORDER BY SCORE LIMIT 1",
+    "detector_finding": "The question requests DESC ordering by score, but SQL uses ASC.",
+    "screening_reviews": [],
+    "screening_summary": {
+      "channel_count": 0,
+      "unanimous": null,
+      "consensus_verdict": null
+    },
+    "human_verdict": "TRUE_DEFECT",
+    "human_note": "The question asks for the winery of the wine with the highest score. The gold SQL uses ORDER BY SCORE LIMIT 1, which is ascending by default, so it returns the lowest score. Added after ordering/top-k hardening v1.1.0; not part of the manuscript 226-row census."
   }
 ]
