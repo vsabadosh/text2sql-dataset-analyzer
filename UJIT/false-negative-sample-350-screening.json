@@ -106,7 +106,7 @@
       "reason": "Question 'after August, 2013' excludes August, but the SQL month list includes '8' for 2013. Evidence year > 2013 also excludes the rest of 2013, which the SQL still counts."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
@@ -255,7 +255,8 @@
       "reason": "Question asks for the country name, but SQL selects county. The lexical rule skips this because country is a real word and the exact table name."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "DEFECT_OUT_OF_SCOPE",
+      "defect_family": "projection"
     }
   },
   {
@@ -1516,7 +1517,8 @@
       "reason": "The question asks for document types whose total access count is not over 10000, which is sum(access_count) <= 10000, but the SQL uses HAVING sum(access_count) > 10000, the opposite side of the same boundary."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "DEFECT_OUT_OF_SCOPE",
+      "defect_family": "filtering"
     }
   },
   {
@@ -1660,7 +1662,7 @@
       "special_note": "The analyzer returned UNRESOLVED on the literal 'convolution' specifically and did not reach CONTRADICTED. It did not mark that literal SUPPORTED. The SUPPORTED finding is a different literal, 'brian curless'."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
@@ -2392,7 +2394,7 @@
       "special_article_attention_reason": "Evidence says credited = '', but the column stores only 'true' and 'false', so the evidence value is wrong and the SQL spelling is the stored one."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
@@ -2538,7 +2540,7 @@
       "special_article_attention_reason": "Evidence says credited = '', but the column stores only 'true' and 'false', so the evidence value is wrong and the SQL spelling is the stored one."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
@@ -2786,7 +2788,7 @@
       "possible_rule_adjustment": "Do not license a whole address from one distinctive word such as Chicago; the rest of the place string must still be checked. Not applied in this paper: the 350-pair sample is already drawn."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
@@ -2947,7 +2949,7 @@
       "reason": "The stored product name is Road-650 Red, 60. The question and evidence write Road-650, Red, 60, adding a comma after 650. The strings differ, so the call is marked unclear."
     },
     "human2": {
-      "verdict": "FALSE_NEGATIVE_IN_SCOPE"
+      "verdict": "ANALYZER_VERDICT_OK"
     }
   },
   {
