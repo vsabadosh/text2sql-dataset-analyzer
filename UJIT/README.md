@@ -11,16 +11,22 @@ The manuscript numbers come from these files:
 - `released-contradiction-verdicts-231.json` — the contradiction census, 231
   decisions on 227 pairs. The manuscript label is `human_verdict`: 226 true
   defects on 222 pairs and 5 false positives, so decision-level precision is
-  226/231 = 97.8%. The model-screening fields are not the ground truth.
+  226/231 = 97.8%. The complete independent second-expert labels are in
+  `post-review/released-2-contradiction-verdicts-231.json` under
+  `human_2_verdict`; after workflow suffixes are collapsed, the two experts
+  agree on all 231 defect classes. The model-screening fields are not the
+  ground truth.
 - `false-negative-sample-350-design.json` — the stratified design of the
   350-pair analyzer-negative sample (seed `2026092702`). The eligible
   populations are 13,556 `SUPPORTED`-only pairs and 2,287 pairs with at least
   one `UNRESOLVED` decision.
 - `false-negative-sample-350-screening.json` — the audited sample. The
   manuscript label is `human1.verdict`: 20 in-scope false negatives, 31
-  out-of-scope defects, and 299 pairs with no in-scope defect. A `human2`
-  label is stored on every record. The manuscript does not use it and makes
-  no inter-human agreement claim.
+  out-of-scope defects, and 299 pairs with no in-scope defect. The independent
+  `human2.verdict` label set marks 14 of the 20 in-scope false negatives; the
+  six remaining pairs account for all disagreements. The experts agree on
+  344/350 pairs (98.3%; unweighted Cohen's kappa 0.931). The manuscript uses
+  `human1` for the weighted estimates and `human2` for inter-expert agreement.
 - `scripts/false_negative_interval.py` — reproduces the weighted estimates and
   the stratified-bootstrap intervals (seed 7, 20,000 replicates). From the
   repository root:
@@ -29,9 +35,10 @@ The manuscript numbers come from these files:
   .venv/bin/python UJIT/scripts/false_negative_interval.py
   ```
 
-- `post-review/` — screening votes, the near-miss threshold runs, and working
-  notes. It is not a second ground truth. The reported census and sample are
-  the two root files above.
+- `post-review/` — screening votes, the near-miss threshold runs, working
+  notes, and the released census with `human_2_verdict`. Model votes are not
+  a second ground truth; the `human_2_verdict` field is the independent
+  second-expert label.
 - `supporting-artifacts/` — superseded audit stages and files the manuscript
   does not cite. See its own README.
 - `dataset-findings-report.md` — working notes behind the dataset-level claims.
@@ -57,5 +64,5 @@ The manuscript numbers come from these files:
   outputs contain the evidence-tiered date classification and runtime
   measurements documented in `dataset-findings-report.md`.
 
-Model-screening labels are not human ground truth. The manuscript reports
-completed author adjudication of the 231 decisions and of the 350-pair sample.
+Model-screening labels are not human ground truth. The manuscript reports two
+complete expert label sets for the 231 decisions and the 350-pair sample.
