@@ -20,6 +20,11 @@ The manuscript numbers come from these files:
   350-pair analyzer-negative sample (seed `2026092702`). The eligible
   populations are 13,556 `SUPPORTED`-only pairs and 2,287 pairs with at least
   one `UNRESOLVED` decision.
+- `supplementary-table-s1.docx` — manuscript Table S1. It lists the ten
+  sampling strata, with the eligible population, sample size, sampling weight,
+  and `human1` in-scope false negatives. The totals are 15,843 eligible pairs,
+  350 sampled pairs, and 20 false negatives. The counts match
+  `post-review/false-negative-sample-350-design.json`.
 - `false-negative-sample-350-screening.json` — the audited sample. The
   manuscript label is `human1.verdict`: 20 in-scope false negatives, 31
   out-of-scope defects, and 299 pairs with no in-scope defect. The independent
