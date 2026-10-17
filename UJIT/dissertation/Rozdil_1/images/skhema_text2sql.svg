@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 630" width="1120" height="630" role="img" xml:lang="uk">
+  <title>Схема Text-to-SQL: питання, схема, мовна модель, запит і результат</title>
+  <desc>Питання користувача і схема бази проходять через мовну модель. Згенерований SQL виконують на базі, а результат повертають користувачеві.</desc>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 1 L9 5 L0 9 Z" fill="#7f8c8d"/>
+    </marker>
+    <marker id="arr-orange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 1 L9 5 L0 9 Z" fill="#e67e22"/>
+    </marker>
+  </defs>
+
+  <rect width="1120" height="630" fill="#ffffff"/>
+
+  <text x="24" y="28" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">Природномовне питання користувача</text>
+  <rect x="24" y="40" width="760" height="78" rx="12" fill="#e8f8e8" stroke="#7dcea0" stroke-width="1.6"/>
+  <text x="40" y="88" font-family="-apple-system, Segoe UI, sans-serif" font-size="22" fill="#1c2833">Які п'ять ліг мають найбільше матчів за весь час?</text>
+
+  <g transform="translate(980,18)" font-family="-apple-system, Segoe UI, sans-serif">
+    <path d="M10 58 Q10 46 22 46 L34 54 L46 42 L58 54 L70 46 Q82 46 82 58 V82 H10 Z" fill="#f0b429" stroke="#2c3e50" stroke-width="2.4"/>
+    <path d="M22 48 L36 64 L32 54 Z" fill="#1abc9c" stroke="#2c3e50" stroke-width="1.6"/>
+    <path d="M70 48 L56 64 L60 54 Z" fill="#1abc9c" stroke="#2c3e50" stroke-width="1.6"/>
+    <path d="M34 56 L46 70 L58 56 V82 H34 Z" fill="#5d6d7e" stroke="#2c3e50" stroke-width="1.6"/>
+    <circle cx="46" cy="28" r="18" fill="#f6c7a1" stroke="#2c3e50" stroke-width="2.4"/>
+    <path d="M30 23 Q32 8 46 7 Q60 8 64 22 Q58 12 46 13 Q34 13 30 23 Z" fill="#7f8c9b" stroke="#2c3e50" stroke-width="2.2"/>
+    <rect x="32" y="24" width="12" height="9" rx="2.5" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+    <rect x="48" y="24" width="12" height="9" rx="2.5" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+    <line x1="44" y1="28" x2="48" y2="28" stroke="#2c3e50" stroke-width="1.5"/>
+    <circle cx="38" cy="28.5" r="1.7" fill="#2c3e50"/>
+    <circle cx="54" cy="28.5" r="1.7" fill="#2c3e50"/>
+    <text x="16" y="104" text-anchor="end" font-size="20" font-weight="700" fill="#1c2833">Користувач</text>
+  </g>
+
+  <text x="24" y="150" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">Схема бази даних</text>
+  <rect x="36" y="158" width="330" height="30" rx="8" fill="#ffffff" stroke="#f5b7d0" stroke-width="1.6"/>
+  <text x="50" y="179" font-family="-apple-system, Segoe UI, sans-serif" font-size="16" font-weight="700" fill="#884ea0">Таблиця Country</text>
+  <rect x="48" y="180" width="330" height="30" rx="8" fill="#ffffff" stroke="#e8a0c8" stroke-width="1.6"/>
+  <text x="62" y="201" font-family="-apple-system, Segoe UI, sans-serif" font-size="16" font-weight="700" fill="#884ea0">Таблиця League</text>
+  <rect x="60" y="206" width="330" height="210" rx="10" fill="#ffffff" stroke="#d988b8" stroke-width="1.8"/>
+  <text x="76" y="238" font-family="-apple-system, Segoe UI, sans-serif" font-size="17" font-weight="700" fill="#6c3483">Таблиця Match</text>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="16" fill="#1c2833">
+    <text x="76" y="268">"league_id" integer,</text>
+    <text x="76" y="292">"id" integer,</text>
+    <text x="76" y="316">"date" text,</text>
+    <text x="76" y="340">"season" text,</text>
+    <text x="76" y="364">"goal" text,</text>
+    <text x="76" y="388">primary key("id")</text>
+  </g>
+
+  <g transform="translate(493,300)">
+    <line x1="52" y1="2" x2="52" y2="-8" stroke="#2c3e50" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="52" cy="-14" r="6" fill="#7ec8e3" stroke="#2c3e50" stroke-width="2.4"/>
+    <rect x="18" y="6" width="68" height="48" rx="14" fill="#7ec8e3" stroke="#2c3e50" stroke-width="2.6"/>
+    <rect x="30" y="16" width="44" height="28" rx="8" fill="#2e86ab" stroke="#2c3e50" stroke-width="2"/>
+    <circle cx="44" cy="30" r="5" fill="#ffffff" stroke="#2c3e50" stroke-width="1.4"/>
+    <circle cx="60" cy="30" r="5" fill="#ffffff" stroke="#2c3e50" stroke-width="1.4"/>
+    <circle cx="44" cy="30" r="2.2" fill="#2c3e50"/>
+    <circle cx="60" cy="30" r="2.2" fill="#2c3e50"/>
+    <rect x="8" y="58" width="88" height="38" rx="10" fill="#5dade2" stroke="#2c3e50" stroke-width="2.6"/>
+    <rect x="-2" y="64" width="14" height="22" rx="6" fill="#7ec8e3" stroke="#2c3e50" stroke-width="2.2"/>
+    <rect x="92" y="64" width="14" height="22" rx="6" fill="#7ec8e3" stroke="#2c3e50" stroke-width="2.2"/>
+    <rect x="30" y="66" width="44" height="20" rx="4" fill="#1a5276" stroke="#2c3e50" stroke-width="1.8"/>
+    <circle cx="40" cy="76" r="2.4" fill="#e67e22"/>
+    <rect x="46" y="73" width="8" height="6" rx="1" fill="#e67e22"/>
+    <rect x="57" y="73" width="8" height="6" rx="1" fill="#f5b041"/>
+    <text x="52" y="116" text-anchor="middle" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">NLP модель</text>
+  </g>
+
+  <line x1="990" y1="78" x2="784" y2="78" stroke="#7f8c8d" stroke-width="2.2" marker-end="url(#arr)"/>
+  <line x1="545" y1="118" x2="545" y2="280" stroke="#7f8c8d" stroke-width="2.2" marker-end="url(#arr)"/>
+  <line x1="390" y1="340" x2="511" y2="340" stroke="#7f8c8d" stroke-width="2.2" marker-end="url(#arr)"/>
+  <line x1="545" y1="428" x2="545" y2="474" stroke="#7f8c8d" stroke-width="2.2" marker-end="url(#arr)"/>
+
+  <text x="700" y="150" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">Результати виконання</text>
+  <rect x="700" y="162" width="396" height="248" rx="10" fill="#ffffff" stroke="#f5cba7" stroke-width="1.4"/>
+  <rect x="700" y="162" width="396" height="36" rx="10" fill="#e67e22"/>
+  <rect x="700" y="184" width="396" height="14" fill="#e67e22"/>
+  <text x="898" y="187" text-anchor="middle" font-family="-apple-system, Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#ffffff">Ліга</text>
+
+  <g font-family="-apple-system, Segoe UI, sans-serif" font-size="18" fill="#1c2833">
+    <rect x="712" y="208" width="372" height="36" rx="4" fill="#fde7e2"/>
+    <circle cx="820" cy="226" r="7" fill="#e74c3c"/>
+    <text x="836" y="232">Іспанія, Ла Ліга</text>
+
+    <rect x="712" y="248" width="372" height="36" rx="4" fill="#fde7e2"/>
+    <circle cx="820" cy="266" r="7" fill="#2980b9"/>
+    <text x="836" y="272">Франція, Ліга 1</text>
+
+    <rect x="712" y="288" width="372" height="36" rx="4" fill="#fde7e2"/>
+    <circle cx="820" cy="306" r="7" fill="#8e44ad"/>
+    <text x="836" y="312">Англія, Прем'єр-ліга</text>
+
+    <rect x="712" y="328" width="372" height="36" rx="4" fill="#fde7e2"/>
+    <circle cx="820" cy="346" r="7" fill="#16a085"/>
+    <text x="836" y="352">Італія, Серія A</text>
+
+    <rect x="712" y="368" width="372" height="36" rx="4" fill="#fde7e2"/>
+    <circle cx="820" cy="386" r="7" fill="#e67e22"/>
+    <text x="836" y="392">Нідерланди, Ередивізі</text>
+  </g>
+
+  <text x="24" y="460" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">Згенерований SQL-запит</text>
+  <rect x="24" y="474" width="700" height="124" rx="12" fill="#d6eaf8" stroke="#5dade2" stroke-width="1.6"/>
+  <g font-family="ui-monospace, Menlo, Consolas, monospace" font-size="20" fill="#1c2833">
+    <text x="40" y="498">SELECT League.name</text>
+    <text x="40" y="520">FROM Match INNER JOIN League</text>
+    <text x="40" y="542">ON Match.league_id = League.id</text>
+    <text x="40" y="564">GROUP BY League.name</text>
+    <text x="40" y="586">ORDER BY count(Match.id) DESC LIMIT 5</text>
+  </g>
+
+  <g transform="translate(828,475)">
+    <ellipse cx="70" cy="22" rx="52" ry="16" fill="#d5d8dc" stroke="#2c3e50" stroke-width="1.6"/>
+    <path d="M18 22 V78 A52 16 0 0 0 122 78 V22" fill="#aeb6bf" stroke="#2c3e50" stroke-width="1.6"/>
+    <ellipse cx="70" cy="78" rx="52" ry="16" fill="#d5d8dc" stroke="#2c3e50" stroke-width="1.6"/>
+    <ellipse cx="70" cy="40" rx="52" ry="16" fill="none" stroke="#2c3e50" stroke-width="1.2"/>
+    <text x="70" y="122" text-anchor="middle" font-family="-apple-system, Segoe UI, sans-serif" font-size="20" font-weight="700" fill="#1c2833">База даних</text>
+  </g>
+
+  <line x1="724" y1="536" x2="846" y2="536" stroke="#e67e22" stroke-width="2.4" marker-end="url(#arr-orange)"/>
+  <line x1="898" y1="481" x2="898" y2="410" stroke="#e67e22" stroke-width="2.4" marker-end="url(#arr-orange)"/>
+  <line x1="1026" y1="162" x2="1026" y2="100" stroke="#e67e22" stroke-width="2.4" marker-end="url(#arr-orange)"/>
+</svg>

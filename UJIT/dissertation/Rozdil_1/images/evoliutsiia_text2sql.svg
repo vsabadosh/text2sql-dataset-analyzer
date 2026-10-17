@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="780" viewBox="0 0 1500 780" role="img" aria-labelledby="title description">
+<title id="title">Еволюція підходів до природномовного доступу до БД і Text-to-SQL</title>
+<desc id="description">Авторська схема за першоджерелами. Чотири умовні етапи з перекриттям; нерівномірна часова шкала. LUNAR і NaLIX не генерували SQL. Крива є концептуальною, а не кількісною оцінкою якості. Дати позначають орієнтовне становлення підходів. Джерела та пояснення: ../../Related_Work/ground_truth_rozdil_1.md</desc>
+<defs><style>text{font-family:"Times New Roman","Liberation Serif",serif;fill:#202b24}.title{font-size:30px;font-weight:bold}.period{font-size:24px;font-weight:bold}.heading{font-size:25px;font-weight:bold}.body{font-size:22px}.axis{font-size:28px}.small{font-size:20px}.note{font-size:19px;fill:#4e5b52}.label{font-size:18px;font-weight:bold;letter-spacing:1px;fill:#46515d}.system{font-size:23px;font-weight:bold}.flow{stroke:#637382;stroke-width:2;fill:none}</style><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#637382"/></marker></defs><rect width="1500" height="780" fill="white"/>
+<text x="750" y="40" class="title" text-anchor="middle"><tspan x="750" dy="0">Еволюція підходів до природномовного доступу до БД і Text-to-SQL</tspan></text>
+<path d="M85,573 C290,323 730,220 1370,157 L1370,115 L1470,210 L1370,315 L1370,270 C790,282 333,362 85,573 Z" fill="#b8d9b5" stroke="#526d52" stroke-width="2.5"/>
+<path d="M85,660 H1470" class="flow" marker-end="url(#arrow)"/>
+<path d="M85,660 V230" class="flow" marker-end="url(#arrow)"/>
+<text transform="translate(46 445) rotate(-90)" text-anchor="middle" class="axis">Здатність розв’язувати задачі</text>
+<rect x="123" y="265" width="284" height="70" rx="8" fill="#d9e8d5" stroke="#408458" stroke-width="2"/>
+<text x="265" y="293" class="small" text-anchor="middle"><tspan x="265" dy="0">Дерева розбору</tspan><tspan x="265" dy="25">Граматичні правила</tspan></text>
+<circle cx="265" cy="436" r="23" fill="#75b86b"/>
+<path d="M255,413 V349 H242 L265,336 L288,349 H275 V413 Z" fill="#408458"/>
+<path d="M265,629 V660" class="flow" stroke-dasharray="6 5"/>
+<rect x="122" y="555" width="286" height="74" rx="8" fill="white" stroke="#408458" stroke-width="2"/>
+<text x="265" y="585" class="heading" text-anchor="middle"><tspan x="265" dy="0">Методи</tspan><tspan x="265" dy="28">на основі правил</tspan></text>
+<text x="265" y="698" class="axis" text-anchor="middle"><tspan x="265" dy="0">Від 1970-х</tspan></text>
+<text x="265" y="736" class="small" text-anchor="middle"><tspan x="265" dy="0">LUNAR · NaLIX · NaLIR</tspan></text>
+<rect x="428" y="170" width="284" height="70" rx="8" fill="#d9e8d5" stroke="#408458" stroke-width="2"/>
+<text x="570" y="198" class="small" text-anchor="middle"><tspan x="570" dy="0">LSTM-кодування</tspan><tspan x="570" dy="25">Складові й шаблони SQL</tspan></text>
+<circle cx="570" cy="321" r="23" fill="#4e9b50"/>
+<path d="M560,292 V254 H547 L570,241 L593,254 H580 V292 Z" fill="#408458"/>
+<path d="M570,484 V660" class="flow" stroke-dasharray="6 5"/>
+<rect x="427" y="410" width="286" height="74" rx="8" fill="white" stroke="#408458" stroke-width="2"/>
+<text x="570" y="440" class="heading" text-anchor="middle"><tspan x="570" dy="0">Глибокі</tspan><tspan x="570" dy="28">нейронні мережі</tspan></text>
+<text x="570" y="698" class="axis" text-anchor="middle"><tspan x="570" dy="0">Від 2016 р.</tspan></text>
+<text x="570" y="736" class="small" text-anchor="middle"><tspan x="570" dy="0">Seq2SQL · SQLNet</tspan></text>
+<rect x="748" y="111" width="284" height="70" rx="8" fill="#d9e8d5" stroke="#408458" stroke-width="2"/>
+<text x="890" y="139" class="small" text-anchor="middle"><tspan x="890" dy="0">BERT і T5</tspan><tspan x="890" dy="25">Схема й обмежене декодування</tspan></text>
+<circle cx="890" cy="253" r="23" fill="#2e773c"/>
+<path d="M880,219 V195 H867 L890,182 L913,195 H900 V219 Z" fill="#408458"/>
+<path d="M890,418 V660" class="flow" stroke-dasharray="6 5"/>
+<rect x="747" y="344" width="286" height="74" rx="8" fill="white" stroke="#408458" stroke-width="2"/>
+<text x="890" y="374" class="heading" text-anchor="middle"><tspan x="890" dy="0">Попередньо навчені</tspan><tspan x="890" dy="28">мовні моделі (PLM)</tspan></text>
+<text x="890" y="698" class="axis" text-anchor="middle"><tspan x="890" dy="0">Від 2019–2020 рр.</tspan></text>
+<text x="890" y="736" class="small" text-anchor="middle"><tspan x="890" dy="0">RAT-SQL · TaBERT · PICARD</tspan></text>
+<rect x="1068" y="73" width="284" height="70" rx="8" fill="#d9e8d5" stroke="#408458" stroke-width="2"/>
+<text x="1210" y="101" class="small" text-anchor="middle"><tspan x="1210" dy="0">Навчання в контексті (ICL)</tspan><tspan x="1210" dy="25">Донавчання</tspan></text>
+<circle cx="1210" cy="223" r="23" fill="#18552d"/>
+<path d="M1200,173 V157 H1187 L1210,144 L1233,157 H1220 V173 Z" fill="#408458"/>
+<path d="M1210,379 V660" class="flow" stroke-dasharray="6 5"/>
+<rect x="1067" y="305" width="286" height="74" rx="8" fill="white" stroke="#408458" stroke-width="2"/>
+<text x="1210" y="335" class="heading" text-anchor="middle"><tspan x="1210" dy="0">Великі</tspan><tspan x="1210" dy="28">мовні моделі (LLM)</tspan></text>
+<text x="1210" y="698" class="axis" text-anchor="middle"><tspan x="1210" dy="0">Від 2022 р.</tspan></text>
+<text x="1250" y="736" class="small" text-anchor="middle"><tspan x="1250" dy="0">Codex · DIN-SQL · DAIL-SQL · OmniSQL</tspan></text>
+<path d="M401,651 l9,18 m3,-18 l9,18" stroke="white" stroke-width="7"/>
+<path d="M401,651 l9,18 m3,-18 l9,18" class="flow"/>
+</svg>
