@@ -39,7 +39,7 @@
     <text x="123" y="368" text-anchor="start" font-size="14" font-weight="700">W<tspan font-size="11" dy="3">down</tspan></text>
 
   </g>
-  <text x="144" y="430" text-anchor="middle" font-family="-apple-system, Segoe UI, sans-serif" font-size="15" font-weight="700" fill="#1c2833">W<tspan font-size="11" baseline-shift="sub">0</tspan> ∈ {W<tspan font-size="11" baseline-shift="sub">Q</tspan>, W<tspan font-size="11" baseline-shift="sub">K</tspan>, …, W<tspan font-size="11" baseline-shift="sub">gate</tspan>, …, W<tspan font-size="11" baseline-shift="sub">down</tspan>}</text>
+  <text x="28" y="434" text-anchor="start" font-family="-apple-system, Segoe UI, sans-serif" font-size="14" font-weight="700" fill="#1c2833">W<tspan font-size="10" baseline-shift="sub">0</tspan> ∈ {W<tspan font-size="10" baseline-shift="sub">Q</tspan>, W<tspan font-size="10" baseline-shift="sub">K</tspan>, …, W<tspan font-size="10" baseline-shift="sub">gate</tspan>, …, W<tspan font-size="10" baseline-shift="sub">down</tspan>}</text>
 
   <line x1="268" y1="90" x2="443" y2="90" stroke="#2e86c1" stroke-width="1.8" marker-end="url(#arr-blue)"/>
   <text x="350" y="78" text-anchor="middle" font-family="-apple-system, Segoe UI, sans-serif" font-size="18" font-weight="700" fill="#1a5276">W<tspan font-size="13" dy="4">0</tspan></text>
