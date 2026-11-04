@@ -1,0 +1,483 @@
+\begin{thebibliography}{61}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Shi et~al.(2025)Shi, Tang, Zhang, Zhang, and Yang]{shi2025survey}
+Liang Shi, Zhengju Tang, Nan Zhang, Xiaotong Zhang, and Zhi Yang.
+\newblock A survey on employing large language models for {Text-to-SQL} tasks.
+\newblock \emph{ACM Computing Surveys}, 58\penalty0 (2):\penalty0 1--37, 2025.
+\newblock \doi{10.1145/3737873}.
+
+\bibitem[Mao et~al.(2025)Mao, Ge, Fan, Xu, Mi, Hu, and Gao]{mao2025lorasurvey}
+Yuren Mao, Yuhang Ge, Yijiang Fan, Wenyi Xu, Yu~Mi, Zhonghao Hu, and Yunjun
+  Gao.
+\newblock A survey on {LoRA} of large language models.
+\newblock \emph{Frontiers of Computer Science}, 19:\penalty0 197605, 2025.
+\newblock \doi{10.1007/s11704-024-40663-9}.
+
+\bibitem[Mohammadjafari et~al.(2024)Mohammadjafari, Maida, and
+  Gottumukkala]{mohammadjafari2024review}
+Ali Mohammadjafari, Anthony~S. Maida, and Raju Gottumukkala.
+\newblock From natural language to {SQL}: Review of {LLM}-based {Text-to-SQL}
+  systems, 2024.
+
+\bibitem[Yu et~al.(2018)Yu, Zhang, Yang, Yasunaga, Wang, Li, Ma, Li, Yao,
+  Roman, Zhang, and Radev]{yu2018spider}
+Tao Yu, Rui Zhang, Kai Yang, Michihiro Yasunaga, Dongxu Wang, Zifan Li, James
+  Ma, Irene Li, Qingning Yao, Shanelle Roman, Zilin Zhang, and Dragomir Radev.
+\newblock {Spider}: A large-scale human-labeled dataset for complex and
+  cross-domain semantic parsing and {Text-to-SQL} task.
+\newblock In \emph{Proceedings of the 2018 Conference on Empirical Methods in
+  Natural Language Processing}, pages 3911--3921. Association for Computational
+  Linguistics, 2018.
+\newblock \doi{10.18653/v1/D18-1425}.
+
+\bibitem[Li et~al.(2023)Li, Hui, Qu, Yang, Li, Li, Wang, Qin, Geng, Huo, Zhou,
+  Ma, Li, Chang, Huang, Cheng, and Li]{li2023bird}
+Jinyang Li, Binyuan Hui, Ge~Qu, Jiaxi Yang, Binhua Li, Bowen Li, Bailin Wang,
+  Bowen Qin, Ruiying Geng, Nan Huo, Xuanhe Zhou, Chenhao Ma, Guoliang Li, Kevin
+  C.~C. Chang, Fei Huang, Reynold Cheng, and Yongbin Li.
+\newblock Can {LLM} already serve as a database interface? {A} big bench for
+  large-scale database grounded {Text-to-SQLs}.
+\newblock In \emph{Advances in Neural Information Processing Systems 36,
+  Datasets and Benchmarks Track}, pages 42330--42357, 2023.
+
+\bibitem[Yu et~al.(2019)Yu, Zhang, Er, Li, Xue, Pang, Lin, Tan, Shi, Li, Jiang,
+  Yasunaga, Shim, Chen, Fabbri, Li, Chen, Zhang, Dixit, Zhang, Xiong, Socher,
+  Lasecki, and Radev]{yu2019cosql}
+Tao Yu, Rui Zhang, Heyang Er, Suyi Li, Eric Xue, Bo~Pang, Xi~Victoria Lin,
+  Yi~Chern Tan, Tianze Shi, Zihan Li, Youxuan Jiang, Michihiro Yasunaga,
+  Sungrok Shim, Tao Chen, Alexander Fabbri, Zifan Li, Luyao Chen, Yuwen Zhang,
+  Shreya Dixit, Vincent Zhang, Caiming Xiong, Richard Socher, Walter Lasecki,
+  and Dragomir Radev.
+\newblock {CoSQL}: A conversational {Text-to-SQL} challenge towards
+  cross-domain natural language interfaces to databases.
+\newblock In \emph{Proceedings of the 2019 Conference on Empirical Methods in
+  Natural Language Processing and the 9th International Joint Conference on
+  Natural Language Processing}, pages 1962--1979, 2019.
+\newblock \doi{10.18653/v1/D19-1204}.
+
+\bibitem[Liu et~al.(2025)Liu, Shen, Li, Ma, Jiang, Zhang, Fan, Li, Tang, and
+  Luo]{liu2025survey}
+Xinyu Liu, Shuyu Shen, Boyan Li, Peixian Ma, Runzhi Jiang, Yuxin Zhang, Ju~Fan,
+  Guoliang Li, Nan Tang, and Yuyu Luo.
+\newblock A survey of {Text-to-SQL} in the era of {LLMs}: Where are we, and
+  where are we going?
+\newblock \emph{IEEE Transactions on Knowledge and Data Engineering},
+  37\penalty0 (10):\penalty0 5735--5754, 2025.
+\newblock \doi{10.1109/TKDE.2025.3592032}.
+
+\bibitem[Woods et~al.(1972)Woods, Kaplan, and Nash-Webber]{woods1972lunar}
+W.~A. Woods, R.~M. Kaplan, and B.~Nash-Webber.
+\newblock The lunar sciences natural language information system: Final report.
+\newblock Technical Report 2378, Bolt Beranek and Newman Inc., June 1972.
+\newblock URL \url{https://brenocon.com/Woods1972Lunar.pdf}.
+
+\bibitem[Li et~al.(2005)Li, Yang, and Jagadish]{li2005nalix}
+Yunyao Li, Huahai Yang, and H.~V. Jagadish.
+\newblock {NaLIX}: An interactive natural language interface for querying
+  {XML}.
+\newblock In \emph{Proceedings of the 2005 ACM SIGMOD International Conference
+  on Management of Data}, 2005.
+\newblock URL \url{https://yunyaoli.github.io/files/sigmod05-nalix.pdf}.
+
+\bibitem[Li and Jagadish(2014)]{li2014nalir}
+Fei Li and H.~V. Jagadish.
+\newblock Constructing an interactive natural language interface for relational
+  databases.
+\newblock \emph{Proceedings of the VLDB Endowment}, 8\penalty0 (1):\penalty0
+  73--84, 2014.
+\newblock URL \url{https://www.vldb.org/pvldb/vol8/p73-li.pdf}.
+
+\bibitem[Dong and Lapata(2016)]{dong2016logical}
+Li~Dong and Mirella Lapata.
+\newblock Language to logical form with neural attention.
+\newblock In \emph{Proceedings of the 54th Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 33--43, 2016.
+\newblock \doi{10.18653/v1/P16-1004}.
+
+\bibitem[Zhong et~al.(2017)Zhong, Xiong, and Socher]{zhong2017seq2sql}
+Victor Zhong, Caiming Xiong, and Richard Socher.
+\newblock {Seq2SQL}: Generating structured queries from natural language using
+  reinforcement learning.
+\newblock \emph{CoRR}, abs/1709.00103, 2017.
+\newblock \doi{10.48550/arXiv.1709.00103}.
+
+\bibitem[Xu et~al.(2017)Xu, Liu, and Song]{xu2017sqlnet}
+Xiaojun Xu, Chang Liu, and Dawn Song.
+\newblock {SQLNet}: Generating structured queries from natural language without
+  reinforcement learning, 2017.
+
+\bibitem[Wang et~al.(2020)Wang, Shin, Liu, Polozov, and
+  Richardson]{wang2020ratsql}
+Bailin Wang, Richard Shin, Xiaodong Liu, Oleksandr Polozov, and Matthew
+  Richardson.
+\newblock {RAT-SQL}: Relation-aware schema encoding and linking for
+  {Text-to-SQL} parsers.
+\newblock In \emph{Proceedings of the 58th Annual Meeting of the Association
+  for Computational Linguistics}, pages 7567--7578, 2020.
+\newblock \doi{10.18653/v1/2020.acl-main.677}.
+
+\bibitem[Yin et~al.(2020)Yin, Neubig, Yih, and Riedel]{yin2020tabert}
+Pengcheng Yin, Graham Neubig, Wen-tau Yih, and Sebastian Riedel.
+\newblock {TaBERT}: Pretraining for joint understanding of textual and tabular
+  data.
+\newblock In \emph{Proceedings of the 58th Annual Meeting of the Association
+  for Computational Linguistics}, pages 8413--8426, 2020.
+\newblock \doi{10.18653/v1/2020.acl-main.745}.
+
+\bibitem[Scholak et~al.(2021)Scholak, Schucher, and
+  Bahdanau]{scholak2021picard}
+Torsten Scholak, Nathan Schucher, and Dzmitry Bahdanau.
+\newblock {PICARD}: Parsing incrementally for constrained auto-regressive
+  decoding from language models.
+\newblock In \emph{Proceedings of the 2021 Conference on Empirical Methods in
+  Natural Language Processing}, pages 9895--9901, 2021.
+\newblock \doi{10.18653/v1/2021.emnlp-main.779}.
+
+\bibitem[Rajkumar et~al.(2022)Rajkumar, Li, and
+  Bahdanau]{rajkumar2022evaluating}
+Nitarshan Rajkumar, Raymond Li, and Dzmitry Bahdanau.
+\newblock Evaluating the {Text-to-SQL} capabilities of large language models,
+  2022.
+
+\bibitem[Pourreza and Rafiei(2023{\natexlab{a}})]{pourreza2023dinsql}
+Mohammadreza Pourreza and Davood Rafiei.
+\newblock {DIN-SQL}: Decomposed in-context learning of {Text-to-SQL} with
+  self-correction.
+\newblock In \emph{Advances in Neural Information Processing Systems 36},
+  2023{\natexlab{a}}.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2023/hash/72223cc66f63ca1aa59edaec1b3670e6-Abstract.html}.
+
+\bibitem[Gao et~al.(2024)Gao, Wang, Li, Sun, Qian, Ding, and
+  Zhou]{gao2024benchmark}
+Dawei Gao, Haibin Wang, Yaliang Li, Xiuyu Sun, Yichen Qian, Bolin Ding, and
+  Jingren Zhou.
+\newblock {Text-to-SQL} empowered by large language models: A benchmark
+  evaluation.
+\newblock \emph{Proceedings of the VLDB Endowment}, 17\penalty0 (5):\penalty0
+  1132--1145, 2024.
+\newblock \doi{10.14778/3641204.3641221}.
+
+\bibitem[Hu et~al.(2022)Hu, Shen, Wallis, Allen-Zhu, Li, Wang, Wang, and
+  Chen]{hu2022lora}
+Edward~J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean
+  Wang, Lu~Wang, and Weizhu Chen.
+\newblock {LoRA}: Low-rank adaptation of large language models.
+\newblock In \emph{Proceedings of the 10th International Conference on Learning
+  Representations}, 2022.
+
+\bibitem[Li et~al.(2025)Li, Wu, Zhang, Huang, Zhang, Jiang, Wang, Zhang, Chen,
+  Shi, Chen, and Li]{li2025omnisql}
+Haoyang Li, Shang Wu, Xiaokang Zhang, Xinmei Huang, Jing Zhang, Fuxin Jiang,
+  Shuai Wang, Tieying Zhang, Jianjun Chen, Rui Shi, Hong Chen, and Cuiping Li.
+\newblock {OmniSQL}: Synthesizing high-quality {Text-to-SQL} data at scale.
+\newblock \emph{Proceedings of the VLDB Endowment}, 18\penalty0 (11):\penalty0
+  4695--4709, 2025.
+\newblock \doi{10.14778/3749646.3749723}.
+
+\bibitem[{Gretel.ai}(2024)]{gretel2024synth}
+{Gretel.ai}.
+\newblock Synthetic {Text-to-SQL} dataset.
+\newblock Hugging Face Datasets, 2024.
+\newblock URL
+  \url{https://huggingface.co/datasets/gretelai/synthetic_text_to_sql}.
+
+\bibitem[Chang et~al.(2023)Chang, Wang, Dong, Pan, Zhu, Li, Lan, Zhang, Jiang,
+  Lilien, Ash, Wang, Wang, Castelli, Ng, and Xiang]{chang2023drspider}
+Shuaichen Chang, Jun Wang, Mingwen Dong, Lin Pan, Henghui Zhu, Alexander~Hanbo
+  Li, Wuwei Lan, Sheng Zhang, Jiarong Jiang, Joseph Lilien, Steve Ash,
+  William~Yang Wang, Zhiguo Wang, Vittorio Castelli, Patrick Ng, and Bing
+  Xiang.
+\newblock {Dr.Spider}: A diagnostic evaluation benchmark towards {Text-to-SQL}
+  robustness.
+\newblock In \emph{Proceedings of the 11th International Conference on Learning
+  Representations}, 2023.
+
+\bibitem[Chang et~al.(2020)Chang, Liu, Tang, Huang, He, and
+  Zhou]{chang2020zeroshot}
+Shuaichen Chang, Pengfei Liu, Yun Tang, Jing Huang, Xiaodong He, and Bowen
+  Zhou.
+\newblock Zero-shot {Text-to-SQL} learning with auxiliary task.
+\newblock In \emph{Proceedings of the AAAI Conference on Artificial
+  Intelligence}, volume~34, pages 7488--7495, 2020.
+\newblock \doi{10.1609/aaai.v34i05.6246}.
+
+\bibitem[{Salesforce}(2017)]{wikisqlDataset}
+{Salesforce}.
+\newblock {WikiSQL} dataset.
+\newblock Hugging Face Datasets, 2017.
+\newblock URL \url{https://huggingface.co/datasets/Salesforce/wikisql}.
+
+\bibitem[Mitsopoulou and Koutrika(2025)]{mitsopoulou2025analysis}
+Anna Mitsopoulou and Georgia Koutrika.
+\newblock Analysis of {Text-to-SQL} benchmarks: Limitations, challenges and
+  opportunities.
+\newblock In \emph{Proceedings of the 28th International Conference on
+  Extending Database Technology}, pages 199--212, 2025.
+\newblock \doi{10.48786/EDBT.2025.16}.
+
+\bibitem[Finegan-Dollak et~al.(2018)Finegan-Dollak, Kummerfeld, Zhang,
+  Ramanathan, Sadasivam, Zhang, and Radev]{finegandollak2018evaluation}
+Catherine Finegan-Dollak, Jonathan~K. Kummerfeld, Li~Zhang, Karthik Ramanathan,
+  Sesh Sadasivam, Rui Zhang, and Dragomir Radev.
+\newblock Improving {Text-to-SQL} evaluation methodology.
+\newblock In \emph{Proceedings of the 56th Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, pages 351--360, 2018.
+\newblock \doi{10.18653/v1/P18-1033}.
+
+\bibitem[Zhong et~al.(2020)Zhong, Yu, and Klein]{zhong2020testsuites}
+Ruiqi Zhong, Tao Yu, and Dan Klein.
+\newblock Semantic evaluation for {Text-to-SQL} with distilled test suites.
+\newblock In \emph{Proceedings of the 2020 Conference on Empirical Methods in
+  Natural Language Processing}, pages 396--411. Association for Computational
+  Linguistics, 2020.
+\newblock \doi{10.18653/v1/2020.emnlp-main.29}.
+
+\bibitem[Hong et~al.(2025)Hong, Yuan, Zhang, Chen, Dong, Huang, and
+  Huang]{hong2025nextgeneration}
+Zijin Hong, Zheng Yuan, Qinggang Zhang, Hao Chen, Junnan Dong, Feiran Huang,
+  and Xiao Huang.
+\newblock Next-generation database interfaces: A survey of {LLM}-based
+  {Text-to-SQL}, 2025.
+
+\bibitem[Li et~al.(2024)Li, Zhang, Liu, Fan, Zhang, Zhu, Wei, Pan, Li, and
+  Chen]{li2024codes}
+Haoyang Li, Jing Zhang, Hanbing Liu, Ju~Fan, Xiaokang Zhang, Jun Zhu, Renjie
+  Wei, Hongyan Pan, Cuiping Li, and Hong Chen.
+\newblock {CodeS}: Towards building open-source language models for
+  {Text-to-SQL}.
+\newblock \emph{Proceedings of the ACM on Management of Data}, 2\penalty0
+  (3):\penalty0 1--28, 2024.
+\newblock \doi{10.1145/3654930}.
+
+\bibitem[Dettmers et~al.(2023)Dettmers, Pagnoni, Holtzman, and
+  Zettlemoyer]{dettmers2023qlora}
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer.
+\newblock {QLoRA}: Efficient finetuning of quantized {LLMs}.
+\newblock In \emph{Advances in Neural Information Processing Systems 36}, 2023.
+
+\bibitem[Biderman et~al.(2024)Biderman, Portes, Gonzalez~Ortiz, Paul,
+  Greengard, Jennings, King, Havens, Chiley, Frankle, Blakeney, and
+  Cunningham]{biderman2024loralearns}
+Dan Biderman, Jacob Portes, Jose~Javier Gonzalez~Ortiz, Mansheej Paul, Philip
+  Greengard, Connor Jennings, Daniel King, Sam Havens, Vitaliy Chiley, Jonathan
+  Frankle, Cody Blakeney, and John~P. Cunningham.
+\newblock {LoRA} learns less and forgets less.
+\newblock \emph{Transactions on Machine Learning Research}, 2024.
+\newblock ISSN 2835-8856.
+\newblock URL \url{https://openreview.net/forum?id=aloEru2qCG}.
+
+\bibitem[Yao et~al.(2026)Yao, Sun, Borchmann, Shen, Deng, Zhai, Zhang, Li, and
+  He]{yao2025arctic}
+Zhewei Yao, Guoheng Sun, {\L}ukasz Borchmann, Zheyu Shen, Minghang Deng, Bohan
+  Zhai, Hao Zhang, Ang Li, and Yuxiong He.
+\newblock {Arctic-Text2SQL-R1}: Simple rewards, strong reasoning in
+  {Text-to-SQL}.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  ACL 2026}, pages 26966--26995, 2026.
+\newblock \doi{10.18653/v1/2026.findings-acl.1345}.
+
+\bibitem[Yang et~al.(2025)Yang, Wang, Xia, Wei, Ding, Piskac, Chen, and
+  Li]{yang2025sqldriller}
+Yicun Yang, Zhaoguo Wang, Yu~Xia, Zhuoran Wei, Haoran Ding, Ruzica Piskac,
+  Haibo Chen, and Jinyang Li.
+\newblock Automated validating and fixing of {Text-to-SQL} translation with
+  execution consistency.
+\newblock \emph{Proceedings of the ACM on Management of Data}, 3\penalty0
+  (3):\penalty0 1--28, 2025.
+\newblock \doi{10.1145/3725271}.
+
+\bibitem[Xie et~al.(2025)Xie, Ye, Chu, Gao, Liu, Tan, Hu, and Li]{xie2025dcmm}
+Yuanzhen Xie, Liu Ye, Jiqun Chu, Mochi Gao, Hehuan Liu, Yunzhi Tan, Bo~Hu, and
+  Zang Li.
+\newblock {DCMM-SQL}: Automated data-centric pipeline and multi-model
+  collaboration training for {Text-to-SQL} model, 2025.
+
+\bibitem[Zhu and Kang(2026)]{zhu2026noisy}
+Yuxuan Zhu and Daniel Kang.
+\newblock Noisy data is destructive to reinforcement learning with verifiable
+  rewards, 2026.
+
+\bibitem[Pourreza and Rafiei(2023{\natexlab{b}})]{pourreza2023evaluating}
+Mohammadreza Pourreza and Davood Rafiei.
+\newblock Evaluating cross-domain {Text-to-SQL} models and benchmarks.
+\newblock In \emph{Proceedings of the 2023 Conference on Empirical Methods in
+  Natural Language Processing}, pages 1601--1611, 2023{\natexlab{b}}.
+\newblock \doi{10.18653/v1/2023.emnlp-main.99}.
+
+\bibitem[Wretblad et~al.(2024)Wretblad, Riseby, Biswas, Ahmadi, and
+  Holmstr{\"o}m]{wretblad2024noise}
+Niklas Wretblad, Fredrik Riseby, Rahul Biswas, Amin Ahmadi, and Oskar
+  Holmstr{\"o}m.
+\newblock Understanding the effects of noise in {Text-to-SQL}: An examination
+  of the {BIRD-Bench} benchmark.
+\newblock In \emph{Proceedings of the 62nd Annual Meeting of the Association
+  for Computational Linguistics (Volume 2: Short Papers)}, pages 356--369,
+  2024.
+\newblock \doi{10.18653/v1/2024.acl-short.34}.
+
+\bibitem[Abedjan et~al.(2015)Abedjan, Golab, and Naumann]{abedjan2015profiling}
+Ziawasch Abedjan, Lukasz Golab, and Felix Naumann.
+\newblock Profiling relational data: A survey.
+\newblock \emph{The VLDB Journal}, 24\penalty0 (4):\penalty0 557--581, 2015.
+\newblock \doi{10.1007/s00778-015-0389-y}.
+
+\bibitem[Fatehi(2026)]{schemacrawler}
+Sualeh Fatehi.
+\newblock {SchemaCrawler}: Database schema discovery and comprehension tool.
+\newblock \url{https://www.schemacrawler.com/}, 2026.
+
+\bibitem[Memari et~al.(2015)Memari, Link, and Dobbie]{memari2015sql}
+Mozhgan Memari, Sebastian Link, and Gillian Dobbie.
+\newblock {SQL} data profiling of foreign keys.
+\newblock In \emph{Proceedings of the 34th International Conference on
+  Conceptual Modeling}, pages 229--243, 2015.
+\newblock \doi{10.1007/978-3-319-25264-3_17}.
+
+\bibitem[{SQLite}(2025{\natexlab{a}})]{sqliteForeignKeys}
+{SQLite}.
+\newblock {SQLite} foreign key support.
+\newblock \url{https://sqlite.org/foreignkeys.html}, 2025{\natexlab{a}}.
+
+\bibitem[Shen et~al.(2026)Shen, Wan, Qiao, Zou, Xu, Shao, Zhang, Miao, and
+  Pu]{shen2026mapledoctor}
+Jiawei Shen, Chengcheng Wan, Ruoyi Qiao, Jiazhen Zou, Hang Xu, Yuchen Shao,
+  Yueling Zhang, Weikai Miao, and Geguang Pu.
+\newblock Understanding, detecting, and repairing real-world
+  in-context-learning-based text-to-sql errors.
+\newblock \emph{Proceedings of the ACM on Software Engineering}, 3\penalty0
+  (FSE):\penalty0 3722--3745, 2026.
+\newblock \doi{10.1145/3808171}.
+
+\bibitem[Pandey et~al.(2024)Pandey, Patel, Mandvikar, and
+  Kota]{pandey2024validation}
+P.~Pandey, D.~Patel, S.~Mandvikar, and N.~Kota.
+\newblock Ensuring data accuracy in {Text-to-SQL} systems: A comprehensive
+  validation framework.
+\newblock \emph{International Journal of Computer Trends and Technology},
+  72\penalty0 (12):\penalty0 17--24, 2024.
+\newblock \doi{10.14445/22312803/IJCTT-V72I12P103}.
+
+\bibitem[Karwin(2010)]{karwin2010sqlantipatterns}
+Bill Karwin.
+\newblock \emph{{SQL} Antipatterns: Avoiding the Pitfalls of Database
+  Programming}.
+\newblock Pragmatic Bookshelf, 2010.
+
+\bibitem[Arulraj et~al.(2024)]{sqlcheckRepo}
+Joy Arulraj et~al.
+\newblock {SQLCheck}: Automatically identify anti-patterns in {SQL} queries,
+  version 1.3.
+\newblock \url{https://github.com/jarulraj/sqlcheck}, 2024.
+
+\bibitem[Dintyala et~al.(2020)Dintyala, Narechania, and
+  Arulraj]{dintyala2020sqlcheck}
+Prashanth Dintyala, Arpit Narechania, and Joy Arulraj.
+\newblock {SQLCheck}: Automated detection and diagnosis of {SQL} anti-patterns.
+\newblock In \emph{Proceedings of the 2020 ACM SIGMOD International Conference
+  on Management of Data}, pages 2331--2345, 2020.
+\newblock \doi{10.1145/3318464.3389754}.
+
+\bibitem[Brass and Goldberg(2006)]{brass2006semantic}
+Stefan Brass and Christian Goldberg.
+\newblock Semantic errors in {SQL} queries: A quite complete list.
+\newblock \emph{Journal of Systems and Software}, 79\penalty0 (5):\penalty0
+  630--644, 2006.
+\newblock \doi{10.1016/j.jss.2005.06.028}.
+
+\bibitem[S{\'a}enz-P{\'e}rez(2019)]{saenz2019clp}
+Fernando S{\'a}enz-P{\'e}rez.
+\newblock Applying constraint logic programming to {SQL} semantic analysis.
+\newblock \emph{Theory and Practice of Logic Programming}, 19\penalty0
+  (5--6):\penalty0 808--825, 2019.
+
+\bibitem[S{\'a}enz-P{\'e}rez(2025)]{desSystem}
+Fernando S{\'a}enz-P{\'e}rez.
+\newblock {DES}: Datalog educational system, version 6.9.
+\newblock \url{https://des.sourceforge.io/}, 2025.
+
+\bibitem[{SQLite}(2025{\natexlab{b}})]{sqliteBareColumns}
+{SQLite}.
+\newblock {SELECT}: Bare columns in an aggregate query.
+\newblock
+  \url{https://sqlite.org/lang_select.html#bare_columns_in_an_aggregate_query},
+  2025{\natexlab{b}}.
+
+\bibitem[{SQLFluff contributors}(2026)]{sqlfluff}
+{SQLFluff contributors}.
+\newblock {SQLFluff}: A modular {SQL} linter and auto-formatter with support
+  for multiple dialects, version 4.1.0.
+\newblock \url{https://github.com/sqlfluff/sqlfluff}, 2026.
+
+\bibitem[Shu et~al.(2021{\natexlab{a}})Shu, Zhang, Dong, Shi, Yu, and
+  Zhang]{shu2021blec}
+Chang Shu, Yusen Zhang, Xiangyu Dong, Peng Shi, Tao Yu, and Rui Zhang.
+\newblock Logic-consistency text generation from semantic parses.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  ACL-IJCNLP 2021}, pages 4414--4426, 2021{\natexlab{a}}.
+\newblock \doi{10.18653/v1/2021.findings-acl.388}.
+
+\bibitem[Tian and Zhang(2026{\natexlab{a}})]{tian2026pvsql}
+Yuan Tian and Tian Zhang.
+\newblock {PV-SQL}: Synergizing database probing and rule-based verification
+  for {Text-to-SQL} agents.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  ACL 2026}, pages 25827--25845, 2026{\natexlab{a}}.
+\newblock \doi{10.18653/v1/2026.findings-acl.1286}.
+
+\bibitem[Tian and Zhang(2026{\natexlab{b}})]{pvsqlRepo}
+Yuan Tian and Tian Zhang.
+\newblock {PV-SQL}: Synergizing database probing and rule-based verification
+  for {Text-to-SQL} agents, source code.
+\newblock \url{https://github.com/magic-YuanTian/PV-SQL}, 2026{\natexlab{b}}.
+
+\bibitem[Shu et~al.(2021{\natexlab{b}})]{blecRepo}
+Chang Shu et~al.
+\newblock {BLEC}: Bidirectional logic evaluation of consistency, source code.
+\newblock \url{https://github.com/chatc/BLEC}, 2021{\natexlab{b}}.
+
+\bibitem[Jin et~al.(2026)Jin, Choi, Zhu, and Kang]{jin2026annotation}
+Tengjun Jin, Yoojin Choi, Yuxuan Zhu, and Daniel Kang.
+\newblock Pervasive annotation errors break {Text-to-SQL} benchmarks and
+  leaderboards.
+\newblock \emph{Proceedings of the VLDB Endowment}, 19\penalty0 (5):\penalty0
+  931--944, 2026.
+\newblock \doi{10.14778/3796195.3796206}.
+
+\bibitem[Alrashed et~al.(2026)Alrashed, Sukoon, Karger, and
+  Noy]{alrashed2026verification}
+Tarfah Alrashed, Madhup Sukoon, David~R. Karger, and Natasha Noy.
+\newblock Developing and benchmarking verification algorithms to improve
+  {Text-to-SQL} generation.
+\newblock \emph{Proceedings of the VLDB Endowment}, 19\penalty0 (11):\penalty0
+  3732--3744, 2026.
+\newblock \doi{10.14778/3836663.3836721}.
+
+\bibitem[Zhou et~al.(2026)Zhou, Colaco, Galhotra, and Mehrotra]{zhou2026salus}
+Shiyuan Zhou, Ashwin~Gerard Colaco, Sainyam Galhotra, and Sharad Mehrotra.
+\newblock {SALUS}: Automated auditing of {NL-to-SQL} benchmarks through weak
+  supervision of multi-agent output, 2026.
+
+\bibitem[Zheng et~al.(2023)Zheng, Chiang, Sheng, Zhuang, Wu, Zhuang, Lin, Li,
+  Li, Xing, Zhang, Gonzalez, and Stoica]{zheng2023judgingllm}
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao
+  Zhuang, Zi~Lin, Zhuohan Li, Dacheng Li, Eric~P. Xing, Hao Zhang, Joseph~E.
+  Gonzalez, and Ion Stoica.
+\newblock Judging {LLM}-as-a-judge with {MT-Bench} and {Chatbot Arena}.
+\newblock In \emph{Advances in Neural Information Processing Systems 36}, 2023.
+
+\bibitem[Chan et~al.(2024)Chan, Chen, Su, Yu, Xue, Zhang, Fu, and
+  Liu]{chan2024chateval}
+Chi-Min Chan, Weize Chen, Yusheng Su, Jianxuan Yu, Wei Xue, Shanghang Zhang,
+  Jie Fu, and Zhiyuan Liu.
+\newblock {ChatEval}: Towards better {LLM}-based evaluators through multi-agent
+  debate.
+\newblock In \emph{Proceedings of the 12th International Conference on Learning
+  Representations}, 2024.
+
+\end{thebibliography}
