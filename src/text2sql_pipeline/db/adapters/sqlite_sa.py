@@ -121,6 +121,18 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                     primary_keys,
                     columns,
                 )
+                unique_keys, unique_keys_complete = self._unique_keys(
+                    conn, table
+                )
+                for unique_key in unique_keys:
+                    if len(unique_key["columns"]) != 1:
+                        continue
+                    for column in columns:
+                        if (
+                            str(column.get("name", "")).lower()
+                            == unique_key["columns"][0].lower()
+                        ):
+                            column["unique"] = True
                 
                 # Get foreign keys
                 fk_info = conn.exec_driver_sql(f"PRAGMA foreign_key_list({self._qident(table)})").fetchall()
@@ -140,12 +152,32 @@ class SQLiteSAAdapter(FileDBAdapterBase):
                     fk_map[fk_id]["parent_columns"].append(row[4])
                 
                 foreign_keys = list(fk_map.values())
-                
+                try:
+                    check_columns = self._referenced_check_columns(
+                        ddl_row[0] if ddl_row else None
+                    )
+                except Exception:
+                    check_columns = None
+                try:
+                    trigger_row = conn.exec_driver_sql(
+                        "SELECT 1 FROM sqlite_master "
+                        "WHERE type = 'trigger' AND lower(tbl_name) = lower(?) "
+                        "LIMIT 1",
+                        (table,),
+                    ).fetchone()
+                    has_trigger = trigger_row is not None
+                except Exception:
+                    has_trigger = None
+
                 return {
                     "columns": columns,
                     "primary_keys": primary_keys,
                     "primary_key_collations": primary_key_collations,
-                    "foreign_keys": foreign_keys
+                    "unique_keys": unique_keys,
+                    "unique_keys_complete": unique_keys_complete,
+                    "foreign_keys": foreign_keys,
+                    "check_columns": check_columns,
+                    "has_trigger": has_trigger,
                 }
         finally:
             engine.dispose()
@@ -222,7 +254,20 @@ class SQLiteSAAdapter(FileDBAdapterBase):
             # exactly like a parse failure.
             return conservative_fallback()
 
-        columns = list(ast.find_all(exp.ColumnDef))
+        # Only the table's own column definitions declare a collation. sqlglot
+        # also represents ``UNIQUE(code COLLATE BINARY)`` and
+        # ``PRIMARY KEY(id COLLATE BINARY)`` items as ColumnDef nodes, and those
+        # describe the index, not the column.
+        schema = ast.this
+        columns = (
+            [
+                node
+                for node in schema.expressions
+                if isinstance(node, exp.ColumnDef)
+            ]
+            if isinstance(schema, exp.Schema)
+            else []
+        )
         if not columns:
             return conservative_fallback()
 
@@ -297,6 +342,112 @@ class SQLiteSAAdapter(FileDBAdapterBase):
             return None
         except Exception:
             return None
+
+    def _unique_keys(
+        self,
+        conn,
+        table: str,
+    ) -> tuple[List[Dict[str, Any]], bool]:
+        """Return UNIQUE column sets other than the primary key.
+
+        Each set carries the collation its index compares with.  A partial
+        index or an index over an expression restricts rows in a way a column
+        set cannot describe; it is left out and the table is reported as not
+        completely described.
+        """
+        try:
+            indexes = conn.exec_driver_sql(
+                f"PRAGMA index_list({self._qident(table)})"
+            ).fetchall()
+        except Exception:
+            return [], False
+
+        unique_keys: List[Dict[str, Any]] = []
+        complete = True
+        for row in indexes:
+            # row: (seq, name, unique, origin, partial)
+            if len(row) < 5 or not row[2] or str(row[3]).lower() == "pk":
+                continue
+            if row[4]:
+                complete = False
+                continue
+            try:
+                index_columns = conn.exec_driver_sql(
+                    f"PRAGMA index_xinfo({self._qident(str(row[1]))})"
+                ).fetchall()
+            except Exception:
+                complete = False
+                continue
+            # row: (seqno, cid, name, desc, collation, key)
+            key_columns = [item for item in index_columns if item[5]]
+            if not key_columns or any(item[1] < 0 for item in key_columns):
+                complete = False
+                continue
+            unique_keys.append(
+                {
+                    "columns": [str(item[2]) for item in key_columns],
+                    "collations": {
+                        str(item[2]).lower(): str(item[4] or "BINARY").upper()
+                        for item in key_columns
+                    },
+                }
+            )
+        return unique_keys, complete
+
+    def _referenced_check_columns(self, ddl: str | None) -> list[str] | None:
+        """Columns named by CHECK constraints.
+
+        ``[]`` means the DDL was read and no CHECK names a column. ``None``
+        means a CHECK may exist but could not be parsed, so a witness must
+        not assume the key columns are unconstrained.
+        """
+        if not ddl:
+            return None
+        # STRICT rejects values the witness treats as freely insertable, and
+        # WITHOUT ROWID, STRICT does not parse as a table, so both are unread.
+        if re.search(
+            r"\)\s*(?:"
+            r"WITHOUT\s+ROWID\s*,\s*STRICT"
+            r"|STRICT(?:\s*,\s*WITHOUT\s+ROWID)?"
+            r")\s*;?\s*$",
+            ddl,
+            flags=re.IGNORECASE,
+        ):
+            return None
+        if not re.search(r"\bCHECK\b", ddl, flags=re.IGNORECASE):
+            return []
+        try:
+            ast = sqlglot.parse_one(ddl, read="sqlite")
+        except Exception:
+            return None
+        if not isinstance(ast, exp.Create) or not isinstance(ast.this, exp.Schema):
+            return None
+
+        referenced: list[str] = []
+        saw_check = False
+
+        def collect(expression: exp.Expression | None) -> None:
+            nonlocal saw_check
+            saw_check = True
+            if expression is None:
+                return
+            for column in expression.find_all(exp.Column):
+                if column.name:
+                    referenced.append(str(column.name).lower())
+
+        for node in ast.this.expressions:
+            if isinstance(node, exp.CheckColumnConstraint):
+                collect(node.this)
+                continue
+            if not isinstance(node, exp.ColumnDef):
+                continue
+            for constraint in node.args.get("constraints") or []:
+                kind = constraint.args.get("kind")
+                if isinstance(kind, exp.CheckColumnConstraint):
+                    collect(kind.this)
+        if not saw_check:
+            return None
+        return referenced
 
     def columns_contain_null(
         self,

@@ -5,12 +5,29 @@ from pydantic import BaseModel, Field
 from text2sql_pipeline.core.metric import MetricEvent
 
 
+DECISION_DEFECT = "defect"
+DECISION_REMARK = "remark"
+DECISION_UNRESOLVED = "unresolved"
+DECISION_CORRECT = "correct"
+
+
 class AntipatternInstance(BaseModel):
-    """Single antipattern detection instance."""
+    """Single antipattern detection instance.
+
+    ``status`` is the rule decision for one candidate whose antipattern form
+    was found:
+
+    - ``defect``: the harmful consequence is established (classes A-C);
+    - ``remark``: class D form, which does not change the query result;
+    - ``unresolved``: neither safety nor the harmful consequence is established;
+    - ``correct``: the form is present, but its safety is established.
+    """
     pattern: str                    # antipattern identifier (e.g., "select_star")
     severity: str                   # "critical" | "error" | "warning" | "info"
     message: str                    # human-readable description
     location: str = ""              # optional: query location hint
+    status: str = DECISION_DEFECT
+    reason: str = ""                # machine-readable evidence or abstention code
 
 
 class QueryAntipatternFeatures(BaseModel):
@@ -27,10 +44,21 @@ class QueryAntipatternFeatures(BaseModel):
     # ---- Antipattern counts ----
     # NOTE: Severity counts are calculated dynamically from 'antipatterns' JSON field
     #       to support any custom severity levels (critical, high, medium, blocker, p0, etc.)
+    # Defects plus class D remarks, i.e. len(antipatterns).
     total_antipatterns: int = 0
+    defect_count: int = 0
+    remark_count: int = 0
+    unresolved_count: int = 0
+    proved_safe_count: int = 0
     
     # ---- Detected antipatterns (detailed list) ----
+    # Only ``defect`` and ``remark`` records; they drive the boolean flags,
+    # the quality score and the analyzer status.
     antipatterns: List[AntipatternInstance] = Field(default_factory=list)
+    # Forms whose decision is ``unresolved``. Never counted as antipatterns.
+    unresolved: List[AntipatternInstance] = Field(default_factory=list)
+    # Forms whose safety was established (``correct``), kept with their reason.
+    proved_safe: List[AntipatternInstance] = Field(default_factory=list)
     
     # ---- Quick boolean flags for common antipatterns ----
     # Critical severity
@@ -50,7 +78,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_leading_wildcard_like: bool = False    # LIKE '%...' (prevents index use)
     has_limit_without_order_by: bool = False   # LIMIT without ORDER BY (undefined row order)
     has_offset_without_order_by: bool = False  # OFFSET without ORDER BY (undefined result)
-    has_scalar_subquery_cardinality: bool = False  # scalar use without <=1-row proof
+    has_scalar_subquery_cardinality: bool = False  # duplicate-row witness for a scalar subquery
     
     # Medium severity (configurable per dialect)
     has_redundant_distinct: bool = False       # DISTINCT proven redundant

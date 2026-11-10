@@ -5,6 +5,7 @@ Tests the pure antipattern detection API that analyzes SQL queries
 and detects code smells without touching DB/pipeline objects.
 """
 import pytest
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -802,17 +803,43 @@ class TestLeadingWildcardLikeAntipattern:
         
         assert result.has_leading_wildcard_like is False
 
+
+def _group_by_decisions(result):
+    return [
+        record.status
+        for record in result.antipatterns + result.unresolved + result.proved_safe
+        if record.pattern == "missing_group_by"
+    ]
+
+def _not_in_records(result):
+    return [
+        record
+        for record in result.antipatterns + result.unresolved + result.proved_safe
+        if record.pattern == "not_in_nullable"
+    ]
+
+
+def _not_in_decisions(result):
+    return [record.status for record in _not_in_records(result)]
+
+
 class TestNotInNullableAntipattern:
     """Test NOT IN with nullable subquery antipattern detection."""
 
-    def test_not_in_subquery_detected(self):
-        """Test that NOT IN with subquery is detected."""
+    def test_not_in_subquery_without_nullability_metadata_is_unresolved(self):
+        """The form is present, but neither NULL nor NOT NULL is known."""
         sql = "SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM orders)"
         result = detect_antipatterns(sql)
-        
-        assert result.has_not_in_nullable is True
-        assert result.total_antipatterns >= 1
-        assert any(ap.pattern == "not_in_nullable" and ap.severity == "high" for ap in result.antipatterns)
+
+        assert result.has_not_in_nullable is False
+        assert result.defect_count == 0
+        assert result.remark_count == 1  # SELECT * is a class D remark
+        assert result.unresolved_count == 1
+        record = result.unresolved[0]
+        assert record.pattern == "not_in_nullable"
+        assert record.severity == "high"
+        assert record.status == "unresolved"
+        assert record.reason == "no_nullability_metadata"
 
     def test_not_in_list_not_flagged(self):
         """Test that NOT IN with literal list is not flagged."""
@@ -888,13 +915,15 @@ class TestNotInNullableAntipattern:
         assert result.has_null_comparison_equals is True
         assert any(ap.pattern == "null_comparison_equals" for ap in result.antipatterns)
 
-    def test_not_in_subquery_and_null_literal_both_detected(self):
-        """If both subquery and NULL literal issues exist, at least one is flagged."""
-        # This is contrived but tests early return behavior
-        sql = "SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM orders)"
+    def test_not_in_subquery_and_null_literal_are_decided_separately(self):
+        sql = (
+            "SELECT * FROM users WHERE id NOT IN (SELECT user_id FROM orders) "
+            "AND status NOT IN ('a', NULL)"
+        )
         result = detect_antipatterns(sql)
-        
-        assert result.has_not_in_nullable is True
+
+        assert result.has_null_comparison_equals is True
+        assert _not_in_decisions(result) == ["unresolved"]
 
     def test_declared_nullable_projection_is_flagged(self):
         result = detect_antipatterns(
@@ -910,8 +939,10 @@ class TestNotInNullableAntipattern:
             if item.pattern == "not_in_nullable"
         )
         assert "output is nullable" in finding.message
+        assert finding.status == "defect"
+        assert finding.reason == "nullable_column"
 
-    def test_declared_not_null_projection_is_suppressed(self):
+    def test_declared_not_null_projection_is_proved_safe(self):
         result = detect_antipatterns(
             "SELECT * FROM users WHERE id NOT IN "
             "(SELECT user_id FROM orders)",
@@ -920,6 +951,76 @@ class TestNotInNullableAntipattern:
         )
 
         assert result.has_not_in_nullable is False
+        assert result.proved_safe_count == 1
+        assert result.proved_safe[0].status == "correct"
+        assert result.proved_safe[0].reason == "declared_not_null"
+
+    @pytest.mark.parametrize(
+        "condition", ["1 = 0", "FALSE", "0", "x > 1 AND 1 = 2", "1 = 0 OR 2 < 1"]
+    )
+    def test_literally_false_subquery_condition_is_proved_safe(self, condition):
+        """An empty subquery cannot contain NULL, whatever the column admits."""
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            f"(SELECT user_id FROM orders WHERE {condition})",
+            table_columns={"orders": ["user_id", "x"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert result.has_not_in_nullable is False
+        assert [r.reason for r in _not_in_records(result)] == ["empty_subquery"]
+
+    def test_limit_zero_subquery_is_proved_safe(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders LIMIT 0)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert _not_in_decisions(result) == ["correct"]
+
+    def test_aggregate_over_empty_input_still_returns_a_row(self):
+        """MAX over no rows returns one NULL row, so 1 = 0 proves nothing."""
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT MAX(user_id) FROM orders WHERE 1 = 0)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": False}},
+        )
+
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "non_column_projection"
+
+    def test_satisfiable_literal_condition_is_not_an_empty_subquery(self):
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT user_id FROM orders WHERE 1 = 1)",
+            table_columns={"orders": ["user_id"]},
+            column_nullability={"orders": {"user_id": True}},
+        )
+
+        assert _not_in_decisions(result) == ["defect"]
+
+    def test_each_nested_not_in_gets_its_own_decision(self):
+        """The inner NOT IN is safe; it says nothing about the outer one."""
+        result = detect_antipatterns(
+            "SELECT * FROM users WHERE id NOT IN "
+            "(SELECT o.user_id FROM orders o "
+            "WHERE o.user_id NOT IN (SELECT b.user_id FROM blocked b))",
+            table_columns={
+                "orders": ["user_id"],
+                "blocked": ["user_id"],
+            },
+            column_nullability={
+                "orders": {"user_id": True},
+                "blocked": {"user_id": False},
+            },
+        )
+
+        assert sorted(_not_in_decisions(result)) == ["correct", "defect"]
+        assert result.defect_count == 1
+        assert result.proved_safe_count == 1
 
     def test_snapshot_verified_primary_key_is_not_a_static_non_null_proof(self):
         result = detect_antipatterns(
@@ -984,8 +1085,9 @@ class TestNotInNullableAntipattern:
         )
 
         # MAX over an empty input returns NULL even when its argument is
-        # declared NOT NULL, so the expression projection must fail closed.
-        assert result.has_not_in_nullable is True
+        # declared NOT NULL, so safety cannot be established.
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "scalar_list_element"
 
     def test_non_null_scalar_subquery_stays_conservative_when_it_can_be_empty(
         self,
@@ -997,7 +1099,7 @@ class TestNotInNullableAntipattern:
             column_nullability={"orders": {"user_id": False}},
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
 
     def test_wrapped_scalar_subquery_in_value_list_is_analyzed(self):
         result = detect_antipatterns(
@@ -1007,7 +1109,7 @@ class TestNotInNullableAntipattern:
             column_nullability={"orders": {"user_id": False}},
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
 
     @pytest.mark.parametrize("operator", ["AND", "OR"])
     def test_in_subquery_under_negated_compound_predicate_is_analyzed(
@@ -1097,7 +1199,8 @@ class TestNotInNullableAntipattern:
             column_nullability={"t": {"x": False}},
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "quoted_identifier"
 
     def test_inner_join_equality_rejects_null_projected_operand(self):
         result = detect_antipatterns(
@@ -1208,7 +1311,8 @@ class TestNotInNullableAntipattern:
             column_nullability={"orders": {"user_id": False}},
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "grouping_extension"
 
     def test_outer_join_remains_conservative(self):
         result = detect_antipatterns(
@@ -1225,7 +1329,8 @@ class TestNotInNullableAntipattern:
             },
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "outer_join"
 
     def test_anti_join_remains_conservative(self):
         result = detect_antipatterns(
@@ -1239,7 +1344,7 @@ class TestNotInNullableAntipattern:
             },
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
 
     def test_cte_source_remains_conservative(self):
         result = detect_antipatterns(
@@ -1256,7 +1361,7 @@ class TestNotInNullableAntipattern:
             },
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
 
     def test_correlated_subquery_remains_conservative(self):
         result = detect_antipatterns(
@@ -1273,7 +1378,8 @@ class TestNotInNullableAntipattern:
             },
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "unresolved_reference"
 
     def test_tuple_not_in_remains_conservative(self):
         result = detect_antipatterns(
@@ -1285,7 +1391,8 @@ class TestNotInNullableAntipattern:
             },
         )
 
-        assert result.has_not_in_nullable is True
+        assert _not_in_decisions(result) == ["unresolved"]
+        assert _not_in_records(result)[0].reason == "tuple_operand"
 
     def test_multiple_not_in_sites_flag_if_any_site_is_nullable(self):
         result = detect_antipatterns(
@@ -1847,15 +1954,38 @@ class TestCartesianProductAntipattern:
         assert result.has_cartesian_product is False
 
     def test_two_table_join_with_unqualified_column_is_not_cartesian(self):
-        """JOIN between STUDENT and VOTING_RECORD using an unqualified column; should NOT be detected as Cartesian."""
+        """JOIN between STUDENT and VOTING_RECORD using an unqualified column; the
+        schema binds it to VOTING_RECORD, so this is not a Cartesian product."""
         sql = (
             'SELECT count(*) FROM STUDENT AS T1 '
             'JOIN VOTING_RECORD AS T2 ON T1.StuID = Class_Senator_Vote '
             'WHERE T1.Sex = "M" AND T2.Election_Cycle = "Fall"'
         )
+        result = detect_antipatterns(
+            sql,
+            table_columns={
+                "student": ["stuid", "sex"],
+                "voting_record": ["class_senator_vote", "election_cycle"],
+            },
+        )
+
+        assert result.has_cartesian_product is False
+
+    def test_two_table_join_with_unqualified_column_without_schema_is_unresolved(self):
+        """Without a schema the unqualified column may belong to either table."""
+        sql = (
+            "SELECT count(*) FROM STUDENT AS T1 "
+            "JOIN VOTING_RECORD AS T2 ON T1.StuID = Class_Senator_Vote"
+        )
         result = detect_antipatterns(sql)
 
         assert result.has_cartesian_product is False
+        findings = [
+            ap for ap in result.unresolved if ap.pattern == "cartesian_product"
+        ]
+        assert len(findings) == 1
+        assert findings[0].reason == "unbound_column_source"
+        assert "could not be ruled out" in findings[0].message
 
 
     def test_tautological_join_condition_creates_cartesian_three_tables(self):
@@ -2021,6 +2151,58 @@ class TestCartesianProductAntipattern:
         assert result.parseable is True
         assert result.has_cartesian_product is False
 
+
+class TestCartesianBrassGoldbergError27Gaps:
+    """Counterexamples from Brass & Goldberg (JSS 2006, Error 27 "Missing join condition").
+
+    Their test converts the condition to DNF, checks each conjunct separately and
+    exempts a tuple variable pinned by ``X.A = c`` on a key ``A``.
+    """
+
+    TABLE_COLUMNS = {
+        "a": ["id", "x", "y", "k1"],
+        "b": ["id", "x", "z"],
+        "c": ["k1", "k2", "v"],
+    }
+
+    # The branch b.z = 2 combines every a row with every matching b row.
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT a.x FROM a, b WHERE (a.x = b.x AND a.y = 1) OR b.z = 2",
+            "SELECT a.x FROM a JOIN b ON (a.x = b.x AND a.y = 1) OR b.z = 2",
+        ],
+    )
+    def test_or_branch_without_join_condition_is_cartesian(self, sql):
+        result = detect_antipatterns(sql, table_columns=self.TABLE_COLUMNS)
+
+        assert result.has_cartesian_product is True
+
+    def test_source_pinned_by_primary_key_constant_is_not_cartesian(self):
+        """b.id = 5 on the primary key leaves at most one b row."""
+        result = detect_antipatterns(
+            "SELECT a.x FROM a, b WHERE a.x = 1 AND b.id = 5",
+            table_columns=self.TABLE_COLUMNS,
+            primary_keys={"b": ["id"]},
+        )
+
+        assert result.has_cartesian_product is False
+
+    def test_partial_composite_key_join_is_not_reported(self):
+        """Deliberate deviation: any inter-source predicate is a join edge.
+
+        Brass & Goldberg count only foreign key = key equations and would flag
+        joining one column of the composite key (k1, k2).
+        """
+        result = detect_antipatterns(
+            "SELECT a.x, c.v FROM a JOIN c ON a.k1 = c.k1",
+            table_columns=self.TABLE_COLUMNS,
+            primary_keys={"c": ["k1", "k2"]},
+        )
+
+        assert result.has_cartesian_product is False
+
+
 class TestMissingGroupByAntipattern:
     """Test missing GROUP BY antipattern detection."""
 
@@ -2089,7 +2271,7 @@ class TestMissingGroupByAdditional:
         sql = "SELECT country, COUNT(*) FROM singer GROUP BY LOWER(country)"
         result = detect_antipatterns(sql)
 
-        assert result.has_missing_group_by is True
+        assert _group_by_decisions(result) == ["unresolved"]
 
     def test_duplicate_columns_with_aggregate_missing_group_by_flagged(self):
         """
@@ -2277,7 +2459,7 @@ class TestMissingGroupByAdditional:
         # If you implement commutative equivalence in _expression_grouped:
         # assert result.has_missing_group_by is False
         # Otherwise (current behavior, stricter):
-        assert result.has_missing_group_by is True
+        assert _group_by_decisions(result) == ["unresolved"]
 
     def test_select_star_with_aggregate_and_no_group_by_flagged(self):
         """SELECT * together with aggregates and no GROUP BY is a classic antipattern."""
@@ -3192,7 +3374,13 @@ class TestComplexQueries:
         assert result.has_select_star is True
         assert result.has_function_in_where is True
         assert result.has_leading_wildcard_like is True
-        assert result.has_not_in_nullable is True
+        # Without a schema the NOT IN form and the users-orders connection are
+        # both kept as unresolved rather than reported as defects.
+        assert result.has_not_in_nullable is False
+        assert sorted(r.pattern for r in result.unresolved) == [
+            "cartesian_product",
+            "not_in_nullable",
+        ]
 
     def test_worst_case_query(self):
         """Test query with many severe antipatterns."""
@@ -3206,7 +3394,8 @@ class TestComplexQueries:
         result = detect_antipatterns(sql)
         
         assert result.parseable is True
-        assert result.total_antipatterns >= 5
+        assert result.total_antipatterns >= 3
+        assert result.unresolved_count == 2
         assert result.quality_score < 70
         assert result.quality_level in ["poor", "fair"]
 
@@ -3674,7 +3863,7 @@ class TestMissingGroupBySubqueryFix:
         sql = "SELECT country, city, COUNT(*) FROM singer GROUP BY country"
         result = detect_antipatterns(sql)
         
-        assert result.has_missing_group_by is True
+        assert _group_by_decisions(result) == ["unresolved"]
 
     def test_window_function_not_treated_as_missing_group_by(self):
         sql = """
@@ -3732,8 +3921,7 @@ class TestMissingGroupBySubqueryFix:
         """
         result = detect_antipatterns(sql)
 
-        assert result.has_missing_group_by is True
-        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)        
+        assert _group_by_decisions(result) == ["unresolved"]
 
     def test_missing_group_by_with_extra_column_not_in_group(self):
         """Station name grouped, station id not grouped → should be flagged."""
@@ -3747,9 +3935,8 @@ class TestMissingGroupBySubqueryFix:
         """
         result = detect_antipatterns(sql)
 
-        assert result.has_missing_group_by is True
-        assert any(ap.pattern == "missing_group_by" for ap in result.antipatterns)
-        
+        assert _group_by_decisions(result) == ["unresolved"]
+
 class TestAntipatternConfiguration:
     """Test antipattern configuration and dialect-specific detection."""
 
@@ -4455,7 +4642,8 @@ class TestCartesianWhereRescueScoping:
         assert result.has_cartesian_product is True
 
     def test_unqualified_scalar_output_does_not_bridge_real_tables(self):
-        """A known scalar output name must not trigger the two-table heuristic."""
+        """Without a schema scalar_id may also name a column of a or o, so the
+        a-o connection cannot be ruled out and the scope stays unresolved."""
         sql = """
         SELECT *
         FROM accounts AS a
@@ -4463,6 +4651,20 @@ class TestCartesianWhereRescueScoping:
         JOIN (SELECT 1 AS scalar_id) AS s ON a.id = scalar_id
         """
         result = detect_antipatterns(sql)
+        assert result.has_cartesian_product is False
+        assert [ap.pattern for ap in result.unresolved] == ["cartesian_product"]
+
+    def test_unqualified_scalar_output_with_schema_is_cartesian(self):
+        sql = """
+        SELECT *
+        FROM accounts AS a
+        CROSS JOIN orders AS o
+        JOIN (SELECT 1 AS scalar_id) AS s ON a.id = scalar_id
+        """
+        result = detect_antipatterns(
+            sql,
+            table_columns={"accounts": ["id"], "orders": ["id"]},
+        )
         assert result.has_cartesian_product is True
 
     def test_two_unqualified_scalar_outputs_do_not_bridge_real_tables(self):
@@ -4501,17 +4703,69 @@ class TestCartesianWhereRescueScoping:
         assert result.parseable is True
         assert result.has_cartesian_product is False
 
-    def test_using_does_not_heal_disconnected_prefix(self):
-        """USING attaches only after its full left prefix is connected."""
-        sql = """
+    USING_AFTER_CROSS_JOIN = """
         SELECT *
         FROM a
         CROSS JOIN b
         JOIN c USING (id)
         WHERE b.x = c.y
+    """
+
+    def test_using_owner_unknown_without_schema_is_unresolved(self):
+        """SQLite equates c.id with the left-most earlier source that has id.
+
+        Without the schema that owner may be a, which links all three, or b,
+        which leaves a unlinked.
         """
-        result = detect_antipatterns(sql)
-        assert result.has_cartesian_product is True
+        result = detect_antipatterns(self.USING_AFTER_CROSS_JOIN)
+
+        assert result.has_cartesian_product is False
+        assert [
+            (record.status, record.reason)
+            for record in result.unresolved
+            if record.pattern == "cartesian_product"
+        ] == [("unresolved", "unbound_column_source")]
+
+    @pytest.mark.parametrize(
+        "a_columns, expected_rows, cartesian",
+        [
+            # c.id = a.id, b.x = c.y: every source is linked.
+            ("id, p", 1, False),
+            # a has no id, so c.id = b.id and a is combined with everything.
+            ("p", 2, True),
+        ],
+    )
+    def test_using_binds_to_the_left_most_owner(
+        self, a_columns, expected_rows, cartesian
+    ):
+        columns = {
+            "a": [name.strip() for name in a_columns.split(",")],
+            "b": ["id", "x"],
+            "c": ["id", "y"],
+        }
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(f"CREATE TABLE a({a_columns})")
+            conn.execute("CREATE TABLE b(id, x)")
+            conn.execute("CREATE TABLE c(id, y)")
+            a_rows = "(1, 'p1'), (2, 'p2')" if "id" in a_columns else "('p1'), ('p2')"
+            conn.execute(f"INSERT INTO a VALUES {a_rows}")
+            conn.execute("INSERT INTO b VALUES (1, 7)")
+            conn.execute("INSERT INTO c VALUES (1, 7)")
+            rows = conn.execute(self.USING_AFTER_CROSS_JOIN).fetchall()
+        finally:
+            conn.close()
+
+        result = detect_antipatterns(
+            self.USING_AFTER_CROSS_JOIN, table_columns=columns
+        )
+
+        assert len(rows) == expected_rows
+        assert result.has_cartesian_product is cartesian
+        assert not [
+            record for record in result.unresolved
+            if record.pattern == "cartesian_product"
+        ]
 
     def test_using_attaches_to_connected_prefix(self):
         """USING safely extends a prefix already connected by another join."""
@@ -4676,8 +4930,8 @@ class TestGroupByFunctionalDependency:
     """Grouping by a whole primary key determines the table's other columns.
 
     Such a column has exactly one value per group, so returning it is legal and
-    reproducible. Without the key map the check cannot know that and stays
-    syntactic, which is why every case here is asserted both ways.
+    reproducible. Without the key map neither safety nor a violation can be
+    shown, so the form is unresolved; every case here is asserted both ways.
     """
 
     CLUB = {"club": ["club_id"], "player": ["player_id"]}
@@ -4686,7 +4940,7 @@ class TestGroupByFunctionalDependency:
     def test_column_determined_by_the_grouped_key_is_not_reported(self):
         sql = ("SELECT T1.Name, count(*) FROM club AS T1 "
                "JOIN player AS T2 ON T1.Club_ID = T2.Club_ID GROUP BY T1.Club_ID")
-        assert detect_antipatterns(sql).has_missing_group_by is True
+        assert _group_by_decisions(detect_antipatterns(sql)) == ["unresolved"]
         assert detect_antipatterns(sql, primary_keys=self.CLUB).has_missing_group_by is False
 
     def test_column_from_a_table_whose_key_is_not_grouped_is_still_reported(self):
@@ -4751,7 +5005,7 @@ class TestGroupByEqualityPropagation:
         sql = ("SELECT T1.vehicle_id, T1.model FROM vehicle AS T1 "
                "JOIN vehicle_driver AS T2 ON T1.vehicle_id = T2.vehicle_id "
                "GROUP BY T2.vehicle_id HAVING count(*) = 2")
-        assert detect_antipatterns(sql).has_missing_group_by is True
+        assert _group_by_decisions(detect_antipatterns(sql)) == ["unresolved"]
         assert detect_antipatterns(
             sql,
             primary_keys=self.VEHICLE,
@@ -4806,6 +5060,72 @@ class TestGroupByEqualityPropagation:
             },
         ).has_missing_group_by is True
 
+    def test_text_group_key_fixes_a_numeric_join_key(self):
+        # Numeric affinity maps one text value to one number, and the numeric
+        # key holds at most one row per number: '01' matches only key 1.
+        sql = (
+            "SELECT T2.name, count(*) FROM race AS T1 "
+            "JOIN track AS T2 ON T1.track_id = T2.track_id "
+            "GROUP BY T1.track_id"
+        )
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"race": ["race_id"], "track": ["track_id"]},
+            column_comparators={
+                "race": {"track_id": ("TEXT", "BINARY")},
+                "track": {"track_id": ("NUMERIC", "BINARY")},
+            },
+        )
+        assert result.has_missing_group_by is False
+        assert _group_by_decisions(result) == []
+
+    def test_binary_group_key_fixes_a_nocase_join_key(self):
+        sql = (
+            "SELECT a.name, count(*) FROM a JOIN b ON b.x = a.id "
+            "GROUP BY b.x"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"]},
+            column_comparators={
+                "a": {"id": ("TEXT", "NOCASE")},
+                "b": {"x": ("TEXT", "BINARY")},
+            },
+        ).has_missing_group_by is False
+
+    def test_directed_link_composes_with_a_compatible_equality(self):
+        # b.x (TEXT) fixes c.x (TEXT), which fixes the numeric key a.id.
+        sql = (
+            "SELECT a.name, count(*) FROM a "
+            "JOIN c ON c.x = a.id JOIN b ON b.x = c.x "
+            "GROUP BY b.x"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"]},
+            column_comparators={
+                "a": {"id": ("NUMERIC", "BINARY")},
+                "b": {"x": ("TEXT", "BINARY")},
+                "c": {"x": ("TEXT", "BINARY")},
+            },
+        ).has_missing_group_by is False
+
+    def test_directed_link_does_not_run_backwards(self):
+        # The numeric key a.id fixes nothing about the text column b.x, so
+        # grouping by a.id leaves the key of b undetermined.
+        sql = (
+            "SELECT b.name, count(*) FROM a JOIN b ON b.x = a.id "
+            "GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["x"]},
+            column_comparators={
+                "a": {"id": ("NUMERIC", "BINARY")},
+                "b": {"x": ("TEXT", "BINARY")},
+            },
+        ).has_missing_group_by is True
+
     def test_outer_join_does_not_propagate(self):
         # Unmatched rows are padded with NULL, so the equality does not hold.
         sql = ("SELECT t2.name, count(*) FROM program AS t1 LEFT JOIN director AS t2 "
@@ -4829,6 +5149,60 @@ class TestGroupByEqualityPropagation:
                "JOIN vehicle_driver AS T2 ON T1.vehicle_id = T2.vehicle_id "
                "GROUP BY T1.vehicle_id")
         assert detect_antipatterns(sql, primary_keys=self.VEHICLE).has_missing_group_by is True
+
+
+class TestGroupByDecisions:
+    """Each grouping scope gets one decision: defect, unresolved or no record."""
+
+    KEYS = {"emp": ["id"], "dept": ["id"]}
+    COLUMNS = {"emp": ["id", "name", "dept_id"], "dept": ["id", "title"]}
+
+    def _decide(self, sql, **kwargs):
+        return _group_by_decisions(detect_antipatterns(sql, **kwargs))
+
+    def test_grouping_by_non_key_is_defect_with_key_metadata(self):
+        assert self._decide(
+            "SELECT dept_id, name, COUNT(*) FROM emp GROUP BY dept_id",
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ) == ["defect"]
+
+    def test_grouping_by_primary_key_has_no_record(self):
+        assert self._decide(
+            "SELECT id, name, COUNT(*) FROM emp GROUP BY id",
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ) == []
+
+    def test_same_query_without_key_metadata_is_unresolved(self):
+        result = detect_antipatterns(
+            "SELECT id, name, COUNT(*) FROM emp GROUP BY id"
+        )
+        assert _group_by_decisions(result) == ["unresolved"]
+        assert result.unresolved[0].reason == "no_key_metadata"
+
+    def test_aggregate_without_group_by_is_defect_without_schema(self):
+        """All rows form one group; two rows with different names are legal
+        under any schema."""
+        result = detect_antipatterns("SELECT name, COUNT(*) FROM emp")
+        assert _group_by_decisions(result) == ["defect"]
+        assert result.antipatterns[0].reason == "aggregate_without_group_by"
+
+    def test_derived_source_key_is_unknown(self):
+        assert self._decide(
+            "SELECT t.name, COUNT(*) FROM (SELECT name, dept_id FROM emp) AS t "
+            "GROUP BY t.dept_id",
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ) == ["unresolved"]
+
+    def test_every_grouping_scope_is_recorded(self):
+        assert self._decide(
+            "SELECT dept_id, name, COUNT(*) FROM emp GROUP BY dept_id "
+            "UNION SELECT dept_id, name, COUNT(*) FROM emp GROUP BY dept_id",
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        ) == ["defect", "defect"]
 
 
 class TestGroupByFunctionalDependencySoundness:
@@ -4904,9 +5278,9 @@ class TestGroupByFunctionalDependencySoundness:
             "WITH users AS (SELECT department_id AS id, name FROM employees) "
             "SELECT users.name, count(*) FROM users GROUP BY users.id"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql, primary_keys=self.KEYS
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_derived_table_does_not_inherit_alias_named_table_key(self):
         sql = (
@@ -4914,9 +5288,9 @@ class TestGroupByFunctionalDependencySoundness:
             "FROM (SELECT department_id AS id, name FROM employees) AS users "
             "GROUP BY users.id"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql, primary_keys=self.KEYS
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_equality_inside_case_is_not_propagated(self):
         sql = (
@@ -5000,22 +5374,22 @@ class TestGroupByFunctionalDependencySoundness:
 
     def test_postgres_quoted_key_does_not_match_unquoted_column(self):
         sql = 'SELECT payload, count(*) FROM t GROUP BY id'
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql,
             dialect="postgres",
             primary_keys={"t": ["ID"]},
             table_columns={"t": ["ID", "id", "payload"]},
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_correlated_scalar_projection_tracks_outer_bare_column(self):
         sql = (
             "SELECT (SELECT t.payload), count(*) "
             "FROM t GROUP BY t.category"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql,
             table_columns={"t": ["category", "payload"]},
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_correlated_grouped_column_remains_safe(self):
         sql = (
@@ -5033,13 +5407,13 @@ class TestGroupByFunctionalDependencySoundness:
             "EXISTS(SELECT 1 FROM books b WHERE b.author_id = a.id) "
             "FROM authors a GROUP BY a.category"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql,
             table_columns={
                 "authors": ["id", "category"],
                 "books": ["author_id"],
             },
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_deeply_nested_projection_tracks_outer_ungrouped_key(self):
         sql = (
@@ -5048,13 +5422,13 @@ class TestGroupByFunctionalDependencySoundness:
             "WHERE b.author_id = a.id LIMIT 1)) "
             "FROM authors a GROUP BY a.category"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql,
             table_columns={
                 "authors": ["id", "category"],
                 "books": ["title", "author_id"],
             },
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_schema_qualified_source_uses_unique_bare_metadata(self):
         sql = (
@@ -5147,7 +5521,7 @@ class TestGroupByStarAndSQLiteAggregates:
 
     def test_grouping_without_aggregate_still_reports_bare_column(self):
         sql = "SELECT name FROM users GROUP BY department_id"
-        assert detect_antipatterns(sql).has_missing_group_by is True
+        assert _group_by_decisions(detect_antipatterns(sql)) == ["unresolved"]
 
     def test_grouping_without_aggregate_accepts_grouped_column(self):
         sql = "SELECT department_id FROM users GROUP BY department_id"
@@ -5189,11 +5563,11 @@ class TestGroupBySchemaBinding:
             "SELECT id, count(*) FROM authors AS a "
             "JOIN books AS b ON a.id = b.author_id GROUP BY a.id"
         )
-        assert detect_antipatterns(
+        assert _group_by_decisions(detect_antipatterns(
             sql,
             primary_keys=self.KEYS,
             table_columns=self.COLUMNS,
-        ).has_missing_group_by is True
+        )) == ["unresolved"]
 
     def test_schema_unambiguous_projection_binds_to_its_only_source(self):
         sql = (
@@ -5211,3 +5585,308 @@ if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v"])
 
+
+
+class TestCartesianProductScopes:
+    """Join graph across scopes and three-valued connectivity."""
+
+    SCHEMA = {
+        "a": ["id", "x", "y", "n"],
+        "b": ["id", "x", "y"],
+        "c": ["id", "x", "y"],
+        "x": ["id", "a_id", "b_id"],
+        "emp": ["empno", "ename", "deptno"],
+        "dept": ["deptno", "dname"],
+    }
+
+    @staticmethod
+    def _cartesian(result):
+        return [ap for ap in result.antipatterns if ap.pattern == "cartesian_product"]
+
+    def _assert_defect(self, sql, **kwargs):
+        findings = self._cartesian(detect_antipatterns(sql, **kwargs))
+        assert len(findings) == 1
+        assert "Cartesian product detected" in findings[0].message
+
+    def _assert_unresolved(self, sql, **kwargs):
+        result = detect_antipatterns(sql, **kwargs)
+        assert self._cartesian(result) == []
+        unresolved = [
+            ap for ap in result.unresolved if ap.pattern == "cartesian_product"
+        ]
+        assert len(unresolved) == 1
+        assert unresolved[0].status == "unresolved"
+        assert "could not be ruled out" in unresolved[0].message
+
+    def _assert_correct(self, sql, **kwargs):
+        assert self._cartesian(detect_antipatterns(sql, **kwargs)) == []
+
+    @pytest.mark.parametrize("with_schema", [True, False])
+    def test_tables_linked_only_through_correlated_exists(self, with_schema):
+        kwargs = {"table_columns": self.SCHEMA} if with_schema else {}
+        self._assert_correct(
+            "SELECT * FROM a, b WHERE EXISTS "
+            "(SELECT 1 FROM x WHERE x.a_id = a.id AND x.b_id = b.id)",
+            **kwargs,
+        )
+
+    def test_correlated_subquery_with_unlinked_inner_sources_stays_cartesian(self):
+        """Both scopes are Cartesian: x and c are not joined inside the
+        subquery, so it cannot link a and b either. Each scope is recorded."""
+        findings = self._cartesian(
+            detect_antipatterns(
+                "SELECT * FROM a, b WHERE EXISTS "
+                "(SELECT 1 FROM x, c WHERE x.a_id = a.id AND c.id = b.id)",
+                table_columns=self.SCHEMA,
+            )
+        )
+        assert [finding.status for finding in findings] == ["defect", "defect"]
+        assert sorted(
+            finding.location.split(" WHERE")[0] for finding in findings
+        ) == ["SELECT * FROM a CROSS JOIN b", "SELECT 1 FROM x CROSS JOIN c"]
+
+    def test_correlated_subquery_linking_only_one_outer_table_stays_cartesian(self):
+        self._assert_defect(
+            "SELECT * FROM a, b WHERE EXISTS (SELECT 1 FROM x WHERE x.a_id = a.id)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_in_subquery_links_outer_operand_with_correlated_table(self):
+        self._assert_correct(
+            "SELECT * FROM a, b WHERE a.x IN (SELECT c.x FROM c WHERE c.y = b.y)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_nested_correlated_subqueries_link_outer_tables(self):
+        self._assert_correct(
+            "SELECT * FROM a, b WHERE EXISTS (SELECT 1 FROM x WHERE x.a_id = a.id "
+            "AND EXISTS (SELECT 1 FROM c WHERE c.id = x.b_id AND c.x = b.x))",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_link_in_one_union_branch_does_not_connect(self):
+        self._assert_defect(
+            "SELECT * FROM a, b WHERE a.id IN "
+            "(SELECT x.a_id FROM x WHERE x.b_id = b.id UNION SELECT c.id FROM c)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_subquery_tables_linked_only_through_outer_reference_is_cartesian(self):
+        self._assert_defect(
+            "SELECT * FROM a WHERE a.n = "
+            "(SELECT COUNT(*) FROM b, c WHERE b.x = a.x AND c.y = a.y)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_cartesian_only_inside_in_subquery(self):
+        self._assert_defect(
+            "SELECT * FROM a WHERE a.id IN (SELECT b.id FROM b, c)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unqualified_columns_bound_by_schema_connect_tables(self):
+        self._assert_correct(
+            "SELECT ename, dname FROM emp, dept WHERE ename = dname",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unqualified_columns_of_one_table_do_not_connect(self):
+        self._assert_defect(
+            "SELECT * FROM a, b WHERE n = 1 AND a.x = a.y",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unqualified_columns_without_schema_are_unresolved(self):
+        self._assert_unresolved("SELECT ename FROM emp, dept WHERE ename = dname")
+
+    def test_single_unqualified_filter_without_schema_is_still_cartesian(self):
+        self._assert_defect("SELECT * FROM emp, dept WHERE ename = 'x'")
+
+    def test_derived_table_columns_bind_unqualified_reference(self):
+        self._assert_correct(
+            "SELECT * FROM a, (SELECT id AS bid FROM b) AS t WHERE a.id = bid",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unresolved_scope_does_not_hide_later_cartesian_scope(self):
+        findings = self._cartesian(
+            detect_antipatterns(
+                "SELECT * FROM emp, dept WHERE ename = dname "
+                "AND emp.empno IN (SELECT b.id FROM b, c)"
+            )
+        )
+        assert len(findings) == 1
+        assert "Cartesian product detected" in findings[0].message
+
+    def test_natural_join_with_shared_columns_is_not_cartesian(self):
+        self._assert_correct(
+            "SELECT * FROM emp NATURAL JOIN dept", table_columns=self.SCHEMA
+        )
+
+    def test_natural_join_without_shared_columns_is_cartesian(self):
+        self._assert_defect(
+            "SELECT * FROM a NATURAL JOIN dept", table_columns=self.SCHEMA
+        )
+
+    def test_natural_join_without_schema_is_unresolved(self):
+        self._assert_unresolved("SELECT * FROM emp NATURAL JOIN dept")
+
+    def test_reference_to_aliased_table_name_is_unresolved(self):
+        """After aliasing Volunteers as V, Volunteers.x names no source; the
+        query does not run in any engine, so it is not reported as Cartesian."""
+        self._assert_unresolved(
+            "SELECT V.region FROM signups S "
+            "JOIN volunteers V ON S.vid = volunteers.vid"
+        )
+
+    def test_reference_to_undeclared_table_is_unresolved(self):
+        self._assert_unresolved(
+            "SELECT * FROM a, b WHERE a.id = orders.a_id",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unresolved_reference_in_connected_query_stays_correct(self):
+        self._assert_correct(
+            "SELECT * FROM a JOIN b ON a.id = b.id WHERE a.x = orders.x",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unresolved_reference_in_filter_does_not_hide_cartesian(self):
+        """A predicate with one column reference is a filter under any binding,
+        so a broken name in it cannot hide a join condition."""
+        self._assert_defect(
+            "SELECT * FROM a, b WHERE a.x = 1 AND orders.y = 2",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_outer_reference_from_subquery_is_not_unresolved(self):
+        """b and c inside the subquery are linked only through the outer a,
+        which acts as a constant; this stays a proven Cartesian product."""
+        self._assert_defect(
+            "SELECT * FROM a WHERE a.n = "
+            "(SELECT COUNT(*) FROM b, c WHERE b.x = a.x AND c.y = a.y)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_reference_to_grandparent_scope_is_outer_not_unresolved(self):
+        self._assert_defect(
+            "SELECT * FROM a WHERE EXISTS (SELECT 1 FROM x WHERE x.id = a.id "
+            "AND EXISTS (SELECT 1 FROM b, c WHERE b.x = a.x))",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_update_target_referenced_from_subquery_is_outer(self):
+        self._assert_defect(
+            "UPDATE a SET n = (SELECT COUNT(*) FROM b, c WHERE b.x = a.x)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_delete_target_referenced_from_subquery_is_outer(self):
+        self._assert_defect(
+            "DELETE FROM a WHERE EXISTS (SELECT 1 FROM b, c WHERE b.x = a.x)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_unresolved_reference_in_correlated_subquery_is_unresolved(self):
+        self._assert_unresolved(
+            "SELECT * FROM a, b WHERE EXISTS "
+            "(SELECT 1 FROM x WHERE x.a_id = a.id AND x.b_id = bb.id)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_single_outer_reference_compared_with_subquery_is_cartesian(self):
+        """Spider dev 945/946: cost_of_treatment may belong to T1 or T2, but a
+        single reference denotes one source under any binding, and the
+        uncorrelated subquery does not see the outer sources."""
+        self._assert_defect(
+            "SELECT DISTINCT T1.first_name, T1.last_name "
+            "FROM Professionals AS T1 JOIN Treatments AS T2 "
+            "WHERE cost_of_treatment < "
+            "(SELECT avg(cost_of_treatment) FROM Treatments)"
+        )
+
+    @pytest.mark.parametrize(
+        "condition",
+        [
+            "n < (SELECT AVG(c.x) FROM c)",
+            "n IN (SELECT c.id FROM c)",
+        ],
+    )
+    def test_ambiguous_outer_operand_of_uncorrelated_subquery_is_cartesian(
+        self, condition
+    ):
+        """n is a column of a, and the derived table t has unknown columns,
+        so n may denote either source; it still cannot link them."""
+        self._assert_defect(
+            f"SELECT * FROM a, (SELECT * FROM b) AS t WHERE {condition}",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_outer_name_repeated_inside_subquery_is_one_reference(self):
+        """The inner n is not a column of c, so it binds outward exactly like
+        the outer operand n: one reference, no link between a and t."""
+        self._assert_defect(
+            "SELECT * FROM a, (SELECT * FROM b) AS t "
+            "WHERE n IN (SELECT c.id FROM c WHERE c.y = n)",
+            table_columns=self.SCHEMA,
+        )
+
+    def test_two_unqualified_outer_references_through_subquery_are_unresolved(
+        self,
+    ):
+        """Without the schema p and q may name columns of different outer
+        tables, so the subquery may link a and b."""
+        self._assert_unresolved(
+            "SELECT * FROM a, b WHERE p IN (SELECT d.z FROM d WHERE d.z = q)"
+        )
+
+
+class TestMissingGroupByDialectKeyPropagation:
+    """PostgreSQL accepts a projection only when the primary key of its own
+    table is grouped directly; SQLite returns a determined value also when the
+    key is carried over by a join equality."""
+
+    PK = {"singer": ["singer_id"], "song": ["song_id"]}
+    COLUMNS = {
+        "singer": ["singer_id", "name", "country"],
+        "song": ["song_id", "singer_id", "title"],
+    }
+    COMPARATORS = {
+        "singer": {"singer_id": ("INTEGER", "BINARY")},
+        "song": {"singer_id": ("INTEGER", "BINARY")},
+    }
+    JOIN = (
+        "SELECT T1.name, COUNT(*) FROM singer AS T1 "
+        "JOIN song AS T2 ON T1.singer_id = T2.singer_id "
+    )
+
+    def _flagged(self, sql, dialect):
+        result = detect_antipatterns(
+            sql,
+            dialect=dialect,
+            primary_keys=self.PK,
+            table_columns=self.COLUMNS,
+            column_comparators=self.COMPARATORS,
+        )
+        return result.has_missing_group_by
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "postgres"])
+    def test_own_table_key_determines_projection(self, dialect):
+        assert self._flagged(self.JOIN + "GROUP BY T1.singer_id", dialect) is False
+
+    def test_join_carried_key_determines_projection_in_sqlite(self):
+        assert self._flagged(self.JOIN + "GROUP BY T2.singer_id", "sqlite") is False
+
+    def test_join_carried_key_is_rejected_by_postgres(self):
+        assert self._flagged(self.JOIN + "GROUP BY T2.singer_id", "postgres") is True
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "postgres"])
+    def test_non_key_grouping_is_flagged(self, dialect):
+        assert self._flagged(self.JOIN + "GROUP BY T1.country", dialect) is True
+
+    @pytest.mark.parametrize("dialect", ["sqlite", "postgres"])
+    def test_star_of_single_table_grouped_by_key(self, dialect):
+        assert (
+            self._flagged("SELECT * FROM singer GROUP BY singer_id", dialect)
+            is False
+        )

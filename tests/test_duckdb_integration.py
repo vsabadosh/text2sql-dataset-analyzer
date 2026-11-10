@@ -347,3 +347,50 @@ def test_antipattern_sink_migrates_and_stores_appended_flags():
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
+
+
+def test_antipattern_decisions_are_stored_and_reported_separately():
+    """Defects stay in K1; unresolved forms get their own section and counts."""
+    from text2sql_pipeline.analyzers.query_antipattern.antipattern_detector import (
+        detect_antipatterns,
+    )
+
+    queries = {
+        "1": "SELECT name FROM emp WHERE id NOT IN (SELECT user_id FROM orders)",
+        "2": "SELECT name FROM emp WHERE id NOT IN (SELECT MAX(user_id) FROM orders)",
+    }
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = os.path.join(tmpdir, "test.duckdb")
+        sink = DuckDBMetricsSink(db_path)
+        for item_id, sql in queries.items():
+            features = detect_antipatterns(
+                sql,
+                table_columns={"emp": ["id", "name"], "orders": ["user_id"]},
+                column_nullability={"orders": {"user_id": True}},
+            )
+            sink.write(
+                QueryAntipatternMetricEvent(
+                    dataset_id="test_dataset",
+                    item_id=item_id,
+                    db_id="db",
+                    status="warns" if features.total_antipatterns else "ok",
+                    success=True,
+                    duration_ms=1.0,
+                    features=features,
+                )
+            )
+        sink.flush()
+
+        rows = sink.conn.execute(
+            "SELECT item_id, defect_count, unresolved_count, has_not_in_nullable "
+            "FROM metrics_query_antipattern ORDER BY item_id"
+        ).fetchall()
+        assert rows == [("1", 1, 0, True), ("2", 0, 1, False)]
+        sink.conn.close()
+
+        generator = MarkdownReportGenerator(db_path)
+        text = generator._generate_antipatterns_quality("metrics_query_antipattern")
+        k1, unresolved_section = text.split("#### K1.2)", 1)
+        assert "| NOT IN with nullable | B | Defect | 1 | 1 |" in k1
+        assert "`non_column_projection`" in unresolved_section
+        assert "**item_id list:** 2" in unresolved_section

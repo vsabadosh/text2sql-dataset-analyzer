@@ -67,6 +67,16 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             str, dict[str, dict[str, tuple[str, str]]]
         ] = {}
         self._column_type_cache: dict[str, dict[str, dict[str, str]]] = {}
+        self._unique_key_cache: dict[str, dict[str, list[list[str]]]] = {}
+        self._unmodeled_key_table_cache: dict[str, set[str]] = {}
+        self._nullable_key_cache: dict[str, dict[str, list[list[str]]]] = {}
+        self._mismatched_collation_key_cache: dict[
+            str, dict[str, list[list[str]]]
+        ] = {}
+        self._foreign_key_cache: dict[str, dict[str, list[list[str]]]] = {}
+        self._check_column_cache: dict[str, dict[str, list[str]]] = {}
+        self._triggered_table_cache: dict[str, set[str]] = {}
+        self._unknown_constraint_table_cache: dict[str, set[str]] = {}
         
         # Use helper function to select config for dialect
         # This keeps the analyzer itself dialect-agnostic - it just uses a helper
@@ -141,7 +151,9 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 "status": status,
                 "quality_score": features.quality_score if parseable else None,
                 "quality_level": features.quality_level if parseable else "unknown",
-                "antipattern_count": features.total_antipatterns if parseable else None
+                "antipattern_count": features.total_antipatterns if parseable else None,
+                "defect_count": features.defect_count if parseable else None,
+                "unresolved_count": features.unresolved_count if parseable else None,
             })
 
             yield item
@@ -175,6 +187,14 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             and db_id in self._column_nullability_cache
             and db_id in self._column_comparator_cache
             and db_id in self._column_type_cache
+            and db_id in self._unique_key_cache
+            and db_id in self._unmodeled_key_table_cache
+            and db_id in self._nullable_key_cache
+            and db_id in self._mismatched_collation_key_cache
+            and db_id in self._foreign_key_cache
+            and db_id in self._check_column_cache
+            and db_id in self._triggered_table_cache
+            and db_id in self._unknown_constraint_table_cache
         ):
             return
 
@@ -184,6 +204,14 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         nullability: dict[str, dict[str, bool]] = {}
         comparators: dict[str, dict[str, tuple[str, str]]] = {}
         column_types: dict[str, dict[str, str]] = {}
+        unique_keys: dict[str, list[list[str]]] = {}
+        unmodeled_key_tables: set[str] = set()
+        nullable_keys: dict[str, list[list[str]]] = {}
+        mismatched_collation_keys: dict[str, list[list[str]]] = {}
+        foreign_keys: dict[str, list[list[str]]] = {}
+        check_columns: dict[str, list[str]] = {}
+        triggered_tables: set[str] = set()
+        unknown_constraint_tables: set[str] = set()
         try:
             for table in self.db_manager.get_tables(db_id):
                 info = self.db_manager.get_table_info(db_id, table) or {}
@@ -249,45 +277,90 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                         family,
                         collation,
                     )
+                column_by_name = {
+                    str(column["name"]).lower(): column
+                    for column in table_columns
+                }
+
+                def normalize(names):
+                    return [
+                        str(name) if case_sensitive_catalog else str(name).lower()
+                        for name in names
+                    ]
+
+                if info.get("unique_keys_complete") is False:
+                    unmodeled_key_tables.add(table_name)
+                for unique_key in info.get("unique_keys") or []:
+                    unique_columns = normalize(unique_key["columns"])
+                    trust = self._key_trust(
+                        db_id,
+                        table,
+                        unique_columns,
+                        unique_key.get("collations"),
+                        column_by_name,
+                    )
+                    if trust == "proved":
+                        unique_keys.setdefault(table_name, []).append(
+                            unique_columns
+                        )
+                    elif trust == "blocking":
+                        unmodeled_key_tables.add(table_name)
+                    elif trust == "inert":
+                        # NULL-distinct, so GROUP BY may ignore it, but a
+                        # copied non-null value would still violate UNIQUE.
+                        # A mismatched index collation cannot prove a pin.
+                        self._store_inert_key(
+                            table_name,
+                            unique_columns,
+                            unique_key.get("collations"),
+                            column_by_name,
+                            nullable_keys,
+                            mismatched_collation_keys,
+                        )
+
                 keys = info.get("primary_keys")
                 if keys:
-                    normalized_keys = [
-                        (
-                            str(key)
-                            if case_sensitive_catalog
-                            else str(key).lower()
+                    normalized_keys = normalize(keys)
+                    trust = self._key_trust(
+                        db_id,
+                        table,
+                        normalized_keys,
+                        info.get("primary_key_collations"),
+                        column_by_name,
+                    )
+                    if trust == "proved":
+                        mapping[table_name] = normalized_keys
+                    elif trust == "blocking":
+                        unmodeled_key_tables.add(table_name)
+                    elif trust == "inert":
+                        self._store_inert_key(
+                            table_name,
+                            normalized_keys,
+                            info.get("primary_key_collations"),
+                            column_by_name,
+                            nullable_keys,
+                            mismatched_collation_keys,
                         )
-                        for key in keys
+
+                local_keys = []
+                for foreign_key in info.get("foreign_keys") or []:
+                    local = [
+                        str(column).lower()
+                        for column in (foreign_key.get("local") or [])
                     ]
-                    if self.db_dialect == "sqlite":
-                        key_collations = info.get(
-                            "primary_key_collations"
-                        )
-                        column_by_name = {
-                            str(column["name"]).lower(): column
-                            for column in table_columns
-                        }
-                        if not isinstance(key_collations, dict) or any(
-                            key.lower() not in key_collations
-                            or column_by_name.get(key.lower(), {}).get(
-                                "collation"
-                            )
-                            is None
-                            or str(
-                                column_by_name[key.lower()]["collation"]
-                            ).upper()
-                            != str(
-                                key_collations[key.lower()]
-                            ).upper()
-                            for key in normalized_keys
-                        ):
-                            continue
-                        contains_null = self.db_manager.columns_contain_null(
-                            db_id, table, normalized_keys
-                        )
-                        if contains_null is not False:
-                            continue
-                    mapping[table_name] = normalized_keys
+                    if local:
+                        local_keys.append(local)
+                foreign_keys[table_name] = local_keys
+                raw_checks = info.get("check_columns", None)
+                has_trigger = info.get("has_trigger", None)
+                if raw_checks is None or not isinstance(has_trigger, bool):
+                    unknown_constraint_tables.add(table_name)
+                else:
+                    check_columns[table_name] = [
+                        str(column).lower() for column in raw_checks
+                    ]
+                    if has_trigger:
+                        triggered_tables.add(table_name)
         except Exception:
             mapping = {}
             columns = {}
@@ -295,6 +368,14 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
             nullability = {}
             comparators = {}
             column_types = {}
+            unique_keys = {}
+            unmodeled_key_tables = set()
+            nullable_keys = {}
+            mismatched_collation_keys = {}
+            foreign_keys = {}
+            check_columns = {}
+            triggered_tables = set()
+            unknown_constraint_tables = set()
 
         self._primary_key_cache[db_id] = mapping
         self._table_column_cache[db_id] = columns
@@ -302,6 +383,91 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         self._column_nullability_cache[db_id] = nullability
         self._column_comparator_cache[db_id] = comparators
         self._column_type_cache[db_id] = column_types
+        self._unique_key_cache[db_id] = unique_keys
+        self._unmodeled_key_table_cache[db_id] = unmodeled_key_tables
+        self._nullable_key_cache[db_id] = nullable_keys
+        self._mismatched_collation_key_cache[db_id] = mismatched_collation_keys
+        self._foreign_key_cache[db_id] = foreign_keys
+        self._check_column_cache[db_id] = check_columns
+        self._triggered_table_cache[db_id] = triggered_tables
+        self._unknown_constraint_table_cache[db_id] = unknown_constraint_tables
+
+    def _key_trust(
+        self,
+        db_id: str,
+        table: str,
+        key_columns: list[str],
+        key_collations,
+        column_by_name: dict,
+    ) -> str:
+        """Classify a declared PRIMARY KEY or UNIQUE column set.
+
+        ``proved``: the key fixes one row per value, so it may justify a
+        functional dependency.  SQLite needs the key index to compare like the
+        columns themselves and no NULL key component, since NULLs never
+        collide.  The NULL check reads the current snapshot.
+
+        ``blocking``: the key is not used as a proof, yet every component is
+        statically NOT NULL, so it can still forbid two rows that a
+        counterexample would need.
+
+        ``inert``: some component may hold NULL in every schema-valid state, so
+        a counterexample can set it to NULL and the key never forbids it.
+        """
+        if self.db_dialect != "sqlite":
+            return "proved"
+        statically_non_null = all(
+            column_by_name.get(key.lower(), {}).get("static_non_null") is True
+            for key in key_columns
+        )
+        fallback = "blocking" if statically_non_null else "inert"
+        if not self._key_collation_matches(
+            key_columns, key_collations, column_by_name
+        ):
+            return fallback
+        contains_null = self.db_manager.columns_contain_null(
+            db_id, table, key_columns
+        )
+        if contains_null is not False:
+            return fallback
+        return "proved"
+
+    @staticmethod
+    def _key_collation_matches(
+        key_columns: list[str],
+        key_collations,
+        column_by_name: dict,
+    ) -> bool:
+        """Whether the key index compares each component like the column."""
+        if not isinstance(key_collations, dict):
+            return False
+        for key in key_columns:
+            column_collation = column_by_name.get(key.lower(), {}).get("collation")
+            index_collation = key_collations.get(key.lower())
+            if column_collation is None or index_collation is None:
+                return False
+            if str(column_collation).upper() != str(index_collation).upper():
+                return False
+        return True
+
+    @staticmethod
+    def _store_inert_key(
+        table_name: str,
+        columns: list[str],
+        key_collations,
+        column_by_name: dict,
+        nullable_keys: dict,
+        mismatched_collation_keys: dict,
+    ) -> None:
+        """Keep a NULL-able key as a pin, and a collation mismatch as a witness only."""
+        target = (
+            nullable_keys
+            if QueryAntipatternAnalyzer._key_collation_matches(
+                columns, key_collations, column_by_name
+            )
+            else mismatched_collation_keys
+        )
+        target.setdefault(table_name, []).append(columns)
 
     @staticmethod
     def _catalog_name(column: dict, case_sensitive: bool) -> str:
@@ -365,6 +531,46 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
         self._load_schema_metadata(db_id)
         return self._column_type_cache[db_id]
 
+    def _unique_keys(self, db_id: str) -> dict:
+        """Return verified non-null UNIQUE column sets per table."""
+        self._load_schema_metadata(db_id)
+        return self._unique_key_cache[db_id]
+
+    def _unmodeled_key_tables(self, db_id: str) -> set:
+        """Return tables with a uniqueness constraint no key map describes."""
+        self._load_schema_metadata(db_id)
+        return self._unmodeled_key_table_cache[db_id]
+
+    def _nullable_keys(self, db_id: str) -> dict:
+        """Return NULL-able keys whose index compares like the columns."""
+        self._load_schema_metadata(db_id)
+        return self._nullable_key_cache[db_id]
+
+    def _mismatched_collation_keys(self, db_id: str) -> dict:
+        """Return keys whose index collation differs from the columns."""
+        self._load_schema_metadata(db_id)
+        return self._mismatched_collation_key_cache[db_id]
+
+    def _foreign_keys(self, db_id: str) -> dict:
+        """Return local column lists of each table's foreign keys."""
+        self._load_schema_metadata(db_id)
+        return self._foreign_key_cache[db_id]
+
+    def _check_columns(self, db_id: str) -> dict:
+        """Return columns named by a parsed CHECK constraint."""
+        self._load_schema_metadata(db_id)
+        return self._check_column_cache[db_id]
+
+    def _triggered_tables(self, db_id: str) -> set:
+        """Return tables that have at least one trigger."""
+        self._load_schema_metadata(db_id)
+        return self._triggered_table_cache[db_id]
+
+    def _unknown_constraint_tables(self, db_id: str) -> set:
+        """Return tables whose CHECK or trigger status could not be read."""
+        self._load_schema_metadata(db_id)
+        return self._unknown_constraint_table_cache[db_id]
+
     def _analyze_query(self, item: DataItem):
         """
         Detect antipatterns in SQL query.
@@ -386,6 +592,18 @@ class QueryAntipatternAnalyzer(AnnotatingAnalyzer):
                 config=self.antipattern_config,
                 penalties=self.penalties_config,
                 primary_keys=self._primary_keys(item.dbId),
+                unique_keys=self._unique_keys(item.dbId),
+                unmodeled_key_tables=self._unmodeled_key_tables(item.dbId),
+                nullable_keys=self._nullable_keys(item.dbId),
+                mismatched_collation_keys=self._mismatched_collation_keys(
+                    item.dbId
+                ),
+                foreign_keys=self._foreign_keys(item.dbId),
+                check_columns=self._check_columns(item.dbId),
+                triggered_tables=self._triggered_tables(item.dbId),
+                unknown_constraint_tables=self._unknown_constraint_tables(
+                    item.dbId
+                ),
                 table_columns=self._table_columns(item.dbId),
                 column_nullability=self._column_nullability(item.dbId),
                 column_comparators=self._column_comparators(item.dbId),

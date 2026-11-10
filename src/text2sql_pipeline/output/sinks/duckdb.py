@@ -170,6 +170,12 @@ class DuckDBMetricsSink(MetricsSink):
                         ("has_literal_division_by_zero", "BOOLEAN"),
                         ("has_scalar_subquery_cardinality", "BOOLEAN"),
                         ("has_template_placeholder_literal", "BOOLEAN"),
+                        ("defect_count", "INTEGER"),
+                        ("remark_count", "INTEGER"),
+                        ("unresolved_count", "INTEGER"),
+                        ("proved_safe_count", "INTEGER"),
+                        ("unresolved", "JSON"),
+                        ("proved_safe", "JSON"),
                     ],
                 )
             elif analyzer_name == "question_sql_consistency":
@@ -430,6 +436,15 @@ class DuckDBMetricsSink(MetricsSink):
             has_literal_division_by_zero BOOLEAN,
             has_scalar_subquery_cardinality BOOLEAN,
             has_template_placeholder_literal BOOLEAN,
+
+            -- Rule decisions. 'antipatterns' holds defects and class D
+            -- remarks only; unresolved and proved-safe forms are separate.
+            defect_count INTEGER,
+            remark_count INTEGER,
+            unresolved_count INTEGER,
+            proved_safe_count INTEGER,
+            unresolved JSON,
+            proved_safe JSON,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -785,71 +800,72 @@ class DuckDBMetricsSink(MetricsSink):
             features = rec.get("features", {})
             stats = rec.get("stats", {})
             tags = rec.get("tags", {})
-            
-            self.conn.execute(f"""
-                INSERT INTO {table_name} VALUES (
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, 
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, 
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
-            """, [
+
+            # Named columns: a table widened by ALTER TABLE in an earlier run
+            # may hold the appended columns in a different physical order.
+            values = {
                 # Metadata
-                rec.get("ts"),
-                rec.get("spec_version"),
-                rec.get("dataset_id"),
-                rec.get("item_id"),
-                rec.get("db_id"),
+                "ts": rec.get("ts"),
+                "spec_version": rec.get("spec_version"),
+                "dataset_id": rec.get("dataset_id"),
+                "item_id": rec.get("item_id"),
+                "db_id": rec.get("db_id"),
                 # Event identity
-                rec.get("event_type"),
-                rec.get("name"),
+                "event_type": rec.get("event_type"),
+                "name": rec.get("name"),
                 # Status
-                rec.get("status"),
-                rec.get("success"),
-                rec.get("duration_ms"),
-                rec.get("err"),
+                "status": rec.get("status"),
+                "success": rec.get("success"),
+                "duration_ms": rec.get("duration_ms"),
+                "err": rec.get("err"),
                 # Features
-                features.get("parseable"),
-                # Critical
-                features.get("has_unsafe_update_delete"),
-                features.get("has_null_comparison_equals"),
-                features.get("has_cartesian_product"),
-                features.get("has_missing_group_by"),
-                # High
-                features.get("has_function_in_where"),
-                features.get("has_not_in_nullable"),
-                features.get("has_leading_wildcard_like"),
-                # Medium
-                features.get("has_redundant_distinct"),
-                features.get("has_correlated_subquery"),
-                # Disabled
-                features.get("has_select_star"),
-                features.get("has_select_in_exists"),
+                "parseable": features.get("parseable"),
+                "has_unsafe_update_delete": features.get("has_unsafe_update_delete"),
+                "has_null_comparison_equals": features.get("has_null_comparison_equals"),
+                "has_cartesian_product": features.get("has_cartesian_product"),
+                "has_missing_group_by": features.get("has_missing_group_by"),
+                "has_function_in_where": features.get("has_function_in_where"),
+                "has_not_in_nullable": features.get("has_not_in_nullable"),
+                "has_leading_wildcard_like": features.get("has_leading_wildcard_like"),
+                "has_redundant_distinct": features.get("has_redundant_distinct"),
+                "has_correlated_subquery": features.get("has_correlated_subquery"),
+                "has_select_star": features.get("has_select_star"),
+                "has_select_in_exists": features.get("has_select_in_exists"),
                 # Counts
-                features.get("total_antipatterns"),
-                features.get("quality_score"),
-                features.get("quality_level"),
+                "total_antipatterns": features.get("total_antipatterns"),
+                "quality_score": features.get("quality_score"),
+                "quality_level": features.get("quality_level"),
                 # Details
-                json.dumps(features.get("antipatterns", [])),
+                "antipatterns": json.dumps(features.get("antipatterns", [])),
                 # Stats
-                stats.get("collect_ms"),
-                stats.get("parser"),
-                stats.get("dialect"),
-                json.dumps(stats.get("errors", [])),
-                json.dumps(stats.get("warnings", [])),
+                "collect_ms": stats.get("collect_ms"),
+                "parser": stats.get("parser"),
+                "dialect": stats.get("dialect"),
+                "errors": json.dumps(stats.get("errors", [])),
+                "warnings": json.dumps(stats.get("warnings", [])),
                 # Tags
-                tags.get("dialect"),
+                "tags_dialect": tags.get("dialect"),
                 # Appended feature columns
-                features.get("has_chained_comparison_semantics"),
-                features.get("has_conditional_count_non_null_else"),
-                features.get("has_unquoted_date_arithmetic"),
-                features.get("has_literal_division_by_zero"),
-                features.get("has_scalar_subquery_cardinality"),
-                features.get("has_template_placeholder_literal"),
-            ])
+                "has_chained_comparison_semantics": features.get("has_chained_comparison_semantics"),
+                "has_conditional_count_non_null_else": features.get("has_conditional_count_non_null_else"),
+                "has_unquoted_date_arithmetic": features.get("has_unquoted_date_arithmetic"),
+                "has_literal_division_by_zero": features.get("has_literal_division_by_zero"),
+                "has_scalar_subquery_cardinality": features.get("has_scalar_subquery_cardinality"),
+                "has_template_placeholder_literal": features.get("has_template_placeholder_literal"),
+                # Rule decisions
+                "defect_count": features.get("defect_count"),
+                "remark_count": features.get("remark_count"),
+                "unresolved_count": features.get("unresolved_count"),
+                "proved_safe_count": features.get("proved_safe_count"),
+                "unresolved": json.dumps(features.get("unresolved", [])),
+                "proved_safe": json.dumps(features.get("proved_safe", [])),
+            }
+            columns = ", ".join(values)
+            placeholders = ", ".join("?" for _ in values)
+            self.conn.execute(
+                f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})",
+                list(values.values()),
+            )
     
     def _insert_question_sql_consistency(self, table_name: str, records: list[Dict[str, Any]]) -> None:
         """Insert deterministic question-SQL consistency records."""

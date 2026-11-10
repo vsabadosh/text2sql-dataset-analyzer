@@ -12,6 +12,7 @@ from datetime import datetime
 try:
     from text2sql_pipeline.analyzers.query_antipattern.antipattern_registry import (
         get_antipattern_name,
+        get_impact_class,
         get_severity_emoji,
         get_severity_label,
         get_severity_order
@@ -20,6 +21,9 @@ except ImportError:
     # Fallback if import fails (shouldn't happen in production)
     def get_antipattern_name(pattern: str) -> str:
         return pattern.replace("_", " ").title()
+
+    def get_impact_class(pattern: str) -> str:
+        return "-"
     
     def get_severity_emoji(severity: str) -> str:
         return {"critical": "🔴", "error": "🟠", "warning": "⚠️", "info": "🔵"}.get(severity, "⚪")
@@ -755,6 +759,8 @@ class MarkdownReportGenerator:
                 lines.append(f"- **Average Quality Score:** {avg_quality:.1f}/100")
                 lines.append(f"- **Average Antipatterns per Query:** {avg_antipatterns:.2f}")
                 lines.append("")
+
+            lines.extend(self._antipattern_decision_summary(table))
             
             # Count antipatterns by severity dynamically from JSON
             severity_counts = self.conn.execute(f"""
@@ -851,6 +857,94 @@ class MarkdownReportGenerator:
             lines.append(f"*Error: {e}*")
         
         return "\n".join(lines)
+
+    _DECISION_COUNT_COLUMNS = (
+        ("defect_count", "Defects (classes A-C)"),
+        ("remark_count", "Remarks (class D, no effect on the result)"),
+        ("unresolved_count", "Unresolved forms"),
+        ("proved_safe_count", "Forms proved safe"),
+    )
+
+    def _antipattern_decision_summary(self, table: str) -> list[str]:
+        """Totals per rule decision, each with the number of affected queries.
+
+        Files written before decisions were recorded have no count columns and
+        produce no lines.
+        """
+        columns = self._table_columns(table)
+        if not all(name in columns for name, _ in self._DECISION_COUNT_COLUMNS):
+            return []
+        lines = ["**By decision:**", ""]
+        for name, label in self._DECISION_COUNT_COLUMNS:
+            total, queries = self.conn.execute(f"""
+                SELECT COALESCE(SUM({name}), 0),
+                       COUNT(*) FILTER (WHERE COALESCE({name}, 0) > 0)
+                FROM {table}
+                WHERE parseable = true AND status != 'skipped'
+            """).fetchone()
+            lines.append(f"- **{label}:** {int(total):,} in {int(queries):,} queries")
+        lines.append("")
+        return lines
+
+    def _antipattern_decision_table(
+        self,
+        table: str,
+        column: str,
+        title: str,
+        total_queries: int,
+        include_item_ids: bool,
+    ) -> list[str]:
+        """Group one decision list (``unresolved`` or ``proved_safe``) by
+        pattern and reason code."""
+        if column not in self._table_columns(table):
+            return []
+        rows = self.conn.execute(f"""
+            SELECT
+                json_extract_string(rec, '$.pattern') AS pattern,
+                COALESCE(json_extract_string(rec, '$.reason'), '') AS reason,
+                COUNT(*) AS occurrences,
+                COUNT(DISTINCT item_id) AS affected_queries,
+                LIST(DISTINCT item_id) AS item_ids
+            FROM (
+                SELECT item_id,
+                       unnest(COALESCE(TRY_CAST({column} AS JSON[]), [])) AS rec
+                FROM {table}
+                WHERE parseable = true AND status != 'skipped'
+            )
+            WHERE rec IS NOT NULL
+            GROUP BY pattern, reason
+            ORDER BY affected_queries DESC, pattern, reason
+        """).fetchall()
+
+        lines = [title, ""]
+        if not rows:
+            lines.extend(["*None.*", ""])
+            return lines
+        lines.append("| Antipattern | Class | Reason | Occurrences | Affected Queries | % of Queries |")
+        lines.append("|-------------|-------|--------|-------------|------------------|--------------|")
+        for pattern, reason, occurrences, affected, _ in rows:
+            pct = round(affected * 100.0 / total_queries, 1) if total_queries else 0
+            lines.append(
+                f"| {get_antipattern_name(pattern)} | {get_impact_class(pattern)} "
+                f"| `{reason or '-'}` | {occurrences:,} | {affected:,} | {pct}% |"
+            )
+        lines.append("")
+        if include_item_ids:
+            for pattern, reason, _, affected, item_ids in rows:
+                lines.append(f"##### {get_antipattern_name(pattern)} — `{reason or '-'}`")
+                lines.append("")
+                lines.append(f"- **Affected queries (item_id): {affected:,}")
+                lines.append(f"- **item_id list:** {', '.join(self._sorted_item_ids(item_ids))}")
+                lines.append("")
+        return lines
+
+    @staticmethod
+    def _sorted_item_ids(item_ids) -> list[str]:
+        values = [str(item) for item in (item_ids or []) if item is not None]
+        try:
+            return sorted(values, key=int)
+        except ValueError:
+            return sorted(values)
     
     def _generate_semantic_llm_judge(self) -> str:
         table = self.available_tables.get("semantic_llm_judge")
@@ -4495,8 +4589,8 @@ class MarkdownReportGenerator:
                 lines.append("*No antipatterns detected.*")
                 lines.append("")
             else:
-                lines.append("| Antipattern | Occurrences | Affected Queries | % of Queries | Severity |")
-                lines.append("|-------------|-------------|------------------|--------------|----------|")
+                lines.append("| Antipattern | Class | Decision | Occurrences | Affected Queries | % of Queries | Severity |")
+                lines.append("|-------------|-------|----------|-------------|------------------|--------------|----------|")
                 
                 # Use centralized registry for pattern names and severity
                 for pattern, severity, message, count, affected_queries in antipattern_stats:
@@ -4504,8 +4598,13 @@ class MarkdownReportGenerator:
                     label = get_severity_label(severity)
                     severity_display = f"{emoji} {label}"
                     pattern_name = get_antipattern_name(pattern)
+                    impact_class = get_impact_class(pattern)
+                    decision = "Remark" if impact_class == "D" else "Defect"
                     affected_pct = round(affected_queries * 100.0 / total, 1) if total > 0 else 0
-                    lines.append(f"| {pattern_name} | {count:,} | {affected_queries:,} | {affected_pct}% | {severity_display} |")
+                    lines.append(
+                        f"| {pattern_name} | {impact_class} | {decision} | {count:,} "
+                        f"| {affected_queries:,} | {affected_pct}% | {severity_display} |"
+                    )
                 
                 lines.append("")
             
@@ -4537,6 +4636,18 @@ class MarkdownReportGenerator:
                 no_antipatterns_pct = 0.0
             
             lines.append(f"**Queries without antipatterns:** {no_antipatterns_count:,} ({no_antipatterns_pct}% of analyzed queries)")
+            if "defect_count" in self._table_columns(table):
+                defect_queries = self.conn.execute(f"""
+                    SELECT COUNT(*) FROM {table}
+                    WHERE parseable = true AND status != 'skipped'
+                      AND COALESCE(defect_count, 0) > 0
+                """).fetchone()[0]
+                defect_pct = round(defect_queries * 100.0 / total, 1) if total else 0.0
+                lines.append("")
+                lines.append(
+                    f"**Queries with at least one defect (classes A-C):** "
+                    f"{defect_queries:,} ({defect_pct}% of analyzed queries)"
+                )
             lines.append("")
             
             # Count antipatterns by severity dynamically from JSON
@@ -4644,6 +4755,23 @@ class MarkdownReportGenerator:
                     item_ids_str = ", ".join(str(i) for i in item_ids_sorted)
                     lines.append(f"- **item_id list:** {item_ids_str}")
                     lines.append("")
+
+            # Unresolved forms are listed apart from defects: the antipattern
+            # form is present, but neither safety nor harm could be shown.
+            lines.extend(self._antipattern_decision_table(
+                table,
+                "unresolved",
+                "#### K1.2) Unresolved Forms (not counted as antipatterns)",
+                total,
+                include_item_ids=True,
+            ))
+            lines.extend(self._antipattern_decision_table(
+                table,
+                "proved_safe",
+                "#### K1.3) Forms Proved Safe",
+                total,
+                include_item_ids=False,
+            ))
             
         except Exception as e:
             lines.append(f"*Error generating antipatterns: {e}*")

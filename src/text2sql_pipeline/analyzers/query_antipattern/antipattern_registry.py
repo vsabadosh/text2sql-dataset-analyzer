@@ -119,6 +119,42 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
 }
 
 
+# Impact on the query result, independent of the dialect severity level:
+#   A - wrong semantics in every database state;
+#   B - latent error: wrong once data the schema admits appears (e.g. NULL);
+#   C - nondeterministic result on the same data;
+#   D - no effect on the result (performance or maintenance), reported as a remark;
+#   "-" - data-modifying statements, outside the SELECT-result classes.
+IMPACT_CLASS: Dict[str, str] = {
+    AntipatternPattern.NULL_COMPARISON_EQUALS: "A",
+    AntipatternPattern.CHAINED_COMPARISON_SEMANTICS: "A",
+    AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE: "A",
+    AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "A",
+    AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "A",
+    AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "A",
+    AntipatternPattern.CARTESIAN_PRODUCT: "A",
+    AntipatternPattern.NOT_IN_NULLABLE: "B",
+    AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY: "B",
+    AntipatternPattern.LIMIT_WITHOUT_ORDER_BY: "C",
+    AntipatternPattern.OFFSET_WITHOUT_ORDER_BY: "C",
+    AntipatternPattern.MISSING_GROUP_BY: "C",
+    AntipatternPattern.FUNCTION_IN_WHERE: "D",
+    AntipatternPattern.CORRELATED_SUBQUERY: "D",
+    AntipatternPattern.LEADING_WILDCARD_LIKE: "D",
+    AntipatternPattern.SELECT_STAR: "D",
+    AntipatternPattern.REDUNDANT_DISTINCT: "D",
+    AntipatternPattern.SELECT_IN_EXISTS: "D",
+    AntipatternPattern.UNSAFE_UPDATE_DELETE: "-",
+    AntipatternPattern.UNSAFE_DELETE: "-",
+    AntipatternPattern.UNSAFE_UPDATE: "-",
+}
+
+
+def get_impact_class(pattern: str) -> str:
+    """Return the impact class A/B/C/D, or "-" for data-modifying patterns."""
+    return IMPACT_CLASS.get(pattern, "-")
+
+
 def get_antipattern_name(pattern: str) -> str:
     """
     Get human-readable name for an antipattern pattern.

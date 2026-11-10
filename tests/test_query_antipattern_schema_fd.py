@@ -285,6 +285,15 @@ def test_unparseable_sqlite_ddl_without_collate_defaults_to_binary(
     ) is None
 
 
+def test_table_constraint_collation_does_not_override_the_column():
+    assert SQLiteSAAdapter._column_collations(
+        "CREATE TABLE s(code TEXT COLLATE NOCASE, UNIQUE(code COLLATE BINARY))"
+    ) == {"code": "NOCASE"}
+    assert SQLiteSAAdapter._column_collations(
+        "CREATE TABLE u(id TEXT COLLATE NOCASE, PRIMARY KEY(id COLLATE BINARY))"
+    ) == {"id": "NOCASE"}
+
+
 def test_unstructured_sqlite_ddl_with_collate_stays_unknown():
     """A silent sqlglot Command fallback must not invent BINARY collation."""
     ddl = (
@@ -648,3 +657,142 @@ def test_analyzer_proves_using_join_on_the_joined_primary_key(tmp_path):
     )
 
     assert result.has_redundant_distinct is True
+
+
+def _group_by_records(features):
+    return [
+        (record.status, record.reason)
+        for record in features.antipatterns + features.unresolved
+        if record.pattern == "missing_group_by"
+    ]
+
+
+def test_sqlite_adapter_reports_unique_column_sets(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE t(
+            id INTEGER PRIMARY KEY,
+            code TEXT UNIQUE,
+            a TEXT,
+            b TEXT COLLATE NOCASE,
+            UNIQUE(a, b)
+        );
+        CREATE TABLE partial(id INTEGER PRIMARY KEY, code TEXT);
+        CREATE UNIQUE INDEX partial_code ON partial(code) WHERE code > 'm';
+        CREATE TABLE expression(id INTEGER PRIMARY KEY, code TEXT);
+        CREATE UNIQUE INDEX expression_code ON expression(lower(code));
+        """,
+    )
+
+    info = manager.get_table_info("fixture", "t")
+    keys = sorted(info["unique_keys"], key=lambda key: key["columns"])
+    assert keys == [
+        {"columns": ["a", "b"], "collations": {"a": "BINARY", "b": "NOCASE"}},
+        {"columns": ["code"], "collations": {"code": "BINARY"}},
+    ]
+    assert info["unique_keys_complete"] is True
+    unique_flags = {column["name"]: column["unique"] for column in info["columns"]}
+    assert unique_flags == {
+        "id": False, "code": True, "a": False, "b": False,
+    }
+
+    for table in ("partial", "expression"):
+        info = manager.get_table_info("fixture", table)
+        assert info["unique_keys"] == []
+        assert info["unique_keys_complete"] is False
+
+
+def test_grouping_by_a_joined_unique_column_determines_its_row(tmp_path):
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE appellations(
+            no INTEGER PRIMARY KEY,
+            appelation TEXT UNIQUE,
+            county TEXT
+        );
+        CREATE TABLE wine(no INTEGER PRIMARY KEY, appelation TEXT);
+        INSERT INTO appellations VALUES (1, 'Napa', 'Napa County');
+        INSERT INTO wine VALUES (1, 'Napa'), (2, 'Napa');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+    sql = (
+        "SELECT T1.county FROM appellations AS T1 "
+        "JOIN wine AS T2 ON T1.appelation = T2.appelation "
+        "GROUP BY T2.appelation"
+    )
+
+    assert analyzer._unique_keys("fixture") == {
+        "appellations": [["appelation"]]
+    }
+    result, *_ = analyzer._analyze_query(
+        DataItem(id="unique", dbId="fixture", sql=sql)
+    )
+    assert _group_by_records(result) == []
+
+    postgres = detect_antipatterns(
+        "SELECT t1.county FROM appellations AS t1 GROUP BY t1.appelation",
+        dialect="postgres",
+        primary_keys=analyzer._primary_keys("fixture"),
+        unique_keys=analyzer._unique_keys("fixture"),
+        table_columns=analyzer._table_columns("fixture"),
+    )
+    assert postgres.has_missing_group_by is True
+
+
+def test_unique_column_with_null_in_snapshot_is_not_a_proof(tmp_path):
+    # Two NULL codes form one group with two different payloads.
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE t(id INTEGER PRIMARY KEY, code TEXT UNIQUE, payload TEXT);
+        INSERT INTO t VALUES (1, NULL, 'first'), (2, NULL, 'second');
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    result, *_ = analyzer._analyze_query(
+        DataItem(
+            id="null-unique",
+            dbId="fixture",
+            sql="SELECT payload, count(*) FROM t GROUP BY code",
+        )
+    )
+
+    assert analyzer._unique_keys("fixture") == {}
+    assert analyzer._unmodeled_key_tables("fixture") == set()
+    assert _group_by_records(result) == [("defect", "not_determined_by_key")]
+
+
+def test_unmodeled_uniqueness_leaves_the_scope_unresolved(tmp_path):
+    # The partial index forbids two rows with the same code above 'm', the
+    # very witness a defect would need for such codes.
+    manager = _sqlite_manager(
+        tmp_path,
+        """
+        CREATE TABLE t(id INTEGER PRIMARY KEY, code TEXT, payload TEXT);
+        CREATE UNIQUE INDEX t_code ON t(code) WHERE code > 'm';
+        CREATE TABLE s(
+            id INTEGER PRIMARY KEY,
+            code TEXT NOT NULL COLLATE NOCASE,
+            payload TEXT,
+            UNIQUE(code COLLATE BINARY)
+        );
+        """,
+    )
+    analyzer = QueryAntipatternAnalyzer(manager, enabled=True)
+
+    assert analyzer._unmodeled_key_tables("fixture") == {"t", "s"}
+    for table in ("t", "s"):
+        result, *_ = analyzer._analyze_query(
+            DataItem(
+                id=table,
+                dbId="fixture",
+                sql=f"SELECT payload, count(*) FROM {table} GROUP BY code",
+            )
+        )
+        assert _group_by_records(result) == [
+            ("unresolved", "unmodeled_unique_constraint")
+        ]

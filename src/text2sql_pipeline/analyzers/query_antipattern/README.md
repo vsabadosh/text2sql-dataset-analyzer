@@ -115,6 +115,47 @@ FROM unnested
 GROUP BY pattern, severity
 ```
 
+### 5. Rule Decisions
+
+A rule creates a record only when its antipattern form is found. Each record
+carries a `status` and a machine-readable `reason`:
+
+| `status` | Meaning | Stored in |
+|---|---|---|
+| `defect` | Harmful consequence established (classes A-C) | `antipatterns` |
+| `remark` | Class D form; the query result is unaffected | `antipatterns` |
+| `unresolved` | Form present, neither safety nor harm established | `unresolved` |
+| `correct` | Form present, safety established | `proved_safe` |
+
+Boolean `has_*` flags, `total_antipatterns`, the quality score and the
+analyzer status use only `antipatterns`. `defect_count`, `remark_count`,
+`unresolved_count` and `proved_safe_count` give the per-decision totals.
+The impact class of each pattern is in `IMPACT_CLASS` of
+`antipattern_registry.py`.
+
+Rules with a proof decide every candidate separately: each `NOT IN` subquery,
+each `SELECT` scope for the Cartesian product and for `GROUP BY`.
+
+| Rule | `correct` | `defect` | `unresolved` |
+|---|---|---|---|
+| `not_in_nullable` | `declared_not_null`, `null_rejecting_predicate`, `empty_subquery`, `all_union_branches_non_null` | `nullable_column` | `no_nullability_metadata`, `non_column_projection`, `outer_join`, `unresolved_reference`, `tuple_operand`, `scalar_list_element`, ... |
+| `cartesian_product` | (no record: definite edges connect the sources in every DNF branch) | `no_join_condition`, `disconnected_sources` | `unbound_column_source`, `undeclared_source`, `too_many_sources` |
+| `missing_group_by` | (no record: a key determines every column) | `aggregate_without_group_by`, `not_determined_by_key` | `no_key_metadata`, `derived_or_unbound_source`, `unmodeled_unique_constraint` |
+| `scalar_subquery_cardinality` | `key_pinned` | `duplicate_row_witness` | `no_key_metadata`, `aggregate_or_nested_subquery`, `complex_subquery`, `complex_predicate`, `key_column_condition`, `unsatisfiable_predicate`, `unknown_nullability`, `unknown_table`, `unmodeled_unique_constraint`, `unknown_foreign_keys`, `foreign_key_column`, `unknown_constraints`, `key_check_constraint`, `filter_check_constraint`, `table_trigger` |
+
+The Cartesian check decides exactly as a per-branch DNF test would, without
+expanding the condition: a branch leaves sources disconnected iff some
+partition of the sources is crossed by none of its predicates, and for a fixed
+partition AND needs every operand and OR one operand to avoid crossing it.
+Partitions grow as 2^(n-1), so a scope with more than 12 sources is decided
+only when its condition has no OR. A literally false branch of a row filter
+yields no rows and is never the Cartesian one. USING and NATURAL JOIN equate
+each shared column with the left-most earlier source that has it, as SQLite
+does. A source whose whole primary or verified UNIQUE key is equated to
+literals need not be connected (Brass & Goldberg, Error 27); its predicates
+still connect the other sources.
+| `unquoted_date_arithmetic` | (no record for a numeric role) | `temporal_role_confirmed` | `temporal_role_unknown` |
+
 ## Usage Example
 
 ```python
@@ -219,8 +260,21 @@ nondeterministic on the current rows.
 - `function_in_where` - Functions on columns in WHERE
 - `not_in_nullable` - NOT IN with nullable subquery
 - `leading_wildcard_like` - `LIKE '%pattern'`
-- `scalar_subquery_cardinality` - Scalar use of a subquery without a static
-  at-most-one-row guarantee
+- `scalar_subquery_cardinality` - Scalar use of a subquery that is not
+  syntactically at most one row (LIMIT 0/1, aggregate without GROUP BY, or
+  no FROM). A whole primary or UNIQUE key equated to literals, or to an
+  outer column that SQLite comparison cannot match to two key values, is
+  `correct` (`key_pinned`) only when that key's index compares like the
+  columns. A NULL-able key may still pin a literal; a key whose index
+  collation differs never does, though a filter on it stays unresolved
+  (`key_column_condition`). In SQLite a double-quoted name that no scope
+  binds is a string literal, same as a single-quoted value. A single base table whose simple filter ignores
+  every candidate-key column is a `defect` (`duplicate_row_witness`) only
+  when keys, foreign keys, CHECK, and triggers are known and none of them
+  forbid a second row. A CHECK that names a filtered column is unresolved
+  (`filter_check_constraint`). A STRICT table is unresolved
+  (`unknown_constraints`). Every other candidate is `unresolved`. The boolean
+  flag counts only the defect.
 - `template_placeholder_literal` - Predicate values with an unexpanded
   lowercase zero-suffixed template shape such as `region0` or `actor_name0`.
   The part before `0` must equal or end with the compared column name.
@@ -344,10 +398,17 @@ withdraws, one is wrong on data (`hr_1`, above) and four are merely unproven —
 their projections happen to be unique on the current snapshot, but no declared
 key or join cardinality guarantees it.
 
+## Code layout
+
+`antipattern_detector.py` is the public entry point. It parses the query, builds the schema context, runs `RULES`, and scores the result. `context.py` is that normalized schema context. `ast_utils.py` holds schema-free sqlglot helpers, `scope.py` binds sources and columns, and `keys.py` holds candidate keys and grouping dependencies. `rules/base.py` defines the `AntipatternRule` protocol. `rules/__init__.py` lists `RULES` in detection order. A new rule is one class implementing `AntipatternRule`, in its own module under `rules/`, added to `RULES`.
+
 ## Files
 
 - `antipattern_registry.py` - Pattern definitions and mappings (single source of truth)
-- `antipattern_detector.py` - Pure detection logic (stateless)
+- `antipattern_detector.py` - Public entry point and scoring (stateless)
+- `context.py` - Normalized schema context passed to every rule
+- `ast_utils.py`, `scope.py`, `keys.py` - Helpers shared by more than one rule
+- `rules/` - One module per rule; `RULES` lives in `rules/__init__.py`
 - `query_antipattern_analyzer.py` - Pipeline integration
 - `metrics.py` - Pydantic models for metrics
 - `README.md` - This file

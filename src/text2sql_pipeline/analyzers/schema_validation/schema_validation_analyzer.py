@@ -398,7 +398,11 @@ class SchemaValidationAnalyzer(AnnotatingAnalyzer):
                 parent_pks = set(parent_info["primary_keys"])
                 if not all(c in parent_pks for c in parent_cols):
                     # Check if columns are unique
-                    is_unique = all(
+                    is_unique = any(
+                        {str(column).lower() for column in key["columns"]}
+                        == {str(column).lower() for column in parent_cols}
+                        for key in parent_info.get("unique_keys") or []
+                    ) or all(
                         any(col["name"] == pc and col.get("unique", False) 
                             for col in parent_info["columns"])
                         for pc in parent_cols

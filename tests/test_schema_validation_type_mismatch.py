@@ -103,6 +103,62 @@ def test_fk_type_mismatch_is_a_non_blocking_warning():
     assert [finding.kind for finding in stats.warnings] == ["fk_type_mismatch"]
 
 
+def _fk_schema(parent_unique_keys):
+    return {
+        "parent": {
+            "columns": [
+                {"name": "id", "type": "INTEGER", "unique": False},
+                {"name": "a", "type": "TEXT", "unique": False},
+                {"name": "b", "type": "TEXT", "unique": False},
+            ],
+            "primary_keys": ["id"],
+            "unique_keys": parent_unique_keys,
+            "foreign_keys": [],
+        },
+        "child": {
+            "columns": [
+                {"name": "a", "type": "TEXT", "unique": False},
+                {"name": "b", "type": "TEXT", "unique": False},
+            ],
+            "primary_keys": [],
+            "foreign_keys": [
+                {
+                    "local": ["a", "b"],
+                    "parent_table": "parent",
+                    "parent_columns": ["a", "b"],
+                }
+            ],
+        },
+    }
+
+
+def test_fk_to_a_composite_unique_key_is_valid():
+    analyzer = SchemaValidationAnalyzer(db_manager=_DbManager(), enabled=True)
+
+    counts = analyzer._validate_schema(
+        _fk_schema([{"columns": ["b", "a"]}]),
+        SchemaEvidence(),
+        SchemaAnalysisStats(),
+    )
+
+    assert counts["fk_valid"] == 1
+    assert counts["fk_invalid"] == 0
+
+
+def test_fk_to_part_of_a_unique_key_is_not_a_key():
+    analyzer = SchemaValidationAnalyzer(db_manager=_DbManager(), enabled=True)
+    evidence = SchemaEvidence()
+
+    counts = analyzer._validate_schema(
+        _fk_schema([{"columns": ["a", "b", "id"]}]),
+        evidence,
+        SchemaAnalysisStats(),
+    )
+
+    assert counts["fk_invalid"] == 1
+    assert len(evidence.fk_target_not_key) == 1
+
+
 def test_fk_type_mismatch_produces_warns_status():
     analyzer = SchemaValidationAnalyzer(db_manager=_DbManager(), enabled=True)
 
