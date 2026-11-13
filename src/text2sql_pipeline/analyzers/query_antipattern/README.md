@@ -139,9 +139,11 @@ each `SELECT` scope for the Cartesian product and for `GROUP BY`.
 | Rule | `correct` | `defect` | `unresolved` |
 |---|---|---|---|
 | `not_in_nullable` | `declared_not_null`, `null_rejecting_predicate`, `empty_subquery`, `all_union_branches_non_null` | `nullable_column` | `no_nullability_metadata`, `non_column_projection`, `outer_join`, `unresolved_reference`, `tuple_operand`, `scalar_list_element`, ... |
-| `cartesian_product` | (no record: definite edges connect the sources in every DNF branch) | `no_join_condition`, `disconnected_sources` | `unbound_column_source`, `undeclared_source`, `too_many_sources` |
-| `missing_group_by` | (no record: a key determines every column) | `aggregate_without_group_by`, `not_determined_by_key` | `no_key_metadata`, `derived_or_unbound_source`, `unmodeled_unique_constraint` |
+| `cartesian_product` | `key_pinned_source` | `no_join_condition`, `disconnected_sources` | `unknown_key_pin`, `unbound_column_source`, `undeclared_source`, `too_many_sources` |
+| `missing_group_by` | `key_grouped`, `key_via_join_equality`, `key_via_key_closure`, `extreme_key_row` | `aggregate_without_group_by`, `not_determined_by_key` | `no_key_metadata`, `derived_or_unbound_source`, `unmodeled_unique_constraint` |
 | `scalar_subquery_cardinality` | `key_pinned` | `duplicate_row_witness` | `no_key_metadata`, `aggregate_or_nested_subquery`, `complex_subquery`, `complex_predicate`, `key_column_condition`, `unsatisfiable_predicate`, `unknown_nullability`, `unknown_table`, `unmodeled_unique_constraint`, `unknown_foreign_keys`, `foreign_key_column`, `unknown_constraints`, `key_check_constraint`, `filter_check_constraint`, `table_trigger` |
+| `unquoted_date_arithmetic` | (no record for a numeric role) | `temporal_role_confirmed` | `temporal_role_unknown` |
+| `redundant_distinct` | (no witness yet, no record) | `remark`: `group_key_projected`, `projected_key`, `group_key_via_key_closure`, `key_via_key_closure` | `no_key_metadata`, `derived_or_unbound_source`, `unmodeled_unique_constraint`, `unvalidated_dialect`, `unresolved_reference` |
 
 The Cartesian check decides exactly as a per-branch DNF test would, without
 expanding the condition: a branch leaves sources disconnected iff some
@@ -153,8 +155,36 @@ yields no rows and is never the Cartesian one. USING and NATURAL JOIN equate
 each shared column with the left-most earlier source that has it, as SQLite
 does. A source whose whole primary or verified UNIQUE key is equated to
 literals need not be connected (Brass & Goldberg, Error 27); its predicates
-still connect the other sources.
-| `unquoted_date_arithmetic` | (no record for a numeric role) | `temporal_role_confirmed` | `temporal_role_unknown` |
+still connect the other sources. When such pins remove every unconnected
+partition, the scope is `correct` (`key_pinned_source`). A source restricted
+by literal equalities whose key is unknown (no key catalog, a derived or
+uncatalogued source, an unmodeled uniqueness constraint, or an untrusted key
+the literals cover) may also yield one row: a product that disappears once
+such sources are assumed pinned is `unresolved` (`unknown_key_pin`). Without a
+schema `FROM a, b WHERE b.id = 5` is therefore `unresolved`, while `FROM a, b`
+and `FROM a, b, c WHERE c.id = 5` stay `defect`.
+
+A `missing_group_by` scope whose ungrouped projections are all determined
+records `correct` with the weakest proof that suffices: a grouped key
+(`key_grouped`), a key fixed through join equalities
+(`key_via_join_equality`), a key fixed by a column of another row that is
+already determined (`key_via_key_closure`, e.g. `GROUP BY e.id` with
+`e.dept_id = d.id` fixes `d.title`), or the row of a lone `min()`/`max()` over
+a key (`extreme_key_row`). The closure repeats until no new row is fixed, as in
+Brass & Goldberg's test for unnecessary DISTINCT; PostgreSQL uses neither join
+equalities nor the closure.
+
+Known limitation: an equality in the `ON` of a `LEFT JOIN` is never used, which
+can give a false `defect`. It is sound in one direction only, from the preserved
+side to a key of the NULL-extended side: `GROUP BY t1.director_id` with
+`program t1 LEFT JOIN director t2 ON t1.director_id = t2.director_id` fixes
+`t2.name`, because every row of a group either joins the same director or is
+NULL-extended. The reverse direction is a real defect: `GROUP BY d.id` with
+`emp e LEFT JOIN dept d ON e.dept_id = d.id` collects every unmatched employee
+in the `d.id IS NULL` group. The step is also unsound when another `ON` conjunct
+reads an unfixed column of the preserved side (`AND t1.year > 2000`). No
+Spider or BIRD query is affected: the three `missing_group_by` records with a
+`LEFT JOIN` (BIRD train) are real defects.
 
 ## Usage Example
 
@@ -219,6 +249,14 @@ all possible database contents.
   or unavailable schema remains a high-severity unresolved risk. Declared
   numeric roles are suppressed.
 - `literal_division_by_zero` - Division by a static numeric zero
+- `inconsistent_condition` - A row filter (WHERE, HAVING, inner-join ON) that
+  is never true, Error 1 of Brass and Goldberg. OR is distributed into
+  branches, and the filter is a defect only when every branch has
+  contradictory constant predicates on one column occurrence (`=`, `<>`,
+  `IN`, numeric ranges, `IS [NOT] NULL`, declared `NOT NULL`). Constants that
+  some SQLite affinity or built-in collation could make equal never
+  contradict, and ranges are used only for columns without TEXT affinity.
+  SQLite only.
 
 `missing_group_by` is schema-aware when the analyzer can introspect the
 database. Grouping by a whole primary key determines every other column of that
@@ -365,7 +403,25 @@ trusted only when the analyzed snapshot has no NULL key component.
 Duplicate elimination by an enclosing set operation is intentionally outside
 this schema-focused rule and remains a conservative false negative.
 
-Both proofs are validated for SQLite, the dialect every shipped configuration
+When both fail, SQLite queries get Brass & Goldberg's sufficient test for
+unnecessary DISTINCT (Error 2). The projected columns, the columns a WHERE or
+inner-join conjunct equates to a non-null literal, and every column of a row
+whose primary or verified UNIQUE key is fixed are closed under WHERE and
+inner-join equalities, in the direction the comparison semantics admit, until
+nothing changes. DISTINCT is redundant when the closure fixes a key of every
+source (`key_via_key_closure`, e.g. `SELECT DISTINCT a.id, b.id FROM a JOIN b
+ON a.x = b.y`, or `SELECT DISTINCT name FROM t WHERE id = 5`) or every GROUP BY
+expression (`group_key_via_key_closure`). A LEFT JOIN's ON condition fixes
+nothing, and a later RIGHT or FULL join cancels the literals of inner-join ON
+conditions. When no proof exists, the closure is rerun with the missing
+metadata assumed favourable: an untrusted key counts as a key, an uncatalogued
+table or one with an unmodeled uniqueness constraint is determined by any
+fixed column, a derived source always is, unknown comparisons link both ways
+and ambiguous columns bind everywhere. If that succeeds the scope is
+`unresolved`; otherwise duplicates are possible under any such metadata, and
+since no duplicate-row witness is built yet, there is no record.
+
+All proofs are validated for SQLite, the dialect every shipped configuration
 and every measurement below uses. The analyzer deliberately maintains two
 catalogs: the binding catalog contains every addressable column, including a
 virtual table's hidden columns, while the star-expansion catalog excludes
@@ -397,6 +453,13 @@ five distinct queries the published rule reported and this implementation
 withdraws, one is wrong on data (`hr_1`, above) and four are merely unproven —
 their projections happen to be unique on the current snapshot, but no declared
 key or join cardinality guarantees it.
+
+The closure keeps all of these and adds 32 findings on Spider train (dev and
+test unchanged) and 13 on BIRD train (12 key, 1 grouping; dev unchanged). Each
+of the 45 queries returned the same number of rows with and without DISTINCT on
+its database. With a schema, `unresolved` holds 17 derived or unknown sources
+and 1 untrusted key on BIRD train, none on Spider; without one, every DISTINCT
+whose closure could succeed is `no_key_metadata`.
 
 ## Code layout
 

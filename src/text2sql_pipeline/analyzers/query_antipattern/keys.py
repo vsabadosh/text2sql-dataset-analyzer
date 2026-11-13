@@ -356,6 +356,7 @@ def _equated_columns(
         Dict[str, Dict[str, Tuple[str, str]]]
     ] = None,
     directed: bool = False,
+    unknown_compatible: bool = False,
 ) -> Dict[Tuple[str, str], Set[Tuple[str, str]]]:
     """Map each column to the columns whose fixed value fixes it.
 
@@ -364,6 +365,8 @@ def _equated_columns(
     T2.vehicle_id`` determine ``T1.vehicle_id`` when the join equates the two.
     With ``directed`` an equality between differently typed or collated columns
     also links them in each direction that ``_equality_fixes_column`` admits.
+    ``unknown_compatible`` links both ways a column whose comparison semantics
+    is unknown, which only an upper bound for an abstention may assume.
     The map is the reflexive-transitive closure of these links.
     """
     edges: Dict[Tuple[str, str], Set[Tuple[str, str]]] = {}
@@ -373,6 +376,12 @@ def _equated_columns(
         edges.setdefault(right, set())
         if _columns_compare_compatibly(
             left, right, sources, column_comparators
+        ) or (
+            unknown_compatible
+            and None in (
+                _comparison_signature(left, sources, column_comparators),
+                _comparison_signature(right, sources, column_comparators),
+            )
         ):
             edges[left].add(right)
             edges[right].add(left)
@@ -470,6 +479,65 @@ def _equated_columns(
                     stack.append(nxt)
                     determinants[nxt].add(start)
     return determinants
+
+def _source_keys(
+    sources: Dict[str, Optional[str]],
+    candidate_keys: Dict[str, List[List[str]]],
+) -> Dict[str, List[List[str]]]:
+    """Known keys of each relation instance, with lower-cased columns."""
+    keys: Dict[str, List[List[str]]] = {}
+    for source, table in sources.items():
+        metadata_key = _metadata_table_key(table, candidate_keys) if table else None
+        if metadata_key is not None:
+            keys[source] = [
+                [column.lower() for column in key]
+                for key in candidate_keys[metadata_key]
+            ]
+    return keys
+
+def _column_fixed(
+    column: Tuple[str, str],
+    fixed: Set[Tuple[str, str]],
+    rows: Set[str],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> bool:
+    """Whether the column is fixed itself, through an equality, or by its row."""
+    return any(
+        candidate in fixed or candidate[0] in rows
+        for candidate in {column} | equated.get(column, set())
+    )
+
+def _determined_sources(
+    source_keys: Dict[str, List[List[str]]],
+    fixed: Set[Tuple[str, str]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+    transitive: bool = True,
+) -> Set[str]:
+    """Relation instances whose row the fixed columns determine.
+
+    A fixed key fixes every column of its row, and an equality carries such a
+    column on to a key of another instance (Brass & Goldberg's closure for
+    unnecessary DISTINCT). Without ``transitive`` only the fixed columns and
+    their equalities count, a single step.
+    """
+    determined: Set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        rows = determined if transitive else set()
+        for source, keys in source_keys.items():
+            if source in determined:
+                continue
+            if any(
+                all(
+                    _column_fixed((source, column), fixed, rows, equated)
+                    for column in key
+                )
+                for key in keys
+            ):
+                determined.add(source)
+                changed = transitive
+    return determined
 
 def _column_in_group(
     col: exp.Column,

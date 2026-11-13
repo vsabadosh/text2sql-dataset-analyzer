@@ -14,12 +14,13 @@ from sqlglot import exp
 
 from ..metrics import (
     AntipatternInstance,
+    DECISION_CORRECT,
     DECISION_DEFECT,
     DECISION_UNRESOLVED,
 )
 from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
-from ..ast_utils import _short_sql
+from ..ast_utils import _is_window_aggregate, _short_sql
 from ..scope import (
     _build_select_alias_map,
     _from_table_aliases,
@@ -30,8 +31,10 @@ from ..keys import (
     _candidate_keys,
     _collect_non_aggregated_columns_for_select,
     _column_in_group,
+    _determined_sources,
     _equated_columns,
     _normalize_group_by_expressions,
+    _source_keys,
 )
 
 _GROUP_BY_DIRECT_KEY_ONLY_DIALECTS = frozenset({"postgres", "postgresql"})
@@ -120,10 +123,50 @@ class MissingGroupByRule:
             if not non_aggregate_columns and not has_star:
                 continue
 
+            extreme_key = _min_max_row_column(
+                select, sources, table_columns, candidate_keys, dialect
+            )
+
             # Case 1: No GROUP BY at all → classic missing GROUP BY (including SELECT *).
             # All rows form one group, and two rows with different values are a
-            # legal state under any schema, so no key metadata is needed.
+            # legal state under any schema, so no key metadata is needed. A
+            # single min()/max() over a key picks one row, which determines it.
             if group is None and (non_aggregate_columns or has_star):
+                if extreme_key is not None:
+                    equated = (
+                        {}
+                        if dialect in _GROUP_BY_DIRECT_KEY_ONLY_DIALECTS
+                        else _equated_columns(
+                            select,
+                            sources,
+                            table_columns,
+                            column_comparators,
+                            directed=True,
+                        )
+                    )
+                    determined = all(
+                        _functionally_determined(
+                            col,
+                            sources,
+                            {extreme_key},
+                            candidate_keys,
+                            equated,
+                            table_columns,
+                        )
+                        for col in non_aggregate_columns
+                    ) and (
+                        not has_star
+                        or _all_sources_functionally_determined(
+                            sources, {extreme_key}, candidate_keys, equated
+                        )
+                    )
+                    if determined:
+                        antipatterns.append(
+                            _determined_record(
+                                pattern, severity, select, "extreme_key_row"
+                            )
+                        )
+                        continue
                 antipatterns.append(
                     AntipatternInstance(
                         pattern=pattern,
@@ -154,8 +197,8 @@ class MissingGroupByRule:
             # this reason, and reporting it would bury the cases that are genuinely
             # undetermined.
             star_undetermined = has_star
-            if candidate_keys:
-                grouped = _grouped_column_pairs(
+            if candidate_keys and (missing_from_group or has_star):
+                direct = _grouped_column_pairs(
                     normalized_group_exprs, sources, table_columns
                 )
                 # PostgreSQL recognizes a functional dependency only on the primary
@@ -172,21 +215,51 @@ class MissingGroupByRule:
                         directed=True,
                     )
                 )
-                missing_from_group = [
-                    col for col in missing_from_group
-                    if not _functionally_determined(
-                        col,
+                grouped = (
+                    direct | {extreme_key} if extreme_key is not None else direct
+                )
+
+                ungrouped = missing_from_group
+
+                def _undetermined(stage_grouped, stage_equated, transitive=True):
+                    columns = [
+                        col for col in ungrouped
+                        if not _functionally_determined(
+                            col,
+                            sources,
+                            stage_grouped,
+                            candidate_keys,
+                            stage_equated,
+                            table_columns,
+                            transitive,
+                        )
+                    ]
+                    star = has_star and not _all_sources_functionally_determined(
                         sources,
-                        grouped,
+                        stage_grouped,
                         candidate_keys,
-                        equated,
-                        table_columns,
+                        stage_equated,
+                        transitive,
                     )
-                ]
-                if has_star:
-                    star_undetermined = not _all_sources_functionally_determined(
-                        sources, grouped, candidate_keys, equated
+                    return columns, star
+
+                missing_from_group, star_undetermined = _undetermined(
+                    grouped, equated
+                )
+                if not missing_from_group and not star_undetermined:
+                    # The weakest evidence that suffices names the proof.
+                    if _undetermined(direct, {}, False) == ([], False):
+                        proof = "key_grouped"
+                    elif _undetermined(direct, equated, False) == ([], False):
+                        proof = "key_via_join_equality"
+                    elif _undetermined(direct, equated) == ([], False):
+                        proof = "key_via_key_closure"
+                    else:
+                        proof = "extreme_key_row"
+                    antipatterns.append(
+                        _determined_record(pattern, severity, select, proof)
                     )
+                    continue
 
             if missing_from_group or star_undetermined:
                 missing_cols_str = ", ".join(
@@ -221,6 +294,131 @@ class MissingGroupByRule:
                     )
                 )
         return antipatterns
+
+_DETERMINED_MESSAGES = {
+    "key_grouped": "a grouped key of its table determines it",
+    "key_via_join_equality": (
+        "a grouped column fixes a key of its table through join equalities"
+    ),
+    "key_via_key_closure": (
+        "a determined row of another table fixes a key of its table "
+        "through join equalities"
+    ),
+    "extreme_key_row": (
+        "the single min() or max() over a key selects one row per group"
+    ),
+}
+
+def _determined_record(
+    pattern: str,
+    severity: str,
+    select: exp.Select,
+    reason: str,
+) -> AntipatternInstance:
+    return AntipatternInstance(
+        pattern=pattern,
+        severity=severity,
+        message=(
+            "Every ungrouped projected column has one value per group: "
+            f"{_DETERMINED_MESSAGES[reason]}."
+        ),
+        location=_short_sql(select),
+        status=DECISION_CORRECT,
+        reason=reason,
+    )
+
+def _min_max_row_column(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+    candidate_keys: Dict[str, List[List[str]]],
+    dialect: str,
+) -> Optional[Tuple[str, str]]:
+    """Key column whose min() or max() picks the row of the bare columns.
+
+    In SQLite a query with exactly one min() or max() aggregate takes its bare
+    columns from a row holding that extreme value. When the argument is a
+    single-column key of its table, which is unique and non-null, the row is
+    unique within each group, so the key determines the bare columns as a
+    grouped column would. A null-extended argument or a FILTER that can leave
+    the aggregate without input makes the row arbitrary and is excluded.
+    """
+    if dialect != "sqlite" or not candidate_keys:
+        return None
+    nullable = _null_extended_aliases(select)
+    if nullable is None:
+        return None
+    extremes: List[exp.Expression] = []
+    filtered = False
+
+    def _walk(node: exp.Expression) -> None:
+        nonlocal filtered
+        if isinstance(node, (exp.Select, exp.Subquery)):
+            return
+        if isinstance(node, exp.Filter) and isinstance(node.this, (exp.Max, exp.Min)):
+            filtered = True
+        if (
+            isinstance(node, (exp.Max, exp.Min))
+            and not node.expressions
+            and not _is_window_aggregate(node)
+        ):
+            extremes.append(node)
+        for child in node.iter_expressions():
+            _walk(child)
+
+    for clause in ("expressions", "having", "order"):
+        value = select.args.get(clause)
+        for node in value if isinstance(value, list) else [value]:
+            if isinstance(node, exp.Expression):
+                _walk(node)
+    # Repeated copies of one aggregate name the same rows.
+    if filtered or len({node.sql(dialect="sqlite") for node in extremes}) != 1:
+        return None
+    argument = extremes[0].this
+    if isinstance(argument, exp.Distinct) and len(argument.expressions) == 1:
+        argument = argument.expressions[0]
+    while isinstance(argument, exp.Paren):
+        argument = argument.this
+    if not isinstance(argument, exp.Column):
+        return None
+    resolved = _resolve_column(argument.table, argument.name, sources, table_columns)
+    if resolved is None or resolved[0] in nullable:
+        return None
+    table = sources.get(resolved[0])
+    metadata_key = _metadata_table_key(table, candidate_keys) if table else None
+    if metadata_key is None:
+        return None
+    if [resolved[1]] not in [
+        [column.lower() for column in key] for key in candidate_keys[metadata_key]
+    ]:
+        return None
+    return resolved
+
+
+def _null_extended_aliases(select: exp.Select) -> Optional[Set[str]]:
+    """Aliases whose rows an outer join may replace by NULLs, or None if unknown."""
+    from_clause = select.args.get("from")
+    seen: List[str] = []
+    if isinstance(from_clause, exp.From):
+        seen.extend(
+            source.alias_or_name.lower()
+            for source in [from_clause.this, *(from_clause.expressions or [])]
+        )
+    nullable: Set[str] = set()
+    for join in select.args.get("joins") or []:
+        alias = join.this.alias_or_name.lower()
+        side = str(join.args.get("side") or "").upper()
+        kind = str(join.args.get("kind") or "").upper()
+        if kind not in {"", "INNER", "CROSS", "OUTER"}:
+            return None
+        if kind == "OUTER" and not side:
+            return None
+        if side in {"LEFT", "FULL"}:
+            nullable.add(alias)
+        if side in {"RIGHT", "FULL"}:
+            nullable.update(seen)
+        seen.append(alias)
+    return nullable
 
 def _missing_group_by_decision(
     missing: List[exp.Column],
@@ -291,13 +489,15 @@ def _functionally_determined(
     candidate_keys: Dict[str, List[List[str]]],
     equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
     table_columns: Optional[Dict[str, List[str]]] = None,
+    transitive: bool = True,
 ) -> bool:
     """Whether GROUP BY fixes this column to a single value per group.
 
     True only when every column of some key of the column's own table is
-    grouped, directly or through a column the query equates it to. A partial key
-    leaves several rows per group, and a table with no known key determines
-    nothing.
+    fixed: grouped, equated to a grouped column, or, with ``transitive``,
+    equated to any column of a relation instance whose key is already fixed.
+    A partial key leaves several rows per group, and a table with no known key
+    determines nothing.
     """
     resolved = _resolve_column(
         col.table, col.name, sources, table_columns
@@ -305,58 +505,23 @@ def _functionally_determined(
     if resolved is None:
         return False
     source, _ = resolved
-    table = sources.get(source)
-    if not table:
+    if not sources.get(source):
         return False
-    return _source_is_determined(
-        source, table, grouped, candidate_keys, equated
+    return source in _determined_sources(
+        _source_keys(sources, candidate_keys), grouped, equated, transitive
     )
-
-def _source_is_determined(
-    source: str,
-    table: str,
-    grouped: Set[Tuple[str, str]],
-    candidate_keys: Dict[str, List[List[str]]],
-    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
-) -> bool:
-    """Whether some key of one relation instance is fully grouped."""
-    metadata_key = _metadata_table_key(table, candidate_keys)
-    if metadata_key is None:
-        return False
-    return any(
-        _source_key_is_grouped(source, key_columns, grouped, equated)
-        for key_columns in candidate_keys[metadata_key]
-    )
-
-def _source_key_is_grouped(
-    source: str,
-    key_columns: List[str],
-    grouped: Set[Tuple[str, str]],
-    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
-) -> bool:
-    """Whether every component of one relation instance's key is grouped."""
-    for key_column in key_columns:
-        key = (source, key_column.lower())
-        candidates = {key} | equated.get(key, set())
-        if candidates & grouped:
-            continue
-        return False
-
-    return True
 
 def _all_sources_functionally_determined(
     sources: Dict[str, Optional[str]],
     grouped: Set[Tuple[str, str]],
     candidate_keys: Dict[str, List[List[str]]],
     equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+    transitive: bool = True,
 ) -> bool:
     """Whether an unqualified ``SELECT *`` is fixed for every source."""
     if not sources:
         return False
-    return all(
-        table
-        and _source_is_determined(
-            source, table, grouped, candidate_keys, equated
-        )
-        for source, table in sources.items()
+    determined = _determined_sources(
+        _source_keys(sources, candidate_keys), grouped, equated, transitive
     )
+    return all(table and source in determined for source, table in sources.items())

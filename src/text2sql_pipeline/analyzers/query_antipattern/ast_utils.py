@@ -135,6 +135,8 @@ _SQLITE_AGGREGATE_NAMES = frozenset(
 
 def _is_aggregate_like(node: exp.Expression) -> bool:
     """Recognize standard and sqlglot-unclassified SQLite aggregates."""
+    if isinstance(node, (exp.Max, exp.Min)) and node.expressions:
+        return False  # max(a, b) and min(a, b) are scalar
     if isinstance(node, exp.AggFunc):
         return True
     if isinstance(node, exp.Anonymous):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+import math
 from typing import (
     Any,
     Dict,
@@ -18,12 +20,14 @@ from sqlglot import exp
 
 from ..metrics import (
     AntipatternInstance,
+    DECISION_CORRECT,
     DECISION_DEFECT,
     DECISION_UNRESOLVED,
 )
 from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
 from ..ast_utils import (
+    _is_non_null_literal,
     _join_can_null_extend,
     _literal_truth,
     _short_sql,
@@ -33,6 +37,8 @@ from ..scope import (
     _UNRESOLVED_REFERENCE,
     _cartesian_scope_level,
     _extract_join_source_name,
+    _from_table_aliases,
+    _metadata_table_key,
     _resolve_column_sources,
 )
 from ..keys import (
@@ -70,7 +76,11 @@ class CartesianProductRule:
          operand of a row filter never yields rows and cannot be chosen.
       6. Decision, recorded once per SELECT scope:
          - no partition avoidable with definite edges only → no record;
-         - a partition avoidable with possible edges too   → Defect;
+         - such partitions exist, but key-pinned sources
+           remove every one of them                        → Correct;
+         - a partition avoidable with possible edges too   → Defect, unless
+           it disappears once every source restricted by literal equalities
+           whose key is unknown is assumed pinned          → Unresolved;
          - otherwise                                       → Unresolved.
     """
 
@@ -129,16 +139,55 @@ class CartesianProductRule:
             pinned = frozenset(
                 _key_pinned_sources(select, chain, all_tables, candidate_keys)
             )
-            if not has_duplicate_aliases and len(all_tables - pinned) < 2:
-                continue
+            maybe_pinned = [
+                alternative - pinned
+                for alternative in _possibly_key_pinned_sources(
+                    select, chain, all_tables, schema
+                )
+                if alternative - pinned
+            ]
 
             condition = _cartesian_scope_condition(
                 select, chain, all_tables, table_columns, dialect
             )
 
+            def _record_pinned() -> None:
+                unpinned = _cartesian_separable(
+                    condition, all_tables, structural_attachments
+                )
+                if unpinned is not None and unpinned[1]:
+                    _record(
+                        select,
+                        DECISION_CORRECT,
+                        "key_pinned_source",
+                        "No Cartesian product: every source the join conditions "
+                        "leave unconnected has its whole key equated to literals "
+                        "and yields at most one row.",
+                    )
+
+            def _record_unknown_pin() -> None:
+                _record(
+                    select,
+                    DECISION_UNRESOLVED,
+                    "unknown_key_pin",
+                    "Cartesian product could not be ruled out: a source restricted "
+                    "by literal equalities may yield one row through a key the "
+                    "schema metadata does not describe.",
+                )
+
+            if not has_duplicate_aliases and len(all_tables - pinned) < 2:
+                _record_pinned()
+                continue
+
             if not _cartesian_has_links(condition) and not structural_attachments:
                 if not _cartesian_avoids(condition, frozenset(), strict=True):
                     # Every branch is literally false, so no row is produced.
+                    continue
+                if not has_duplicate_aliases and any(
+                    len(all_tables - pinned - alternative) < 2
+                    for alternative in maybe_pinned
+                ):
+                    _record_unknown_pin()
                     continue
                 # Pure Cartesian product (FROM a, b or JOIN without conditions).
                 _record(
@@ -163,6 +212,20 @@ class CartesianProductRule:
                 )
                 continue
             separable_strict, separable_loose = separable
+            def _pins_may_connect(alternative: FrozenSet[str]) -> bool:
+                assumed = _cartesian_separable(
+                    condition,
+                    all_tables,
+                    structural_attachments,
+                    pinned | alternative,
+                )
+                return assumed is None or not assumed[0]
+
+            if separable_strict and any(
+                _pins_may_connect(alternative) for alternative in maybe_pinned
+            ):
+                _record_unknown_pin()
+                continue
             if separable_strict:
                 # Some DNF branch leaves the sources split even when every
                 # possible binding of an unresolved column is assumed to join.
@@ -177,6 +240,8 @@ class CartesianProductRule:
                 )
                 continue
             if not separable_loose:
+                if pinned:
+                    _record_pinned()
                 continue
 
             if _cartesian_has_unresolved_reference(condition):
@@ -1042,6 +1107,105 @@ def _key_pinned_sources(
         ),
         candidate_keys,
     )
+
+_MAX_PIN_BINDINGS = 64
+
+def _possibly_key_pinned_sources(
+    select: exp.Select,
+    chain: List[_CartesianScopeLevel],
+    nodes: Set[str],
+    schema: SchemaContext,
+) -> List[FrozenSet[str]]:
+    """Sets of sources literal equalities may pin through keys the metadata lacks.
+
+    A source yields at most one row when a literal fixes a whole key. Without
+    a key catalog, for a derived or uncatalogued source, for a table with a
+    uniqueness constraint outside the key maps, or for an inert key the
+    literals cover, the restricted columns may form such a key, so a product
+    with this source is not proven.
+
+    An ambiguous column restricts exactly one of the sources it can denote, so
+    each binding yields its own set; a product is proven only if it survives
+    every set. Past ``_MAX_PIN_BINDINGS`` bindings the sets are merged, which
+    can only turn a Defect into Unresolved.
+    """
+    fixed: Dict[str, Set[str]] = {}
+    ambiguous: List[Tuple[str, List[Optional[str]]]] = []
+    for conjunct, only in _top_level_pin_conjuncts(select):
+        if not isinstance(conjunct, exp.EQ):
+            continue
+        for column, value in (
+            (conjunct.left, conjunct.right),
+            (conjunct.right, conjunct.left),
+        ):
+            if not isinstance(column, exp.Column) or not _is_non_null_literal(value):
+                continue
+            _, possible = _resolve_column_sources(column, chain)
+            name = column.name.lower()
+            options = sorted(
+                {
+                    node if node in nodes and only in (None, node) else None
+                    for node in possible
+                },
+                key=lambda node: (node is None, node or ""),
+            )
+            if options == [None] or not options:
+                continue
+            if len(options) == 1:
+                fixed.setdefault(options[0], set()).add(name)
+            else:
+                ambiguous.append((name, options))
+    if not fixed and not ambiguous:
+        return []
+
+    bindings: List[Dict[str, Set[str]]] = []
+    if math.prod(len(options) for _, options in ambiguous) <= _MAX_PIN_BINDINGS:
+        for choice in itertools.product(*(options for _, options in ambiguous)):
+            restricted = {node: set(columns) for node, columns in fixed.items()}
+            for (name, _), node in zip(ambiguous, choice):
+                if node is not None:
+                    restricted.setdefault(node, set()).add(name)
+            bindings.append(restricted)
+    else:
+        restricted = {node: set(columns) for node, columns in fixed.items()}
+        for name, options in ambiguous:
+            for node in options:
+                if node is not None:
+                    restricted.setdefault(node, set()).add(name)
+        bindings.append(restricted)
+
+    sources = _from_table_aliases(select)
+    inert_keys: Dict[str, List[List[str]]] = {}
+    for catalog in (schema.nullable_keys, schema.mismatched_collation_keys):
+        for table, keys in (catalog or {}).items():
+            inert_keys.setdefault(table, []).extend(keys)
+    unmodeled = {table: None for table in schema.unmodeled_key_tables or ()}
+
+    def _key_unknown(table: Optional[str], columns: Set[str]) -> bool:
+        if schema.primary_keys is None or not table:
+            return True
+        if _metadata_table_key(table, unmodeled) is not None:
+            return True
+        if (
+            schema.table_columns is not None
+            and _metadata_table_key(table, schema.table_columns) is None
+        ):
+            return True
+        inert_table = _metadata_table_key(table, inert_keys)
+        return inert_table is not None and any(
+            set(key) <= columns for key in inert_keys[inert_table]
+        )
+
+    alternatives: List[FrozenSet[str]] = []
+    for restricted in bindings:
+        unknown = frozenset(
+            node
+            for node, columns in restricted.items()
+            if _key_unknown(sources.get(node), columns)
+        )
+        if unknown not in alternatives:
+            alternatives.append(unknown)
+    return alternatives
 
 def _collect_tables_for_select(select: exp.Select) -> List[str]:
     """

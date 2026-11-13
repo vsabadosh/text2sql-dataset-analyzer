@@ -158,6 +158,7 @@ analyze:
             - conditional_count_non_null_else # `COUNT(CASE ... ELSE 0)` counts every row
             - unquoted_date_arithmetic       # `date = 2018-06-01` evaluates numeric subtraction
             - literal_division_by_zero       # Static zero divisor yields NULL instead of a useful value
+            - inconsistent_condition         # `a = 'x' AND a = 'y'`: the row filter is never true
             # 💥 DATA SAFETY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
             # 📊 UNINTENDED RESULTS

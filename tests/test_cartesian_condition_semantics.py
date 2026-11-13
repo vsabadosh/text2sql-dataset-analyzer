@@ -141,7 +141,10 @@ def test_partition_check_matches_explicit_dnf(table_count, placement):
                 f"{rest}"
             )
         expected = _oracle_is_cartesian(tables, formula)
-        result = detect_antipatterns(sql, table_columns=TABLE_COLUMNS)
+        # The oracle assumes no source is key-pinned, so no table has a key.
+        result = detect_antipatterns(
+            sql, table_columns=TABLE_COLUMNS, primary_keys={}
+        )
         records = _cartesian_records(result)
         if expected:
             cartesian_seen += 1
@@ -384,6 +387,105 @@ def test_pinned_source_does_not_hide_a_product_of_the_others():
         sql, table_columns=TABLE_COLUMNS, primary_keys={"c": ["id"]}
     )
     assert _cartesian_records(result) == [("defect", "no_join_condition")]
+
+
+def _all_cartesian_records(result):
+    return [
+        (record.status, record.reason)
+        for record in result.antipatterns + result.unresolved + result.proved_safe
+        if record.pattern == "cartesian_product"
+    ]
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT a.x FROM a, b WHERE b.id = 5",
+        "SELECT a.x FROM a, b WHERE a.id = 1 AND b.id = 5",
+        "SELECT * FROM a, b, c WHERE b.id = 1 AND a.x = c.x",
+        "SELECT a.x FROM a JOIN b ON b.id = 5",
+    ],
+)
+def test_key_pinned_source_is_proved_safe(sql):
+    result = detect_antipatterns(
+        sql,
+        table_columns=TABLE_COLUMNS,
+        primary_keys={table: ["id"] for table in TABLES},
+    )
+    assert result.has_cartesian_product is False
+    assert _all_cartesian_records(result) == [("correct", "key_pinned_source")]
+
+
+def test_connected_scope_has_no_record_even_with_a_pin():
+    sql = "SELECT * FROM a, b WHERE a.id = 5 AND a.x = b.x"
+    result = detect_antipatterns(
+        sql, table_columns=TABLE_COLUMNS, primary_keys={"a": ["id"]}
+    )
+    assert _all_cartesian_records(result) == []
+
+
+@pytest.mark.parametrize(
+    "sql, kwargs",
+    [
+        # No key catalog: b.id or b.y may be the key of b.
+        ("SELECT a.x FROM a, b WHERE b.id = 5", {}),
+        ("SELECT a.x FROM a, b WHERE b.y = 5", {}),
+        ("SELECT a.x FROM a, b WHERE b.id = 5", {"table_columns": TABLE_COLUMNS}),
+        ("SELECT * FROM a, b, c WHERE b.id = 1 AND a.x = c.x", {}),
+        # The table is outside the catalog.
+        ("SELECT a.x FROM a, z WHERE z.id = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {}}),
+        # A uniqueness constraint the key maps do not model.
+        ("SELECT a.x FROM a, b WHERE b.y = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {},
+          "unmodeled_key_tables": {"b"}}),
+        # A key that is not trusted as an FD may still pin a literal.
+        ("SELECT a.x FROM a, b WHERE b.y = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {},
+          "nullable_keys": {"b": [["y"]]}}),
+        # The key of a derived source is unknown.
+        ("SELECT * FROM a, (SELECT id, x FROM b) AS t WHERE t.id = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {}}),
+        # x may belong to b, leaving the joined a and c.
+        ("SELECT * FROM a, b, c WHERE x = 1 AND a.y = c.y", {}),
+    ],
+)
+def test_unknown_key_pin_is_unresolved(sql, kwargs):
+    result = detect_antipatterns(sql, **kwargs)
+    assert result.has_cartesian_product is False
+    assert _all_cartesian_records(result) == [("unresolved", "unknown_key_pin")]
+
+
+@pytest.mark.parametrize(
+    "sql, kwargs, reason",
+    [
+        ("SELECT a.x FROM a, b", {}, "no_join_condition"),
+        # Even if c were pinned, a and b stay unconnected.
+        ("SELECT * FROM a, b, c WHERE c.id = 5", {}, "no_join_condition"),
+        ("SELECT * FROM a, b, c WHERE c.id = 5 AND a.x = c.x", {},
+         "disconnected_sources"),
+        # Known keys that the literals do not cover.
+        ("SELECT a.x FROM a, b WHERE b.y = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {"b": ["id"]}},
+         "no_join_condition"),
+        ("SELECT a.x FROM a, b WHERE b.y = 5",
+         {"table_columns": TABLE_COLUMNS, "primary_keys": {},
+          "nullable_keys": {"b": [["y", "k"]]}},
+         "no_join_condition"),
+        # An ambiguous column binds to one source; the other two stay crossed.
+        ("SELECT * FROM a, b, c WHERE x = 1", {}, "no_join_condition"),
+        ("SELECT * FROM a, b, c, d WHERE x = 1 AND a.k = b.k", {},
+         "disconnected_sources"),
+        ("SELECT * FROM a, b, c WHERE x = 1",
+         {"table_columns": {"a": ["x"], "b": ["x"], "c": ["y"]},
+          "primary_keys": {}, "unmodeled_key_tables": {"a", "b"}},
+         "no_join_condition"),
+    ],
+)
+def test_product_without_a_possible_pin_stays_defect(sql, kwargs, reason):
+    result = detect_antipatterns(sql, **kwargs)
+    assert result.has_cartesian_product is True
+    assert _all_cartesian_records(result) == [("defect", reason)]
 
 
 @pytest.mark.parametrize(

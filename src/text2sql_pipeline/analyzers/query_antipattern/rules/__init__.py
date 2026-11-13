@@ -18,6 +18,7 @@ from .conditional_count_non_null_else import ConditionalCountNonNullElseRule
 from .unquoted_date_arithmetic import UnquotedDateArithmeticRule
 from .literal_division_by_zero import LiteralDivisionByZeroRule
 from .template_placeholder_literal import TemplatePlaceholderLiteralRule
+from .inconsistent_condition import InconsistentConditionRule
 from .scalar_subquery_cardinality import ScalarSubqueryCardinalityRule
 from .function_in_where import FunctionInWhereRule
 from .not_in_nullable import NotInNullableRule
@@ -40,6 +41,7 @@ RULES: Tuple[AntipatternRule, ...] = (
     UnquotedDateArithmeticRule(),
     LiteralDivisionByZeroRule(),
     TemplatePlaceholderLiteralRule(),
+    InconsistentConditionRule(),
     ScalarSubqueryCardinalityRule(),
     FunctionInWhereRule(),
     NotInNullableRule(),

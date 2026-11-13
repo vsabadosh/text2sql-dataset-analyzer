@@ -2014,7 +2014,7 @@ class TestCartesianProductAntipattern:
             "JOIN activity AS T2 ON T2.actid = T2.actid "
             "WHERE T2.activity_name = 'Kayaking'"
         )
-        result = detect_antipatterns(sql)
+        result = detect_antipatterns(sql, primary_keys={})
         assert result.has_cartesian_product is True
 
     def test_cross_join_detected_as_cartesian(self):
@@ -2996,6 +2996,161 @@ class TestRedundantDistinctSchemaAware:
         assert detect_antipatterns(
             sql, dialect=dialect
         ).has_redundant_distinct is True
+
+    def _decisions(self, sql, **overrides):
+        result = self._detect(sql, **overrides)
+        return [
+            (record.status, record.reason)
+            for record in result.antipatterns + result.unresolved
+            if record.pattern == "redundant_distinct"
+        ]
+
+    def test_closure_proves_keys_of_every_source(self):
+        """Brass & Goldberg: both keys are projected, no join needs a key."""
+        sql = (
+            "SELECT DISTINCT T1.sid, T2.id FROM Sailors AS T1 "
+            "JOIN goods AS T2 ON T1.age = T2.price"
+        )
+
+        assert self._decisions(sql) == [("remark", "key_via_key_closure")]
+        assert self._decisions(
+            "SELECT DISTINCT T1.sid FROM Sailors AS T1 "
+            "JOIN goods AS T2 ON T1.age = T2.price"
+        ) == []
+
+    def test_closure_carries_a_determined_row_to_the_next_key(self):
+        """The leading Sailors row is fixed only through the Reserves key."""
+        sql = (
+            "SELECT DISTINCT T2.bid, T2.day, T1.sid FROM Sailors AS T1 "
+            "JOIN Reserves AS T2 ON T1.sid = T2.sid"
+        )
+
+        assert self._decisions(sql) == [("remark", "key_via_key_closure")]
+
+    def test_literal_equality_fixes_a_key(self):
+        sql = "SELECT DISTINCT name FROM Sailors WHERE sid = 5"
+
+        assert self._decisions(sql) == [("remark", "key_via_key_closure")]
+
+    def test_literal_fixes_one_component_of_a_composite_key(self):
+        sql = "SELECT DISTINCT sid, bid FROM Reserves WHERE day = 'Mon'"
+
+        assert self._decisions(sql) == [("remark", "key_via_key_closure")]
+
+    def test_unfixed_source_keeps_distinct_meaningful(self):
+        sql = "SELECT DISTINCT T1.name FROM Sailors AS T1, items AS T2 WHERE T1.sid = 5"
+
+        assert self._decisions(sql) == []
+
+    def test_literal_under_or_fixes_nothing(self):
+        sql = "SELECT DISTINCT name FROM Sailors WHERE sid = 5 OR age = 3"
+
+        assert self._decisions(sql) == []
+
+    def test_left_join_on_literal_fixes_nothing(self):
+        """A LEFT JOIN keeps the rows its ON condition rejects."""
+        sql = (
+            "SELECT DISTINCT T1.name FROM items AS T2 "
+            "LEFT JOIN Sailors AS T1 ON T1.sid = 5"
+        )
+
+        assert self._decisions(sql) == []
+
+    def test_inner_join_literal_is_dropped_under_a_later_right_join(self):
+        sql = (
+            "SELECT DISTINCT T1.name, T2.item FROM Sailors AS T1 "
+            "JOIN goods AS T3 ON T1.sid = 5 RIGHT JOIN items AS T2 ON T2.item = T3.id"
+        )
+
+        assert self._decisions(sql) == []
+
+    def test_where_literal_survives_a_right_join(self):
+        sql = (
+            "SELECT DISTINCT T1.name, T2.item FROM Sailors AS T1 "
+            "RIGHT JOIN items AS T2 ON T2.item = T1.age WHERE T1.sid = 5"
+        )
+
+        assert self._decisions(sql) == [("remark", "key_via_key_closure")]
+
+    def test_closure_fixes_the_group_key(self):
+        sql = "SELECT DISTINCT sid FROM Reserves GROUP BY sid, day HAVING day = 'x' OR 1"
+        assert self._decisions(sql) == []
+
+        fixed = "SELECT DISTINCT sid FROM Reserves WHERE day = 'Mon' GROUP BY sid, day"
+        assert self._decisions(fixed) == [("remark", "group_key_via_key_closure")]
+
+    def test_projected_key_fixes_another_group_column(self):
+        sql = "SELECT DISTINCT sid FROM Sailors GROUP BY sid, age"
+
+        assert self._decisions(sql) == [("remark", "group_key_via_key_closure")]
+
+    def test_closure_is_sqlite_only(self):
+        sql = "SELECT DISTINCT name FROM Sailors WHERE sid = 5"
+        result = detect_antipatterns(
+            sql,
+            dialect="postgres",
+            primary_keys=self.PRIMARY_KEYS,
+            table_columns=self.TABLE_COLUMNS,
+            column_comparators=self.COMPARATORS,
+        )
+
+        assert [
+            (record.status, record.reason) for record in result.unresolved
+        ] == [("unresolved", "unvalidated_dialect")]
+        assert result.has_redundant_distinct is False
+
+    def test_derived_source_is_unresolved(self):
+        sql = "SELECT DISTINCT s.sid FROM (SELECT sid FROM Sailors) AS s"
+
+        assert self._decisions(sql) == [
+            ("unresolved", "derived_or_unbound_source")
+        ]
+
+    def test_unknown_table_is_unresolved_only_when_its_key_matters(self):
+        joined = "SELECT DISTINCT T1.sid FROM Sailors AS T1 JOIN unknown AS u ON u.k = T1.sid"
+        assert self._decisions(joined) == [
+            ("unresolved", "derived_or_unbound_source")
+        ]
+
+        fan_out = "SELECT DISTINCT T1.name FROM Sailors AS T1 JOIN unknown AS u ON u.k = T1.sid"
+        assert self._decisions(fan_out) == []
+
+    def test_untrusted_key_is_unresolved_but_other_columns_are_not(self):
+        nullable = {"sailors": [["name"]]}
+        assert self._decisions(
+            "SELECT DISTINCT name FROM Sailors", nullable_keys=nullable
+        ) == [("unresolved", "unmodeled_unique_constraint")]
+        assert self._decisions(
+            "SELECT DISTINCT age FROM Sailors", nullable_keys=nullable
+        ) == []
+
+    def test_unmodeled_unique_constraint_is_unresolved(self):
+        sql = "SELECT DISTINCT age FROM Sailors"
+
+        assert self._decisions(sql, unmodeled_key_tables={"sailors"}) == [
+            ("unresolved", "unmodeled_unique_constraint")
+        ]
+
+    def test_without_key_metadata_distinct_is_unresolved(self):
+        result = detect_antipatterns("SELECT DISTINCT name FROM sailors")
+
+        assert [(r.status, r.reason) for r in result.unresolved] == [
+            ("unresolved", "no_key_metadata")
+        ]
+        assert result.has_redundant_distinct is False
+
+    @pytest.mark.parametrize(
+        "sql",
+        [
+            "SELECT DISTINCT a.x FROM a, b",
+            "SELECT DISTINCT count(*) FROM t GROUP BY x",
+        ],
+    )
+    def test_duplicates_possible_under_any_keys_get_no_record(self, sql):
+        result = detect_antipatterns(sql)
+
+        assert result.unresolved == []
+        assert result.has_redundant_distinct is False
 
     def test_output_alias_is_proved_only_when_catalog_excludes_collision(self):
         sql = "SELECT DISTINCT a AS b FROM t GROUP BY b"
@@ -4438,7 +4593,7 @@ class TestCartesianWhereRescueScoping:
         JOIN orders AS o ON TRUE
         WHERE u.active = 1 AND o.status = 'open'
         """
-        result = detect_antipatterns(sql)
+        result = detect_antipatterns(sql, primary_keys={})
         assert result.has_cartesian_product is True
 
     def test_join_on_separate_filters_still_cartesian(self):
@@ -4448,7 +4603,7 @@ class TestCartesianWhereRescueScoping:
         FROM users AS u
         JOIN orders AS o ON u.active = 1 AND o.status = 'open'
         """
-        result = detect_antipatterns(sql)
+        result = detect_antipatterns(sql, primary_keys={})
         assert result.has_cartesian_product is True
 
     def test_disconnected_where_join_graph_still_cartesian(self):
@@ -5077,7 +5232,8 @@ class TestGroupByEqualityPropagation:
             },
         )
         assert result.has_missing_group_by is False
-        assert _group_by_decisions(result) == []
+        assert _group_by_decisions(result) == ["correct"]
+        assert result.proved_safe[0].reason == "key_via_join_equality"
 
     def test_binary_group_key_fixes_a_nocase_join_key(self):
         sql = (
@@ -5110,6 +5266,39 @@ class TestGroupByEqualityPropagation:
             },
         ).has_missing_group_by is False
 
+    def test_key_closure_chains_across_three_tables(self):
+        sql = (
+            "SELECT c.city, count(*) FROM a JOIN b ON a.bid = b.id "
+            "JOIN c ON b.cid = c.id GROUP BY a.id"
+        )
+        numeric = ("NUMERIC", "BINARY")
+        result = detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["id"], "c": ["id"]},
+            column_comparators={
+                "a": {"id": numeric, "bid": numeric},
+                "b": {"id": numeric, "cid": numeric},
+                "c": {"id": numeric},
+            },
+        )
+        assert result.has_missing_group_by is False
+        assert [r.reason for r in result.proved_safe] == ["key_via_key_closure"]
+
+    def test_key_closure_respects_the_link_direction(self):
+        # The numeric a.bid cannot fix the text key b.id.
+        sql = (
+            "SELECT b.name, count(*) FROM a JOIN b ON a.bid = b.id "
+            "GROUP BY a.id"
+        )
+        assert detect_antipatterns(
+            sql,
+            primary_keys={"a": ["id"], "b": ["id"]},
+            column_comparators={
+                "a": {"id": ("NUMERIC", "BINARY"), "bid": ("NUMERIC", "BINARY")},
+                "b": {"id": ("TEXT", "BINARY")},
+            },
+        ).has_missing_group_by is True
+
     def test_directed_link_does_not_run_backwards(self):
         # The numeric key a.id fixes nothing about the text column b.x, so
         # grouping by a.id leaves the key of b undetermined.
@@ -5127,7 +5316,8 @@ class TestGroupByEqualityPropagation:
         ).has_missing_group_by is True
 
     def test_outer_join_does_not_propagate(self):
-        # Unmatched rows are padded with NULL, so the equality does not hold.
+        # Known false defect: the preserved side fixes the NULL-extended key,
+        # but LEFT JOIN equalities are not used (see README).
         sql = ("SELECT t2.name, count(*) FROM program AS t1 LEFT JOIN director AS t2 "
                "ON t1.director_id = t2.director_id GROUP BY t1.director_id")
         assert detect_antipatterns(sql, primary_keys=self.BBC).has_missing_group_by is True
@@ -5152,13 +5342,31 @@ class TestGroupByEqualityPropagation:
 
 
 class TestGroupByDecisions:
-    """Each grouping scope gets one decision: defect, unresolved or no record."""
+    """Each grouping scope with an ungrouped projection gets one decision."""
 
     KEYS = {"emp": ["id"], "dept": ["id"]}
     COLUMNS = {"emp": ["id", "name", "dept_id"], "dept": ["id", "title"]}
+    COMPARATORS = {
+        "emp": {"id": ("NUMERIC", "BINARY"), "dept_id": ("NUMERIC", "BINARY")},
+        "dept": {"id": ("NUMERIC", "BINARY")},
+    }
 
     def _decide(self, sql, **kwargs):
         return _group_by_decisions(detect_antipatterns(sql, **kwargs))
+
+    def _records(self, sql, **kwargs):
+        result = detect_antipatterns(
+            sql,
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+            column_comparators=self.COMPARATORS,
+            **kwargs,
+        )
+        return result, [
+            (record.status, record.reason)
+            for record in result.antipatterns + result.unresolved + result.proved_safe
+            if record.pattern == "missing_group_by"
+        ]
 
     def test_grouping_by_non_key_is_defect_with_key_metadata(self):
         assert self._decide(
@@ -5167,12 +5375,88 @@ class TestGroupByDecisions:
             table_columns=self.COLUMNS,
         ) == ["defect"]
 
-    def test_grouping_by_primary_key_has_no_record(self):
-        assert self._decide(
-            "SELECT id, name, COUNT(*) FROM emp GROUP BY id",
+    def test_grouping_by_primary_key_is_correct(self):
+        result, records = self._records(
+            "SELECT id, name, COUNT(*) FROM emp GROUP BY id"
+        )
+        assert records == [("correct", "key_grouped")]
+        assert result.has_missing_group_by is False
+        assert result.proved_safe_count == 1
+        assert result.unresolved_count == 0
+
+    def test_star_grouped_by_primary_key_is_correct(self):
+        _, records = self._records("SELECT * FROM emp GROUP BY id")
+        assert records == [("correct", "key_grouped")]
+
+    def test_key_reached_through_join_equality_is_correct(self):
+        _, records = self._records(
+            "SELECT d.title, COUNT(*) FROM emp AS e JOIN dept AS d "
+            "ON e.dept_id = d.id GROUP BY e.dept_id"
+        )
+        assert records == [("correct", "key_via_join_equality")]
+
+    def test_key_reached_through_a_determined_row_is_correct(self):
+        # e.id fixes the emp row, hence e.dept_id, hence the dept key d.id.
+        _, records = self._records(
+            "SELECT e.name, d.title, COUNT(*) FROM emp AS e JOIN dept AS d "
+            "ON e.dept_id = d.id GROUP BY e.id"
+        )
+        assert records == [("correct", "key_via_key_closure")]
+
+    def test_star_through_a_determined_row_is_correct(self):
+        _, records = self._records(
+            "SELECT * FROM emp AS e JOIN dept AS d ON e.dept_id = d.id "
+            "GROUP BY e.id"
+        )
+        assert records == [("correct", "key_via_key_closure")]
+
+    def test_closure_does_not_run_from_the_referenced_key(self):
+        # One department has many employees.
+        _, records = self._records(
+            "SELECT e.name, COUNT(*) FROM emp AS e JOIN dept AS d "
+            "ON e.dept_id = d.id GROUP BY d.id"
+        )
+        assert records == [("defect", "not_determined_by_key")]
+
+    def test_postgres_does_not_chain_through_a_determined_row(self):
+        result = detect_antipatterns(
+            "SELECT e.name, d.title, COUNT(*) FROM emp AS e JOIN dept AS d "
+            "ON e.dept_id = d.id GROUP BY e.id",
+            dialect="postgres",
             primary_keys=self.KEYS,
             table_columns=self.COLUMNS,
-        ) == []
+        )
+        assert _group_by_decisions(result) == ["defect"]
+
+    def test_postgres_does_not_use_join_equality(self):
+        result = detect_antipatterns(
+            "SELECT d.title, COUNT(*) FROM emp AS e JOIN dept AS d "
+            "ON e.dept_id = d.id GROUP BY e.dept_id",
+            dialect="postgres",
+            primary_keys=self.KEYS,
+            table_columns=self.COLUMNS,
+        )
+        assert _group_by_decisions(result) == ["defect"]
+
+    def test_extreme_key_row_within_groups_is_correct(self):
+        _, records = self._records(
+            "SELECT dept_id, name, MAX(id) FROM emp GROUP BY dept_id"
+        )
+        assert records == [("correct", "extreme_key_row")]
+
+    def test_extreme_key_row_without_group_by_is_correct(self):
+        _, records = self._records("SELECT name, MIN(id) FROM emp")
+        assert records == [("correct", "extreme_key_row")]
+
+    def test_fully_grouped_projection_has_no_record(self):
+        _, records = self._records(
+            "SELECT dept_id, COUNT(*) FROM emp GROUP BY dept_id"
+        )
+        assert records == []
+
+    def test_pure_aggregate_has_no_record(self):
+        _, records = self._records("SELECT COUNT(*) FROM emp")
+        assert records == []
 
     def test_same_query_without_key_metadata_is_unresolved(self):
         result = detect_antipatterns(
@@ -5203,6 +5487,95 @@ class TestGroupByDecisions:
             primary_keys=self.KEYS,
             table_columns=self.COLUMNS,
         ) == ["defect", "defect"]
+
+
+class TestMinMaxRowColumns:
+    """SQLite takes bare columns from the row holding a lone min() or max();
+    over a non-null single-column key that row is unique."""
+
+    KEYS = {"bugs": ["bug_id"], "accounts": ["account_id"]}
+    COLUMNS = {
+        "bugs": ["bug_id", "date_reported", "reported_by", "hours", "product"],
+        "accounts": ["account_id", "account_name"],
+    }
+
+    def _decide(self, sql, dialect="sqlite"):
+        result = detect_antipatterns(
+            sql, dialect=dialect, primary_keys=self.KEYS, table_columns=self.COLUMNS
+        )
+        return [(record.status, record.reason) for record in
+                result.antipatterns + result.unresolved
+                if record.pattern == "missing_group_by"]
+
+    def test_max_over_key_determines_bare_columns(self):
+        assert self._decide("SELECT date_reported, MAX(bug_id) FROM Bugs") == []
+
+    def test_min_over_key_determines_star(self):
+        assert self._decide("SELECT *, MIN(bug_id) FROM Bugs") == []
+
+    def test_max_over_key_within_groups(self):
+        assert self._decide(
+            "SELECT product, date_reported, MAX(bug_id) FROM Bugs GROUP BY product"
+        ) == []
+
+    def test_max_over_key_of_joined_table(self):
+        assert self._decide(
+            "SELECT a.account_name, MAX(a.account_id) FROM Bugs b "
+            "JOIN Accounts a ON b.reported_by = a.account_id"
+        ) == []
+
+    def test_max_over_non_key_can_tie(self):
+        assert self._decide("SELECT date_reported, MAX(hours) FROM Bugs") == [
+            ("defect", "aggregate_without_group_by")
+        ]
+        assert self._decide(
+            "SELECT product, date_reported, MAX(hours) FROM Bugs GROUP BY product"
+        ) == [("defect", "not_determined_by_key")]
+
+    def test_max_and_min_together_pick_no_row(self):
+        assert self._decide(
+            "SELECT date_reported, MAX(bug_id), MIN(bug_id) FROM Bugs"
+        ) == [("defect", "aggregate_without_group_by")]
+
+    def test_max_over_expression_picks_no_key_row(self):
+        assert self._decide("SELECT date_reported, MAX(bug_id + 1) FROM Bugs") == [
+            ("defect", "aggregate_without_group_by")
+        ]
+
+    def test_scalar_max_is_not_an_aggregate(self):
+        assert self._decide("SELECT date_reported, MAX(bug_id, hours) FROM Bugs") == []
+
+    def test_outer_join_keeps_the_preserved_key(self):
+        assert self._decide(
+            "SELECT b.date_reported, MAX(b.bug_id) FROM Bugs b "
+            "LEFT JOIN Accounts a ON b.reported_by = a.account_id"
+        ) == []
+
+    def test_outer_join_can_null_the_key(self):
+        assert self._decide(
+            "SELECT b.date_reported, MAX(a.account_id) FROM Bugs b "
+            "LEFT JOIN Accounts a ON b.reported_by = a.account_id"
+        ) == [("defect", "aggregate_without_group_by")]
+        assert self._decide(
+            "SELECT b.date_reported, MAX(b.bug_id) FROM Bugs b "
+            "RIGHT JOIN Accounts a ON b.reported_by = a.account_id"
+        ) == [("defect", "aggregate_without_group_by")]
+
+    def test_filter_can_leave_the_aggregate_without_input(self):
+        assert self._decide(
+            "SELECT date_reported, MAX(bug_id) FILTER (WHERE hours > 100) FROM Bugs"
+        ) == [("defect", "aggregate_without_group_by")]
+
+    def test_repeated_aggregate_names_the_same_row(self):
+        assert self._decide(
+            "SELECT product, date_reported, MAX(bug_id) FROM Bugs "
+            "GROUP BY product ORDER BY MAX(bug_id)"
+        ) == []
+
+    def test_other_dialects_keep_the_defect(self):
+        assert self._decide(
+            "SELECT date_reported, MAX(bug_id) FROM Bugs", dialect="mysql"
+        ) == [("defect", "aggregate_without_group_by")]
 
 
 class TestGroupByFunctionalDependencySoundness:
@@ -5694,13 +6067,26 @@ class TestCartesianProductScopes:
         self._assert_defect(
             "SELECT * FROM a, b WHERE n = 1 AND a.x = a.y",
             table_columns=self.SCHEMA,
+            primary_keys={},
         )
 
     def test_unqualified_columns_without_schema_are_unresolved(self):
         self._assert_unresolved("SELECT ename FROM emp, dept WHERE ename = dname")
 
-    def test_single_unqualified_filter_without_schema_is_still_cartesian(self):
-        self._assert_defect("SELECT * FROM emp, dept WHERE ename = 'x'")
+    def test_single_unqualified_filter_without_schema_is_unresolved(self):
+        """ename may be a key of emp or of dept; either would pin one row."""
+        result = detect_antipatterns("SELECT * FROM emp, dept WHERE ename = 'x'")
+        assert result.has_cartesian_product is False
+        assert [
+            (ap.status, ap.reason)
+            for ap in result.unresolved
+            if ap.pattern == "cartesian_product"
+        ] == [("unresolved", "unknown_key_pin")]
+
+    def test_single_unqualified_filter_without_keys_is_still_cartesian(self):
+        self._assert_defect(
+            "SELECT * FROM emp, dept WHERE ename = 'x'", primary_keys={}
+        )
 
     def test_derived_table_columns_bind_unqualified_reference(self):
         self._assert_correct(
@@ -5757,6 +6143,7 @@ class TestCartesianProductScopes:
         self._assert_defect(
             "SELECT * FROM a, b WHERE a.x = 1 AND orders.y = 2",
             table_columns=self.SCHEMA,
+            primary_keys={},
         )
 
     def test_outer_reference_from_subquery_is_not_unresolved(self):

@@ -51,6 +51,7 @@ class AntipatternPattern(str, Enum):
     UNQUOTED_DATE_ARITHMETIC = "unquoted_date_arithmetic"
     LITERAL_DIVISION_BY_ZERO = "literal_division_by_zero"
     TEMPLATE_PLACEHOLDER_LITERAL = "template_placeholder_literal"
+    INCONSISTENT_CONDITION = "inconsistent_condition"
     
     # High severity antipatterns (performance/correctness)
     FUNCTION_IN_WHERE = "function_in_where"
@@ -80,6 +81,7 @@ ANTIPATTERN_NAMES: Dict[str, str] = {
     AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "Unquoted date interpreted as arithmetic",
     AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "Literal division by zero",
     AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "Unexpanded template placeholder literal",
+    AntipatternPattern.INCONSISTENT_CONDITION: "Inconsistent condition",
     AntipatternPattern.FUNCTION_IN_WHERE: "Function in WHERE",
     AntipatternPattern.NOT_IN_NULLABLE: "NOT IN with nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "Leading wildcard LIKE",
@@ -106,6 +108,7 @@ PATTERN_TO_BOOLEAN_FIELD: Dict[str, str] = {
     AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "has_unquoted_date_arithmetic",
     AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "has_literal_division_by_zero",
     AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "has_template_placeholder_literal",
+    AntipatternPattern.INCONSISTENT_CONDITION: "has_inconsistent_condition",
     AntipatternPattern.FUNCTION_IN_WHERE: "has_function_in_where",
     AntipatternPattern.NOT_IN_NULLABLE: "has_not_in_nullable",
     AntipatternPattern.LEADING_WILDCARD_LIKE: "has_leading_wildcard_like",
@@ -132,6 +135,7 @@ IMPACT_CLASS: Dict[str, str] = {
     AntipatternPattern.UNQUOTED_DATE_ARITHMETIC: "A",
     AntipatternPattern.LITERAL_DIVISION_BY_ZERO: "A",
     AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL: "A",
+    AntipatternPattern.INCONSISTENT_CONDITION: "A",
     AntipatternPattern.CARTESIAN_PRODUCT: "A",
     AntipatternPattern.NOT_IN_NULLABLE: "B",
     AntipatternPattern.SCALAR_SUBQUERY_CARDINALITY: "B",

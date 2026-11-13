@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import (
+    Callable,
     Dict,
     List,
     Optional,
@@ -12,10 +13,18 @@ from typing import (
 
 from sqlglot import exp
 
-from ..metrics import AntipatternInstance
+from ..metrics import (
+    AntipatternInstance,
+    DECISION_DEFECT,
+    DECISION_UNRESOLVED,
+)
 from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
-from ..ast_utils import _has_non_window_aggregate_not_in_subquery
+from ..ast_utils import (
+    _has_non_window_aggregate_not_in_subquery,
+    _is_non_null_literal,
+    _join_can_null_extend,
+)
 from ..scope import (
     _build_select_alias_map,
     _extract_join_source_name,
@@ -24,10 +33,14 @@ from ..scope import (
     _resolve_column,
 )
 from ..keys import (
+    _candidate_keys,
+    _column_fixed,
     _columns_compare_compatibly,
+    _determined_sources,
     _equated_columns,
     _guaranteed_column_equalities,
     _normalize_group_by_expressions,
+    _source_keys,
 )
 
 def _strip_projection_wrapper(expression: exp.Expression) -> exp.Expression:
@@ -299,18 +312,187 @@ def _joins_preserve_grain(
 
     return True
 
+def _projected_key_proof(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    primary_keys: Optional[Dict[str, List[str]]],
+    table_columns: Optional[Dict[str, List[str]]],
+    column_comparators: Optional[Dict[str, Dict[str, Tuple[str, str]]]],
+    resolved_projection: Set[Tuple[str, str]],
+    starred_sources: Set[str],
+    unqualified_star: bool,
+    star_expanded_columns: Optional[Dict[str, List[str]]],
+    equated: Dict[Tuple[str, str], Set[Tuple[str, str]]],
+) -> Optional[str]:
+    """Leading table whose projected primary key no join fans out, if any."""
+    if not primary_keys:
+        return None
+    if any(table is None for table in sources.values()) or not sources:
+        # Derived tables and CTEs carry no declared key at this level.
+        return None
+    driving = next(iter(sources))
+    key_columns = _relation_key(driving, sources, primary_keys)
+    if not key_columns:
+        return None
+    if not _joins_preserve_grain(
+        select, sources, table_columns, primary_keys, column_comparators
+    ):
+        return None
+    if not _projection_pins_key(
+        driving,
+        key_columns,
+        resolved_projection,
+        starred_sources,
+        unqualified_star,
+        sources,
+        star_expanded_columns,
+        equated,
+    ):
+        return None
+    return sources[driving]
+
+def _literal_fixed_columns(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Set[Tuple[str, str]]:
+    """Columns a WHERE or inner-join conjunct equates to a non-null literal.
+
+    This is the ``A = c`` step of Brass & Goldberg's closure. A LEFT JOIN's ON
+    never removes the rows it pads, and a later RIGHT or FULL join pads a
+    column an inner-join ON fixed, so those contribute nothing; WHERE holds
+    for every output row.
+    """
+    joins = select.args.get("joins") or []
+    pads_inner_joins = any(
+        _join_can_null_extend(join)
+        and str(join.args.get("side") or "").upper() != "LEFT"
+        for join in joins
+    )
+    conditions: List[exp.Expression] = []
+    where = select.args.get("where")
+    if isinstance(where, exp.Where) and where.this is not None:
+        conditions.append(where.this)
+    if not pads_inner_joins:
+        conditions.extend(
+            join.args["on"]
+            for join in joins
+            if not _join_can_null_extend(join) and join.args.get("on") is not None
+        )
+    conjuncts: List[exp.Expression] = []
+    while conditions:
+        node = conditions.pop()
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if isinstance(node, exp.And):
+            conditions.extend((node.left, node.right))
+        else:
+            conjuncts.append(node)
+    fixed: Set[Tuple[str, str]] = set()
+    for conjunct in conjuncts:
+        if not isinstance(conjunct, exp.EQ):
+            continue
+        for column, value in (
+            (conjunct.left, conjunct.right),
+            (conjunct.right, conjunct.left),
+        ):
+            if not isinstance(column, exp.Column) or not _is_non_null_literal(value):
+                continue
+            if any(
+                identifier.args.get("quoted")
+                for identifier in column.find_all(exp.Identifier)
+            ):
+                continue
+            binding = _resolve_column(
+                column.table, column.name, sources, table_columns
+            )
+            if binding is not None:
+                fixed.add(binding)
+    return fixed
+
+def _star_fixed_columns(
+    sources: Dict[str, Optional[str]],
+    covered: Set[str],
+    star_expanded_columns: Optional[Dict[str, List[str]]],
+) -> Set[Tuple[str, str]]:
+    """Catalogued columns a star projects for each covered source."""
+    fixed: Set[Tuple[str, str]] = set()
+    for source in covered:
+        metadata_key = _metadata_table_key(
+            sources.get(source), star_expanded_columns or {}
+        )
+        if metadata_key is not None:
+            fixed.update(
+                (source, column.lower())
+                for column in star_expanded_columns[metadata_key]
+            )
+    return fixed
+
+def _possible_bindings(
+    name: str,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> List[Tuple[str, str]]:
+    """Every relation instance an unqualified column name may belong to."""
+    possible: List[Tuple[str, str]] = []
+    for source, table in sources.items():
+        metadata_key = _metadata_table_key(table, table_columns or {})
+        if metadata_key is None or name.lower() in table_columns[metadata_key]:
+            possible.append((source, name.lower()))
+    return possible
+
+def _group_key_fixed(
+    normalized_group_exprs: List[exp.Expression],
+    normalized_projection: Set[str],
+    bindings: Callable[[exp.Column], List[Tuple[str, str]]],
+    is_fixed: Callable[[Tuple[str, str]], bool],
+) -> bool:
+    """Whether output rows that agree on the projection share every group key."""
+    for group_expr in normalized_group_exprs:
+        if group_expr.sql(comments=False, normalize=True) in normalized_projection:
+            continue
+        if not isinstance(group_expr, exp.Column) or any(
+            identifier.args.get("quoted")
+            for identifier in group_expr.find_all(exp.Identifier)
+        ):
+            return False
+        if not any(is_fixed(binding) for binding in bindings(group_expr)):
+            return False
+    return True
+
+_CLOSURE_MESSAGES = {
+    "group_key_via_key_closure": (
+        "DISTINCT is redundant: the projected columns fix every GROUP BY "
+        "expression through keys, equalities and literals, so the grouping "
+        "already returns distinct rows."
+    ),
+    "key_via_key_closure": (
+        "DISTINCT is redundant: the projected columns fix a key of every source "
+        "through keys, equalities and literals, so every row is already unique."
+    ),
+}
+
 class RedundantDistinctRule:
     """
     Detect a SELECT-level DISTINCT that cannot remove any row.
 
-    Two independent proofs are accepted:
+    The form is a plain top-level DISTINCT. Its decision tries, in order:
 
       1. Grouping query: the projection carries the complete GROUP BY key, so
-         one row per group is already one distinct row.  A projection that
-         drops part of the key, or projects only aggregates, may repeat values
-         across groups and is therefore left alone.
+         one row per group is already one distinct row.
       2. Schema proof without GROUP BY: the projection carries the complete
          primary key of the leading relation and no join multiplies its rows.
+      3. SQLite closure (Brass & Goldberg's sufficient test for unnecessary
+         DISTINCT): the projected columns, columns equated to non-null
+         literals, and every column of a row whose key is fixed are closed
+         under WHERE and inner-join equalities. DISTINCT is redundant when the
+         closure fixes every GROUP BY expression, or without GROUP BY a key of
+         every source.
+
+    A proof is a defect, stored as a class D remark. Without one the decision
+    is unresolved when the same closure succeeds once the missing metadata is
+    assumed favourable (``_abstention_reason``). Any other DISTINCT gets no
+    record until a duplicate-row witness exists.
 
     DISTINCT inside an aggregate such as ``COUNT(DISTINCT col)`` changes the
     aggregate's meaning and is never reported; sqlglot attaches that node to
@@ -332,18 +514,26 @@ class RedundantDistinctRule:
         column_comparators = schema.column_comparators
         star_expanded_columns = schema.star_expanded_columns
         pattern = AntipatternPattern.REDUNDANT_DISTINCT.value
+        candidate_keys = _candidate_keys(primary_keys, schema.unique_keys)
         if star_expanded_columns is None:
             # Without a dedicated star catalog the two coincide, which holds for
             # every ordinary table.
             star_expanded_columns = table_columns
 
-        def report(message: str, location: str) -> None:
+        def report(
+            message: str,
+            location: str,
+            reason: str,
+            status: str = DECISION_DEFECT,
+        ) -> None:
             antipatterns.append(
                 AntipatternInstance(
                     pattern=pattern,
                     severity=severity,
                     message=message,
                     location=location,
+                    status=status,
+                    reason=reason,
                 )
             )
 
@@ -368,6 +558,11 @@ class RedundantDistinctRule:
             equated = _equated_columns(
                 select, sources, table_columns, column_comparators
             )
+            merged_join_columns = any(
+                join.args.get("using")
+                or str(join.args.get("method") or "").upper() == "NATURAL"
+                for join in select.args.get("joins") or []
+            )
 
             group = select.args.get("group")
             if group is not None:
@@ -385,74 +580,223 @@ class RedundantDistinctRule:
                 )
                 if not normalized_group_exprs:
                     continue
-                if not _group_key_is_projected(
+                if _group_key_is_projected(
                     normalized_group_exprs,
                     normalized_projection,
                     resolved_projection,
                     starred_sources,
                     unqualified_star,
-                    any(
-                        join.args.get("using")
-                        or str(join.args.get("method") or "").upper() == "NATURAL"
-                        for join in select.args.get("joins") or []
-                    ),
+                    merged_join_columns,
                     sources,
                     table_columns,
                     star_expanded_columns,
                     equated,
                 ):
+                    report(
+                        "DISTINCT is redundant: the projection carries the complete "
+                        "GROUP BY key, so the grouping already returns distinct rows.",
+                        "SELECT with GROUP BY",
+                        "group_key_projected",
+                    )
+                    return antipatterns
+
+                def goal(is_fixed, bindings, rows):
+                    return _group_key_fixed(
+                        normalized_group_exprs,
+                        normalized_projection,
+                        bindings,
+                        is_fixed,
+                    )
+
+                location = "SELECT with GROUP BY"
+                closure_reason = "group_key_via_key_closure"
+            else:
+                if select.args.get("having") is not None or any(
+                    _has_non_window_aggregate_not_in_subquery(item)
+                    for item in select.expressions or []
+                ):
+                    # HAVING or a non-window aggregate without GROUP BY changes
+                    # cardinality independently of the projected relation key.
+                    # This key-based proof intentionally leaves those cases alone.
                     continue
-
-                report(
-                    "DISTINCT is redundant: the projection carries the complete "
-                    "GROUP BY key, so the grouping already returns distinct rows.",
-                    "SELECT with GROUP BY",
+                driving_table = _projected_key_proof(
+                    select,
+                    sources,
+                    primary_keys,
+                    table_columns,
+                    column_comparators,
+                    resolved_projection,
+                    starred_sources,
+                    unqualified_star,
+                    star_expanded_columns,
+                    equated,
                 )
-                return antipatterns
+                if driving_table is not None:
+                    report(
+                        "DISTINCT is redundant: the projection carries the primary key of "
+                        f"'{driving_table}' and no join multiplies its rows, so every "
+                        "row is already unique.",
+                        "SELECT with a projected key",
+                        "projected_key",
+                    )
+                    return antipatterns
 
-            if not primary_keys:
-                continue
-            if select.args.get("having") is not None or any(
-                _has_non_window_aggregate_not_in_subquery(item)
-                for item in select.expressions or []
-            ):
-                # HAVING or a non-window aggregate without GROUP BY changes
-                # cardinality independently of the projected relation key. This
-                # key-based proof intentionally leaves those cases unresolved.
-                continue
-            if any(table is None for table in sources.values()) or not sources:
-                # Derived tables and CTEs carry no declared key at this level.
-                continue
+                def goal(is_fixed, bindings, rows):
+                    return bool(sources) and all(source in rows for source in sources)
 
-            driving = next(iter(sources))
-            key_columns = _relation_key(driving, sources, primary_keys)
-            if not key_columns:
-                continue
-            if not _joins_preserve_grain(
+                location = "SELECT with a projected key"
+                closure_reason = "key_via_key_closure"
+
+            star_covered = set(starred_sources)
+            if unqualified_star and not merged_join_columns:
+                star_covered |= set(sources)
+            fixed = (
+                resolved_projection
+                | _literal_fixed_columns(select, sources, table_columns)
+                | _star_fixed_columns(sources, star_covered, star_expanded_columns)
+            )
+
+            if schema.dialect == "sqlite":
+                directed = _equated_columns(
+                    select,
+                    sources,
+                    table_columns,
+                    column_comparators,
+                    directed=True,
+                )
+                rows = _determined_sources(
+                    _source_keys(sources, candidate_keys), fixed, directed
+                )
+
+                def exact(column: exp.Column) -> List[Tuple[str, str]]:
+                    binding = _resolve_column(
+                        column.table, column.name, sources, table_columns
+                    )
+                    return [binding] if binding is not None else []
+
+                if goal(
+                    lambda column: _column_fixed(column, fixed, rows, directed),
+                    exact,
+                    rows,
+                ):
+                    report(
+                        _CLOSURE_MESSAGES[closure_reason], location, closure_reason
+                    )
+                    return antipatterns
+
+            reason = _abstention_reason(
                 select,
+                schema,
                 sources,
-                table_columns,
-                primary_keys,
-                column_comparators,
-            ):
-                continue
-            if not _projection_pins_key(
-                driving,
-                key_columns,
-                resolved_projection,
+                candidate_keys,
+                fixed,
                 starred_sources,
                 unqualified_star,
-                sources,
                 star_expanded_columns,
-                equated,
-            ):
-                continue
-
-            report(
-                "DISTINCT is redundant: the projection carries the primary key of "
-                f"'{sources[driving]}' and no join multiplies its rows, so every "
-                "row is already unique.",
-                "SELECT with a projected key",
+                goal,
             )
-            return antipatterns
+            if reason is not None:
+                report(
+                    "Whether DISTINCT can remove a row depends on metadata the "
+                    f"analyzer lacks ({reason}).",
+                    location,
+                    reason,
+                    DECISION_UNRESOLVED,
+                )
         return antipatterns
+
+def _abstention_reason(
+    select: exp.Select,
+    schema: SchemaContext,
+    sources: Dict[str, Optional[str]],
+    candidate_keys: Dict[str, List[List[str]]],
+    fixed: Set[Tuple[str, str]],
+    starred_sources: Set[str],
+    unqualified_star: bool,
+    star_expanded_columns: Optional[Dict[str, List[str]]],
+    goal: Callable,
+) -> Optional[str]:
+    """Why DISTINCT stays unresolved, or None when no assumption proves it.
+
+    The closure is rerun as an upper bound: an untrusted key (NULL-able or
+    with a mismatched collation) counts as a key, an uncatalogued table or one
+    with an unmodeled uniqueness constraint is determined by any fixed column,
+    a derived source is always determined, an unknown comparison links both
+    ways, and an ambiguous projected or grouped column may bind to every
+    source that can own it.
+    """
+    table_columns = schema.table_columns
+    primary_keys = schema.primary_keys
+    catalog = table_columns if table_columns is not None else primary_keys or {}
+    unmodeled = {table: None for table in schema.unmodeled_key_tables or ()}
+    inert: Dict[str, List[List[str]]] = {}
+    for keys in (schema.nullable_keys, schema.mismatched_collation_keys):
+        for table, column_sets in (keys or {}).items():
+            inert.setdefault(table, []).extend(column_sets)
+
+    def catalogued(table: Optional[str]) -> bool:
+        return _metadata_table_key(table, catalog) is not None
+
+    def unmodeled_key(table: Optional[str]) -> bool:
+        return _metadata_table_key(table, unmodeled) is not None
+
+    def gap(table: Optional[str]) -> bool:
+        return unmodeled_key(table) or _metadata_table_key(table, inert) is not None
+
+    equated = _equated_columns(
+        select,
+        sources,
+        table_columns,
+        schema.column_comparators,
+        directed=True,
+        unknown_compatible=True,
+    )
+    possible = set(fixed)
+    for source in sources if unqualified_star else starred_sources:
+        possible |= _star_fixed_columns(sources, {source}, star_expanded_columns)
+        if not catalogued(sources.get(source)):
+            possible.add((source, "*"))
+
+    def bindings(column: exp.Column) -> List[Tuple[str, str]]:
+        binding = _resolve_column(column.table, column.name, sources, table_columns)
+        if binding is not None:
+            return [binding]
+        if column.table:
+            return []
+        return _possible_bindings(column.name, sources, table_columns)
+
+    # Quoted names count too: the proof skips them only because their case
+    # may matter, which an upper bound may ignore.
+    for item in select.expressions or []:
+        base = _strip_projection_wrapper(item)
+        if isinstance(base, exp.Column) and not isinstance(base.this, exp.Star):
+            possible.update(bindings(base))
+
+    source_keys = _source_keys(sources, candidate_keys)
+    for source, extra in _source_keys(sources, inert).items():
+        source_keys.setdefault(source, []).extend(extra)
+    mentioned = possible | set(equated)
+    for source, table in sources.items():
+        if not table:
+            source_keys[source] = [[]]
+        elif not catalogued(table) or unmodeled_key(table):
+            source_keys.setdefault(source, []).extend(
+                [column] for owner, column in mentioned if owner == source
+            )
+    rows = _determined_sources(source_keys, possible, equated)
+
+    if not goal(
+        lambda column: _column_fixed(column, possible, rows, equated),
+        bindings,
+        rows,
+    ):
+        return None
+    if primary_keys is None:
+        return "no_key_metadata"
+    if any(not table or not catalogued(table) for table in sources.values()):
+        return "derived_or_unbound_source"
+    if any(gap(table) for table in sources.values()):
+        return "unmodeled_unique_constraint"
+    if schema.dialect != "sqlite":
+        return "unvalidated_dialect"
+    return "unresolved_reference"

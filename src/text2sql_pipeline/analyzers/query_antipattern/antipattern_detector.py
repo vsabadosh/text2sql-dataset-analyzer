@@ -8,6 +8,7 @@ This module detects common SQL antipatterns and code smells:
 - Conditional COUNT with a non-NULL ELSE branch (condition is not counted selectively)
 - Unquoted date-shaped subtraction in temporal predicates
 - Division by a static numeric zero
+- Inconsistent row filters that are never true
 - Unexpanded zero-suffixed template placeholders in predicate values
 - Scalar subqueries without a static at-most-one-row proof
 - Cartesian product (missing JOIN) - correctness
@@ -65,6 +66,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.CONDITIONAL_COUNT_NON_NULL_ELSE,
         AntipatternPattern.UNQUOTED_DATE_ARITHMETIC,
         AntipatternPattern.LITERAL_DIVISION_BY_ZERO,
+        AntipatternPattern.INCONSISTENT_CONDITION,
     ],
     "high": [
         AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL,
