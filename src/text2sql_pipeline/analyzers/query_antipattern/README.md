@@ -241,8 +241,12 @@ all possible database contents.
 - `chained_comparison_semantics` - Mathematical-style chains such as
   `low < value < high`; SQLite silently compares the intermediate 0/1 result,
   while other dialects may reject the boolean-to-scalar comparison
-- `conditional_count_non_null_else` - Conditional `COUNT` whose every branch
-  is non-NULL and therefore counts both matching and non-matching rows
+- `conditional_count_non_null_else` - `COUNT(CASE/IIF ... ELSE <non-NULL literal>)`
+  counts rows that fail the condition. Every branch proved non-NULL (a literal,
+  or a `NOT NULL` column that an outer join cannot null-extend) is a defect.
+  A `THEN` column or expression that might be NULL is recorded as unresolved
+  and does not change the boolean flag or the quality score. An explicit NULL
+  branch, a missing ELSE, `DISTINCT`, and `SUM` are not this form.
 - `unquoted_date_arithmetic` - A calendar-valid `Y-M-D`, `M-D-Y`, or `D-M-Y`
   form parsed as subtraction or division. A declared temporal type or an exact
   value match in the bound database column is critical evidence. TEXT, unknown,

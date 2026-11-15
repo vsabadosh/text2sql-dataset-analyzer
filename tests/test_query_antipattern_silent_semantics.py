@@ -41,7 +41,6 @@ class TestConditionalCountNonNullElse:
             "COUNT(CASE WHEN status = 'paid' THEN 1 END)",
             "COUNT(CASE WHEN status = 'paid' THEN 1 ELSE NULL END)",
             "COUNT(CASE WHEN status = 'paid' THEN NULL ELSE 0 END)",
-            "COUNT(CASE WHEN status = 'paid' THEN amount ELSE 0 END)",
             "COUNT(DISTINCT CASE WHEN status = 'paid' THEN 1 ELSE 0 END)",
             "SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END)",
             "COUNT(status)",
@@ -54,7 +53,7 @@ class TestConditionalCountNonNullElse:
         assert result.has_conditional_count_non_null_else is False
         assert all(
             item.pattern != "conditional_count_non_null_else"
-            for item in result.antipatterns
+            for item in result.antipatterns + result.unresolved
         )
 
     def test_custom_severity_is_respected(self):
@@ -78,6 +77,142 @@ class TestConditionalCountNonNullElse:
 
         assert result.has_conditional_count_non_null_else is False
 
+    def test_column_then_without_nullability_proof_is_unresolved(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(CASE WHEN status = 'paid' THEN amount ELSE 0 END) "
+            "FROM orders"
+        )
+
+        assert result.has_conditional_count_non_null_else is False
+        assert result.antipatterns == []
+        assert result.quality_score == 100
+        finding = result.unresolved[0]
+        assert finding.pattern == "conditional_count_non_null_else"
+        assert finding.status == "unresolved"
+        assert finding.reason == "then_not_non_null"
+        assert result.unresolved_count == 1
+
+    def test_not_null_column_then_is_a_defect(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(CASE WHEN o.status = 'paid' THEN o.amount ELSE 0 END) "
+            "FROM orders AS o",
+            table_columns={"orders": ["status", "amount"]},
+            column_nullability={"orders": {"status": True, "amount": False}},
+        )
+
+        assert result.has_conditional_count_non_null_else is True
+        assert result.unresolved == []
+        finding = result.antipatterns[0]
+        assert finding.status == "defect"
+
+    def test_nullable_column_then_stays_unresolved(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(IIF(status = 'paid', amount, 0)) FROM orders",
+            table_columns={"orders": ["status", "amount"]},
+            column_nullability={"orders": {"status": True, "amount": True}},
+        )
+
+        assert result.has_conditional_count_non_null_else is False
+        assert result.unresolved[0].reason == "then_not_non_null"
+
+    def test_left_join_null_extends_a_not_null_column(self):
+        sql = (
+            "SELECT COUNT(CASE WHEN orders.status = 'paid' THEN item.id ELSE 0 END) "
+            "FROM orders LEFT JOIN item ON orders.id = item.order_id"
+        )
+        result = detect_antipatterns(
+            sql,
+            table_columns={
+                "orders": ["id", "status"],
+                "item": ["id", "order_id"],
+            },
+            column_nullability={
+                "orders": {"id": False, "status": True},
+                "item": {"id": False, "order_id": True},
+            },
+        )
+
+        assert result.has_conditional_count_non_null_else is False
+        assert result.unresolved[0].status == "unresolved"
+
+    def test_preserved_side_of_left_join_can_still_be_a_defect(self):
+        sql = (
+            "SELECT COUNT(CASE WHEN orders.status = 'paid' THEN orders.id ELSE 0 END) "
+            "FROM orders LEFT JOIN item ON orders.id = item.order_id"
+        )
+        result = detect_antipatterns(
+            sql,
+            table_columns={
+                "orders": ["id", "status"],
+                "item": ["id", "order_id"],
+            },
+            column_nullability={
+                "orders": {"id": False, "status": True},
+                "item": {"id": False, "order_id": True},
+            },
+        )
+
+        assert result.has_conditional_count_non_null_else is True
+        assert result.unresolved == []
+
+    @pytest.mark.parametrize("join_sql", ["RIGHT JOIN", "FULL OUTER JOIN"])
+    def test_right_and_full_join_do_not_prove_a_column(self, join_sql):
+        sql = (
+            "SELECT COUNT(CASE WHEN orders.status = 'paid' THEN orders.id ELSE 0 END) "
+            f"FROM orders {join_sql} item ON orders.id = item.order_id"
+        )
+        result = detect_antipatterns(
+            sql,
+            table_columns={
+                "orders": ["id", "status"],
+                "item": ["id", "order_id"],
+            },
+            column_nullability={
+                "orders": {"id": False, "status": True},
+                "item": {"id": False, "order_id": True},
+            },
+        )
+
+        assert result.has_conditional_count_non_null_else is False
+        assert result.unresolved[0].reason == "then_not_non_null"
+
+    def test_derived_table_column_is_not_proved_non_null(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(CASE WHEN id > 0 THEN id ELSE 0 END) "
+            "FROM (SELECT id FROM orders) AS t",
+            table_columns={"orders": ["id"]},
+            column_nullability={"orders": {"id": False}},
+        )
+
+        assert result.has_conditional_count_non_null_else is False
+        assert result.unresolved[0].reason == "then_not_non_null"
+
+    def test_later_defect_is_not_hidden_by_an_earlier_unresolved_count(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(CASE WHEN status = 'paid' THEN amount ELSE 0 END), "
+            "COUNT(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) FROM orders",
+            table_columns={"orders": ["status", "amount"]},
+            column_nullability={"orders": {"status": True, "amount": True}},
+        )
+
+        assert result.has_conditional_count_non_null_else is True
+        assert result.quality_score < 100
+        assert result.unresolved == []
+        finding = result.antipatterns[0]
+        assert finding.status == "defect"
+        assert finding.location == "COUNT(CASE WHEN status = 'paid' THEN 1 ELSE 0 END)"
+
+    def test_only_one_unresolved_record_per_query(self):
+        result = detect_antipatterns(
+            "SELECT COUNT(CASE WHEN status = 'paid' THEN amount ELSE 0 END), "
+            "COUNT(CASE WHEN status = 'void' THEN amount ELSE 0 END) FROM orders",
+            table_columns={"orders": ["status", "amount"]},
+            column_nullability={"orders": {"status": True, "amount": True}},
+        )
+
+        assert result.antipatterns == []
+        assert result.unresolved_count == 1
+        assert "'paid'" in result.unresolved[0].location
 
 
 def _date_record(result):
