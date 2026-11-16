@@ -126,8 +126,11 @@ analyze:
             - chained_comparison_semantics   # `a < b < c` silently compares a boolean in SQLite
             - conditional_count_non_null_else # `COUNT(CASE ... ELSE 0)` counts every row
             - unquoted_date_arithmetic       # `date = 2018-06-01` evaluates numeric subtraction
-            - literal_division_by_zero       # Static zero divisor yields NULL instead of a useful value
+            # Disabled: no findings on Spider, BIRD and Gretel (122,802 gold queries, 2026-11-16); enable for other datasets.
+            # - literal_division_by_zero       # Static zero divisor yields NULL instead of a useful value
             - inconsistent_condition         # `a = 'x' AND a = 'y'`: the row filter is never true
+            # Disabled: no findings on Spider, BIRD and Gretel (122,802 gold queries, 2026-11-16); enable for other datasets.
+            # - tautological_condition         # `a <> 'x' OR a <> 'y'`: the condition is always true
             - unsafe_update_delete           # UPDATE/DELETE without WHERE (accidental data loss)
             - cartesian_product              # Missing JOIN condition (exponential result explosion)
           high:
@@ -152,7 +155,8 @@ analyze:
             - chained_comparison_semantics   # Mathematical-style comparison chains are invalid SQL semantics
             - conditional_count_non_null_else # `COUNT(CASE ... ELSE 0)` counts every row
             - unquoted_date_arithmetic       # Unquoted numeric date shapes are arithmetic expressions
-            - literal_division_by_zero       # Static zero divisor cannot produce a valid quotient
+            # Disabled: no findings on Spider, BIRD and Gretel (122,802 gold queries, 2026-11-16); enable for other datasets.
+            # - literal_division_by_zero       # Static zero divisor cannot produce a valid quotient
             - missing_group_by               # Non-aggregated columns without GROUP BY
             - unsafe_update_delete           # UPDATE/DELETE without WHERE
             - cartesian_product              # Missing JOIN condition

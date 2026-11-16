@@ -199,7 +199,7 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, literal_division_by_zero, inconsistent_condition, unsafe_update_delete, cartesian_product]
+          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, inconsistent_condition, unsafe_update_delete, cartesian_product]
           high: [not_in_nullable, scalar_subquery_cardinality, limit_without_order_by, offset_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery, leading_wildcard_like]
           low: [select_star, redundant_distinct, select_in_exists]
@@ -262,7 +262,8 @@ Detects 18 SQL antipatterns with configurable severity and dialect-specific rule
 
 | Severity | Antipatterns |
 |----------|-------------|
-| **CRITICAL** | `null_comparison_equals`, `chained_comparison_semantics`, `conditional_count_non_null_else`, `unquoted_date_arithmetic`, `literal_division_by_zero`, `inconsistent_condition`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
+| **CRITICAL** | `null_comparison_equals`, `chained_comparison_semantics`, `conditional_count_non_null_else`, `unquoted_date_arithmetic`, `inconsistent_condition`, `unsafe_update_delete`, `cartesian_product`, `missing_group_by` |
+| *disabled* | `literal_division_by_zero`, `tautological_condition` — no findings on Spider, BIRD and Gretel (122,802 gold queries); enable them in the config for other datasets |
 | **HIGH** | `not_in_nullable`, `scalar_subquery_cardinality`, `limit_without_order_by`, `offset_without_order_by` |
 | **MEDIUM** | `function_in_where`, `correlated_subquery`, `leading_wildcard_like` |
 | **LOW** | `select_star`, `redundant_distinct`, `select_in_exists` |
@@ -484,7 +485,7 @@ analyze:
         low: 2
       antipatterns:
         sqlite:
-          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, literal_division_by_zero, inconsistent_condition, unsafe_update_delete, cartesian_product]
+          critical: [null_comparison_equals, chained_comparison_semantics, conditional_count_non_null_else, unquoted_date_arithmetic, inconsistent_condition, unsafe_update_delete, cartesian_product]
           high: [not_in_nullable, scalar_subquery_cardinality, limit_without_order_by, missing_group_by]
           medium: [function_in_where, correlated_subquery]
           low: [select_star, redundant_distinct]

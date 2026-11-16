@@ -261,6 +261,15 @@ all possible database contents.
   some SQLite affinity or built-in collation could make equal never
   contradict, and ranges are used only for columns without TEXT affinity.
   SQLite only.
+- `tautological_condition` - A disjunctive conjunct of the row filter that is
+  never false, Error 8 (b) of Brass and Goldberg, e.g. `a <> 'x' OR a <> 'y'`
+  written for `a <> 'x' AND a <> 'y'`. The rule negates the conjunct with the
+  atoms and SQLite semantics of `inconsistent_condition`; when every branch of
+  the negation is contradictory, the conjunct is a defect if its columns are
+  `NOT NULL` (or covered by an `IS NULL` disjunct), so it is true for every
+  row, and unresolved if it may still be UNKNOWN. A witness row that makes
+  the conjunct false gives `correct`. Single predicates and constant-only
+  conditions such as `1 = 1` are not candidates. SQLite only.
 
 `missing_group_by` is schema-aware when the analyzer can introspect the
 database. Grouping by a whole primary key determines every other column of that

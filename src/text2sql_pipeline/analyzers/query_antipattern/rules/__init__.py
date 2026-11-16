@@ -19,6 +19,7 @@ from .unquoted_date_arithmetic import UnquotedDateArithmeticRule
 from .literal_division_by_zero import LiteralDivisionByZeroRule
 from .template_placeholder_literal import TemplatePlaceholderLiteralRule
 from .inconsistent_condition import InconsistentConditionRule
+from .tautological_condition import TautologicalConditionRule
 from .scalar_subquery_cardinality import ScalarSubqueryCardinalityRule
 from .function_in_where import FunctionInWhereRule
 from .not_in_nullable import NotInNullableRule
@@ -42,6 +43,7 @@ RULES: Tuple[AntipatternRule, ...] = (
     LiteralDivisionByZeroRule(),
     TemplatePlaceholderLiteralRule(),
     InconsistentConditionRule(),
+    TautologicalConditionRule(),
     ScalarSubqueryCardinalityRule(),
     FunctionInWhereRule(),
     NotInNullableRule(),

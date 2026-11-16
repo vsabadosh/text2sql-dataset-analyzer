@@ -72,6 +72,7 @@ class QueryAntipatternFeatures(BaseModel):
     has_literal_division_by_zero: bool = False  # divisor is a static numeric zero
     has_template_placeholder_literal: bool = False  # region0/actor_name0 left unexpanded
     has_inconsistent_condition: bool = False  # row filter that is never true
+    has_tautological_condition: bool = False  # disjunctive condition that is always true
     
     # High severity
     has_function_in_where: bool = False        # function call on column in WHERE (prevents index use)

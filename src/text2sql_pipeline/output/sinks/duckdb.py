@@ -177,6 +177,7 @@ class DuckDBMetricsSink(MetricsSink):
                         ("unresolved", "JSON"),
                         ("proved_safe", "JSON"),
                         ("has_inconsistent_condition", "BOOLEAN"),
+                        ("has_tautological_condition", "BOOLEAN"),
                     ],
                 )
             elif analyzer_name == "question_sql_consistency":
@@ -447,6 +448,7 @@ class DuckDBMetricsSink(MetricsSink):
             unresolved JSON,
             proved_safe JSON,
             has_inconsistent_condition BOOLEAN,
+            has_tautological_condition BOOLEAN,
             
             PRIMARY KEY (dataset_id, item_id, ts)
         )
@@ -862,6 +864,7 @@ class DuckDBMetricsSink(MetricsSink):
                 "unresolved": json.dumps(features.get("unresolved", [])),
                 "proved_safe": json.dumps(features.get("proved_safe", [])),
                 "has_inconsistent_condition": features.get("has_inconsistent_condition"),
+                "has_tautological_condition": features.get("has_tautological_condition"),
             }
             columns = ", ".join(values)
             placeholders = ", ".join("?" for _ in values)

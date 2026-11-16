@@ -9,6 +9,7 @@ This module detects common SQL antipatterns and code smells:
 - Unquoted date-shaped subtraction in temporal predicates
 - Division by a static numeric zero
 - Inconsistent row filters that are never true
+- Disjunctive conditions that are always true
 - Unexpanded zero-suffixed template placeholders in predicate values
 - Scalar subqueries without a static at-most-one-row proof
 - Cartesian product (missing JOIN) - correctness
@@ -67,6 +68,7 @@ DEFAULT_CONFIG = {
         AntipatternPattern.UNQUOTED_DATE_ARITHMETIC,
         AntipatternPattern.LITERAL_DIVISION_BY_ZERO,
         AntipatternPattern.INCONSISTENT_CONDITION,
+        AntipatternPattern.TAUTOLOGICAL_CONDITION,
     ],
     "high": [
         AntipatternPattern.TEMPLATE_PLACEHOLDER_LITERAL,
