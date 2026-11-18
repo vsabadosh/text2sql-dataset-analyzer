@@ -9,6 +9,7 @@ from sqlglot import exp
 from ..metrics import AntipatternInstance
 from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
+from ..keys import _aggregate_yields_one_row
 
 class LimitWithoutOrderByRule:
     """
@@ -102,6 +103,12 @@ class LimitWithoutOrderByRule:
                 )
                 if all_literals:
                     continue
+
+            # An aggregate query without GROUP BY (aggregate in SELECT, HAVING or
+            # ORDER BY) returns at most one row, so no LIMIT can choose among rows:
+            # SELECT SUM(x) FROM t LIMIT 3.
+            if _aggregate_yields_one_row(select, schema.dialect):
+                continue
 
             # LIMIT without ORDER BY detected
             antipatterns.append(

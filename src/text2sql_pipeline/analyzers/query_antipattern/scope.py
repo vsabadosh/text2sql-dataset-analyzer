@@ -465,3 +465,26 @@ def _correlated_outer_columns(
             correlated.append(column)
 
     return correlated
+
+def _scalar_binding_context(
+    select: exp.Select,
+    table_columns: Optional[Dict[str, List[str]]],
+) -> Tuple[List[_CartesianScopeLevel], Dict[str, Optional[str]]]:
+    """Innermost scope first, with enclosing SELECT sources prefixed.
+
+    The prefix keeps an outer alias distinct from an inner alias of the same
+    name so comparison signatures can be looked up for both.
+    """
+    chain = [_cartesian_scope_level(select, table_columns, "")]
+    combined: Dict[str, Optional[str]] = dict(_from_table_aliases(select))
+    index = 0
+    current: Optional[exp.Expression] = select.parent
+    while current is not None:
+        if isinstance(current, exp.Select):
+            prefix = f"\x00outer{index}:"
+            chain.append(_cartesian_scope_level(current, table_columns, prefix))
+            for identity, table in _from_table_aliases(current).items():
+                combined[prefix + identity] = table
+            index += 1
+        current = current.parent
+    return chain, combined

@@ -9,7 +9,104 @@ from sqlglot import exp
 from ..metrics import AntipatternInstance
 from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
-from ..ast_utils import _closest_parent_of_type
+from ..ast_utils import (
+    _closest_parent_of_type,
+    _is_aggregate_like,
+    _is_window_aggregate,
+)
+
+# Functions whose first argument is a date-part keyword, not a column:
+# DATEADD(day, -7, GETDATE()) reads `day` as a unit.
+_DATE_UNIT_FUNCTIONS = frozenset({
+    "dateadd", "datediff", "datediff_big", "datepart", "datename",
+    "date_part", "date_trunc", "datetrunc", "timestampadd", "timestampdiff",
+})
+_DATE_UNITS = frozenset({
+    "year", "yy", "yyyy", "quarter", "qq", "q", "month", "mm", "m",
+    "dayofyear", "dy", "y", "day", "dd", "d", "week", "wk", "ww",
+    "weekday", "dw", "hour", "hh", "minute", "mi", "n", "second", "ss", "s",
+    "millisecond", "ms", "microsecond", "mcs", "nanosecond", "ns",
+    "iso_week", "isowk", "isoww",
+})
+
+
+_DIFF_FUNCTIONS = tuple(
+    node_type
+    for node_type in (
+        getattr(exp, "DateDiff", None),
+        getattr(exp, "TimestampDiff", None),
+        getattr(exp, "DatetimeDiff", None),
+    )
+    if isinstance(node_type, type)
+)
+
+
+def _is_date_unit(column: exp.Column) -> bool:
+    """Whether a parsed column is really the unit argument of a date function."""
+    if column.table:
+        return False
+    if column.arg_key == "unit":
+        return True
+    parent = column.parent
+    name = (column.name or "").lower()
+    # T-SQL DATEDIFF(day, a, b) and MySQL TIMESTAMPDIFF(YEAR, a, b) read with
+    # another dialect become DateDiff/TimestampDiff with the unit in `this` and
+    # the last argument in `unit`; the two-argument DATEDIFF(a, b) has no unit.
+    if (
+        isinstance(parent, _DIFF_FUNCTIONS)
+        and column.arg_key == "this"
+        and parent.args.get("unit") is not None
+        and name in _DATE_UNITS
+    ):
+        return True
+    return (
+        isinstance(parent, exp.Anonymous)
+        and (parent.name or "").lower() in _DATE_UNIT_FUNCTIONS
+        and bool(parent.expressions)
+        and parent.expressions[0] is column
+        and name in _DATE_UNITS
+    )
+
+
+def _inside_aggregate(column: exp.Column, boundary: exp.Expression) -> bool:
+    """Whether the column is an argument of a group aggregate below boundary."""
+    parent = column.parent
+    while parent is not None and parent is not boundary:
+        if _is_aggregate_like(parent) and not _is_window_aggregate(parent):
+            return True
+        parent = parent.parent
+    return False
+
+
+def _value_columns(node: exp.Expression, clause: exp.Expression) -> list:
+    """Columns whose stored values the expression transforms.
+
+    Date-part units are not columns. In HAVING, a column inside an aggregate
+    is not a row value an index could serve, so it does not count either.
+    """
+    columns = []
+    for column in node.find_all(exp.Column):
+        if _is_date_unit(column):
+            continue
+        if isinstance(clause, exp.Having) and _inside_aggregate(column, clause):
+            continue
+        columns.append(column)
+    # In the misread three-argument form DATEDIFF(day, a, hire_date) sqlglot
+    # keeps an unqualified last argument as Var(unit). Unless it is a date-part
+    # word it is the column the function transforms.
+    for diff in node.find_all(*_DIFF_FUNCTIONS) if _DIFF_FUNCTIONS else ():
+        unit = diff.args.get("unit")
+        if (
+            isinstance(diff.this, exp.Column)
+            and _is_date_unit(diff.this)
+            and isinstance(unit, exp.Var)
+            and (unit.name or "").lower() not in _DATE_UNITS
+            and not (
+                isinstance(clause, exp.Having) and _inside_aggregate(unit, clause)
+            )
+        ):
+            columns.append(unit)
+    return columns
 
 class FunctionInWhereRule:
     """
@@ -81,8 +178,8 @@ class FunctionInWhereRule:
                         if isinstance(clause, exp.Having) and isinstance(func, exp.AggFunc):
                             continue
 
-                        # Collect all column references used inside this function-like expression
-                        columns = list(func.find_all(exp.Column))
+                        # Collect column references whose values the function transforms
+                        columns = _value_columns(func, clause)
                         if not columns:
                             # Pure literal function, e.g. LOWER('x') → harmless
                             continue
@@ -130,8 +227,8 @@ class FunctionInWhereRule:
                             if parent_func_select is clause_select:
                                 continue  # Will be caught by function check
 
-                        # Collect all column references in this arithmetic expression
-                        columns = list(arith_expr.find_all(exp.Column))
+                        # Collect column references whose values the expression transforms
+                        columns = _value_columns(arith_expr, clause)
                         if not columns:
                             # Pure literal arithmetic, e.g. 1 + 2 → harmless
                             continue

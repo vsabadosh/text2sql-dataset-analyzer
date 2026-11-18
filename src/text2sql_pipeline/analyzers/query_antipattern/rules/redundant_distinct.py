@@ -22,8 +22,6 @@ from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
 from ..ast_utils import (
     _has_non_window_aggregate_not_in_subquery,
-    _is_non_null_literal,
-    _join_can_null_extend,
 )
 from ..scope import (
     _build_select_alias_map,
@@ -33,6 +31,7 @@ from ..scope import (
     _resolve_column,
 )
 from ..keys import (
+    _literal_fixed_columns,
     _candidate_keys,
     _column_fixed,
     _columns_compare_compatibly,
@@ -350,65 +349,6 @@ def _projected_key_proof(
     ):
         return None
     return sources[driving]
-
-def _literal_fixed_columns(
-    select: exp.Select,
-    sources: Dict[str, Optional[str]],
-    table_columns: Optional[Dict[str, List[str]]],
-) -> Set[Tuple[str, str]]:
-    """Columns a WHERE or inner-join conjunct equates to a non-null literal.
-
-    This is the ``A = c`` step of Brass & Goldberg's closure. A LEFT JOIN's ON
-    never removes the rows it pads, and a later RIGHT or FULL join pads a
-    column an inner-join ON fixed, so those contribute nothing; WHERE holds
-    for every output row.
-    """
-    joins = select.args.get("joins") or []
-    pads_inner_joins = any(
-        _join_can_null_extend(join)
-        and str(join.args.get("side") or "").upper() != "LEFT"
-        for join in joins
-    )
-    conditions: List[exp.Expression] = []
-    where = select.args.get("where")
-    if isinstance(where, exp.Where) and where.this is not None:
-        conditions.append(where.this)
-    if not pads_inner_joins:
-        conditions.extend(
-            join.args["on"]
-            for join in joins
-            if not _join_can_null_extend(join) and join.args.get("on") is not None
-        )
-    conjuncts: List[exp.Expression] = []
-    while conditions:
-        node = conditions.pop()
-        while isinstance(node, exp.Paren):
-            node = node.this
-        if isinstance(node, exp.And):
-            conditions.extend((node.left, node.right))
-        else:
-            conjuncts.append(node)
-    fixed: Set[Tuple[str, str]] = set()
-    for conjunct in conjuncts:
-        if not isinstance(conjunct, exp.EQ):
-            continue
-        for column, value in (
-            (conjunct.left, conjunct.right),
-            (conjunct.right, conjunct.left),
-        ):
-            if not isinstance(column, exp.Column) or not _is_non_null_literal(value):
-                continue
-            if any(
-                identifier.args.get("quoted")
-                for identifier in column.find_all(exp.Identifier)
-            ):
-                continue
-            binding = _resolve_column(
-                column.table, column.name, sources, table_columns
-            )
-            if binding is not None:
-                fixed.add(binding)
-    return fixed
 
 def _star_fixed_columns(
     sources: Dict[str, Optional[str]],

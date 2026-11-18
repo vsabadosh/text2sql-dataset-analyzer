@@ -29,8 +29,8 @@ from ..ast_utils import (
     _unwrap_paren,
 )
 from ..scope import (
+    _scalar_binding_context,
     _CartesianScopeLevel,
-    _cartesian_scope_level,
     _from_table_aliases,
     _metadata_table_key,
     _resolve_column_sources,
@@ -58,6 +58,37 @@ _SET_VALUED_SUBQUERY_PARENTS: Tuple[Type[exp.Expression], ...] = tuple(
     )
     if node_type is not None
 )
+
+_SET_OPERATIONS: Tuple[Type[exp.Expression], ...] = (
+    exp.Union,
+    exp.Intersect,
+    exp.Except,
+)
+
+def _scalar_union_operand(subquery: exp.Subquery) -> bool:
+    """Whether an operand of a set operation is checked as a scalar.
+
+    The witness copies a matching row, so the operand returns two equal rows.
+    UNION ALL keeps both, and when the whole set operation is a scalar
+    subquery that witness is one for it. UNION removes the duplicate,
+    INTERSECT and EXCEPT may drop it, and a set operation used as a row set
+    (top level, FROM, IN) is not scalar at all. Only a Defect of such an
+    operand is recorded: its Safe or Unresolved says nothing about the union.
+    """
+    node: exp.Expression = subquery
+    parent = node.parent
+    while isinstance(parent, (exp.Paren,) + _SET_OPERATIONS):
+        if isinstance(parent, (exp.Intersect, exp.Except)) or (
+            isinstance(parent, exp.Union) and parent.args.get("distinct")
+        ):
+            return False
+        node, parent = parent, parent.parent
+    if not isinstance(parent, exp.Subquery):
+        return False
+    outer = parent.parent
+    while isinstance(outer, exp.Paren):
+        outer = outer.parent
+    return not isinstance(outer, _SET_VALUED_SUBQUERY_PARENTS + _SET_OPERATIONS)
 
 class ScalarSubqueryCardinalityRule:
     """Decide every scalar subquery that is not syntactically at most one row.
@@ -98,6 +129,9 @@ class ScalarSubqueryCardinalityRule:
                 parent = parent.parent
             if isinstance(parent, _SET_VALUED_SUBQUERY_PARENTS):
                 continue
+            union_operand = isinstance(parent, _SET_OPERATIONS)
+            if union_operand and not _scalar_union_operand(subquery):
+                continue
 
             query = subquery.this
             if _is_provably_scalar_query(query):
@@ -119,6 +153,8 @@ class ScalarSubqueryCardinalityRule:
                 nullable_keys,
                 mismatched_collation_keys,
             )
+            if union_operand and status != DECISION_DEFECT:
+                continue
             antipatterns.append(
                 AntipatternInstance(
                     pattern=pattern,
@@ -520,29 +556,6 @@ def _scalar_filter_atom(
         "kind": "compare",
         "unsatisfiable": kind == "null",
     }
-
-def _scalar_binding_context(
-    select: exp.Select,
-    table_columns: Optional[Dict[str, List[str]]],
-) -> Tuple[List[_CartesianScopeLevel], Dict[str, Optional[str]]]:
-    """Innermost scope first, with enclosing SELECT sources prefixed.
-
-    The prefix keeps an outer alias distinct from an inner alias of the same
-    name so comparison signatures can be looked up for both.
-    """
-    chain = [_cartesian_scope_level(select, table_columns, "")]
-    combined: Dict[str, Optional[str]] = dict(_from_table_aliases(select))
-    index = 0
-    current: Optional[exp.Expression] = select.parent
-    while current is not None:
-        if isinstance(current, exp.Select):
-            prefix = f"\x00outer{index}:"
-            chain.append(_cartesian_scope_level(current, table_columns, prefix))
-            for identity, table in _from_table_aliases(current).items():
-                combined[prefix + identity] = table
-            index += 1
-        current = current.parent
-    return chain, combined
 
 def _scalar_sources_are_key_pinned(
     select: exp.Select,

@@ -6,7 +6,7 @@ most one row walks the same non-aggregated projection as GROUP BY.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from sqlglot import exp
 
@@ -573,6 +573,61 @@ def _column_in_group(
 
     return False
 
+def _canonical_sql(
+    expression: exp.Expression,
+    sources: Optional[Dict[str, Optional[str]]],
+    table_columns: Optional[Dict[str, List[str]]],
+) -> str:
+    """SQL text with every bindable column written as ``source.column``.
+
+    ``EXTRACT(YEAR FROM e.hire_date)`` and ``EXTRACT(YEAR FROM hire_date)``
+    then compare equal when both columns bind to the same source.
+    """
+    if sources is None:
+        return expression.sql()
+    copy = expression.copy()
+    for column in list(copy.find_all(exp.Column)):
+        binding = _resolve_column(column.table, column.name, sources, table_columns)
+        if binding is not None:
+            column.replace(exp.column(binding[1].lower(), table=binding[0]))
+    return copy.sql()
+
+def _block_has_non_window_aggregate(select: exp.Select) -> bool:
+    """Whether this SELECT level is an aggregate query.
+
+    A non-window aggregate in the SELECT list, HAVING or ORDER BY makes it one,
+    as in ``SELECT col FROM t GROUP BY col2 HAVING COUNT(*) > 1`` or
+    ``SELECT col FROM t ORDER BY COUNT(*)``. Aggregates of nested queries do
+    not count.
+    """
+    if any(
+        _has_non_window_aggregate_not_in_subquery(expr)
+        for expr in select.expressions or []
+    ):
+        return True
+    for clause in (select.args.get("having"), select.args.get("order")):
+        if isinstance(clause, (exp.Having, exp.Order)) and (
+            _has_non_window_aggregate_not_in_subquery(clause)
+        ):
+            return True
+    return False
+
+def _aggregate_yields_one_row(
+    select: exp.Select,
+    dialect: Optional[str] = None,
+) -> bool:
+    """Whether an aggregate SELECT without GROUP BY returns at most one row.
+
+    A set-returning projection such as ``unnest(array_agg(x))`` expands that
+    row again. SQLite allows table-valued functions only in FROM, so there no
+    projection can do that.
+    """
+    if select.args.get("group") is not None:
+        return False
+    if (dialect or "").lower() != "sqlite" and _has_set_returning_projection(select):
+        return False
+    return _block_has_non_window_aggregate(select)
+
 def _collect_non_aggregated_columns_for_select(
     select: exp.Select,
     normalized_group_exprs: List[exp.Expression],
@@ -598,47 +653,34 @@ def _collect_non_aggregated_columns_for_select(
     has_star = False
     non_aggregate_columns: List[exp.Column] = []
 
-    # First pass: detect aggregates and SELECT * in the SELECT list
+    # First pass: detect SELECT * in the SELECT list
     for expr in select_expressions:
-        # Detect SELECT * at this level
         if isinstance(expr, exp.Star):
             star_select = _closest_parent_of_type(expr, exp.Select)
             if star_select is select:
                 has_star = True
 
-        # Detect non-window aggregates at this level (ignoring aggregates only in subqueries)
-        if _has_non_window_aggregate_not_in_subquery(expr):
-            has_non_window_aggregate = True
-
-    # If we still haven't seen a non-window aggregate in the SELECT list,
-    # also look for aggregates at this SELECT level in HAVING / ORDER BY.
-    #
-    # This is important for queries like:
-    #   SELECT col FROM t GROUP BY col2 HAVING COUNT(*) > 1
-    # or:
-    #   SELECT col1, col2 FROM t GROUP BY col1 ORDER BY COUNT(*) DESC
-    #
-    # Even though the aggregate only appears in HAVING / ORDER BY, the query
-    # is still an aggregate query and non-grouped columns in SELECT should
-    # be treated as a Missing GROUP BY antipattern.
-    if not has_non_window_aggregate:
-        # HAVING clause aggregates
-        having_clause = select.args.get("having")
-        if isinstance(having_clause, exp.Having):
-            has_non_window_aggregate = (
-                _has_non_window_aggregate_not_in_subquery(having_clause)
-            )
-
-    if not has_non_window_aggregate:
-        # ORDER BY clause aggregates
-        order_clause = select.args.get("order")
-        if isinstance(order_clause, exp.Order):
-            has_non_window_aggregate = (
-                _has_non_window_aggregate_not_in_subquery(order_clause)
-            )
+    has_non_window_aggregate = _block_has_non_window_aggregate(select)
 
     if not has_non_window_aggregate and select.args.get("group") is None:
         return False, has_star, []
+
+    # SQL text of the GROUP BY expressions, rendered once; a non-column
+    # ancestor of a column is grouped when its own SQL text is one of them.
+    group_sql = {
+        _canonical_sql(gb, sources, table_columns)
+        for gb in normalized_group_exprs
+        if not isinstance(gb, exp.Column)
+    }
+    grouped_ancestor: Dict[int, bool] = {}
+
+    def _ancestor_grouped(node: exp.Expression) -> bool:
+        key = id(node)
+        if key not in grouped_ancestor:
+            grouped_ancestor[key] = (
+                _canonical_sql(node, sources, table_columns) in group_sql
+            )
+        return grouped_ancestor[key]
 
     # Second pass: collect non-aggregated columns
     for expr in select_expressions:
@@ -668,12 +710,22 @@ def _collect_non_aggregated_columns_for_select(
             if col_select is not select:
                 continue
 
-            # Check if this column is inside a non-window aggregate at this level
+            # Check if this column is inside a non-window aggregate at this level,
+            # or inside a sub-expression that GROUP BY names as a whole, such as
+            # adoption_date in EXTRACT(YEAR FROM adoption_date) when the query
+            # groups by that expression (directly or through its alias).
             parent = col.parent
             inside_nonwindow_aggregate = False
 
             while parent is not None and parent is not select:
                 if _is_aggregate_like(parent) and not _is_window_aggregate(parent):
+                    inside_nonwindow_aggregate = True
+                    break
+                if (
+                    group_sql
+                    and not isinstance(parent, exp.Column)
+                    and _ancestor_grouped(parent)
+                ):
                     inside_nonwindow_aggregate = True
                     break
                 if (
@@ -724,3 +776,110 @@ def _is_provably_scalar_query(query: exp.Expression) -> bool:
 
     has_aggregate, _, _ = _collect_non_aggregated_columns_for_select(query, [])
     return has_aggregate
+
+def _literal_equalities(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+    chain: Optional[list] = None,
+    dialect: Optional[str] = None,
+) -> List[Tuple[Tuple[str, str], exp.Expression]]:
+    """Bound columns a WHERE or inner-join conjunct equates to a constant.
+
+    This is the ``A = c`` step of Brass & Goldberg's closure. A LEFT JOIN's ON
+    never removes the rows it pads, and a later RIGHT or FULL join pads a
+    column an inner-join ON fixed, so those contribute nothing; WHERE holds
+    for every output row. Without ``chain`` a quoted name is never trusted.
+    With ``chain`` and ``dialect`` SQLite's double-quoted name is read as the
+    engine does: a column when some scope binds it, otherwise a string literal
+    (``state = "CA"``), unless it names an output column alias, which SQLite
+    resolves first. Each item is the column binding and the constant.
+    """
+    output_aliases = {
+        expression.alias.lower()
+        for expression in select.expressions or []
+        if isinstance(expression, exp.Alias) and expression.alias
+    }
+
+    def is_constant(value: exp.Expression) -> bool:
+        if _is_non_null_literal(value):
+            return True
+        if chain is None:
+            return False
+        text = _sqlite_quoted_literal(value, chain, dialect)
+        return text is not None and text.lower() not in output_aliases
+
+    def is_column(column: exp.Expression) -> bool:
+        if not isinstance(column, exp.Column):
+            return False
+        if not any(
+            identifier.args.get("quoted")
+            for identifier in column.find_all(exp.Identifier)
+        ):
+            return True
+        return chain is not None and _sqlite_quoted_literal(
+            column, chain, dialect
+        ) is None
+
+    joins = select.args.get("joins") or []
+    pads_inner_joins = any(
+        _join_can_null_extend(join)
+        and str(join.args.get("side") or "").upper() != "LEFT"
+        for join in joins
+    )
+    conditions: List[exp.Expression] = []
+    where = select.args.get("where")
+    if isinstance(where, exp.Where) and where.this is not None:
+        conditions.append(where.this)
+    if not pads_inner_joins:
+        conditions.extend(
+            join.args["on"]
+            for join in joins
+            if not _join_can_null_extend(join) and join.args.get("on") is not None
+        )
+    conjuncts: List[exp.Expression] = []
+    while conditions:
+        node = conditions.pop()
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if isinstance(node, exp.And):
+            conditions.extend((node.left, node.right))
+        else:
+            conjuncts.append(node)
+    equalities: List[Tuple[Tuple[str, str], exp.Expression]] = []
+    for conjunct in conjuncts:
+        if not isinstance(conjunct, exp.EQ):
+            continue
+        for column, value in (
+            (conjunct.left, conjunct.right),
+            (conjunct.right, conjunct.left),
+        ):
+            if not is_column(column) or not is_constant(value):
+                continue
+            binding = _resolve_column(
+                column.table, column.name, sources, table_columns
+            )
+            if binding is not None:
+                equalities.append((binding, value))
+    return equalities
+
+def _literal_fixed_columns(
+    select: exp.Select,
+    sources: Dict[str, Optional[str]],
+    table_columns: Optional[Dict[str, List[str]]],
+    chain: Optional[list] = None,
+    dialect: Optional[str] = None,
+    accept: Optional[Callable[[Tuple[str, str], exp.Expression], bool]] = None,
+) -> Set[Tuple[str, str]]:
+    """Columns a WHERE or inner-join conjunct equates to a non-null literal.
+
+    See :func:`_literal_equalities`. ``accept`` may reject a column-constant
+    pair, for instance when the comparison does not fix the stored value.
+    """
+    return {
+        binding
+        for binding, value in _literal_equalities(
+            select, sources, table_columns, chain, dialect
+        )
+        if accept is None or accept(binding, value)
+    }

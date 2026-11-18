@@ -147,12 +147,17 @@ def _is_null_literal(node: exp.Expression) -> bool:
     """Check if a node is a NULL literal."""
     return isinstance(node, exp.Null) or (isinstance(node, exp.Literal) and str(node).upper() == "NULL")
 
-def _is_non_null_literal(node: exp.Expression) -> bool:
-    while isinstance(node, exp.Paren):
-        node = node.this
+def _is_numeric_literal(node: exp.Expression) -> bool:
+    """A number literal, possibly negated or parenthesized."""
+    node = _unwrap_paren(node)
     if isinstance(node, exp.Neg):
         node = node.this
-        return isinstance(node, exp.Literal) and not node.is_string
+    return isinstance(node, exp.Literal) and not node.is_string
+
+def _is_non_null_literal(node: exp.Expression) -> bool:
+    node = _unwrap_paren(node)
+    if isinstance(node, exp.Neg):
+        return _is_numeric_literal(node)
     return isinstance(node, exp.Literal)
 
 def _closest_parent_of_type(node: exp.Expression, cls: Type[exp.Expression]) -> Optional[exp.Expression]:
@@ -162,22 +167,44 @@ def _closest_parent_of_type(node: exp.Expression, cls: Type[exp.Expression]) -> 
         parent = parent.parent
     return parent
 
+_WINDOW_FUNCTION_MODIFIERS: Tuple[Type[exp.Expression], ...] = tuple(
+    node_type
+    for node_type in (
+        getattr(exp, "Filter", None),
+        getattr(exp, "IgnoreNulls", None),
+        getattr(exp, "RespectNulls", None),
+        getattr(exp, "WithinGroup", None),
+    )
+    if isinstance(node_type, type)
+)
+
 def _is_window_aggregate(agg: exp.Expression) -> bool:
     """
     Return True if this aggregate function is used as a window function,
-    i.e. it is inside a Window node (AVG(...) OVER (...)).
+    i.e. it is the function a Window node applies (AVG(...) OVER (...)).
+
+    Only modifiers such as FILTER may stand between the aggregate and OVER.
+    An aggregate inside the window specification, such as SUM(b) in
+    RANK() OVER (ORDER BY SUM(b)), or inside the argument of the windowed
+    function, such as COUNT(x) in AVG(COUNT(x)) OVER () or SUM(x) in
+    ROUND(SUM(x)) OVER (), is an ordinary group aggregate: it is computed
+    per group before the window applies.
     """
+    node = agg
     parent = agg.parent
-    while parent is not None and not isinstance(parent, exp.Select):
-        if isinstance(parent, exp.Window):
-            return True
+    while isinstance(parent, _WINDOW_FUNCTION_MODIFIERS):
+        node = parent
         parent = parent.parent
-    return False
+    return isinstance(parent, exp.Window) and parent.this is node
 
 def _has_non_window_aggregate_not_in_subquery(expr: exp.Expression) -> bool:
-    """Find a non-window aggregate without crossing a nested query boundary."""
-    if _is_aggregate_like(expr):
-        return not _is_window_aggregate(expr)
+    """Find a non-window aggregate without crossing a nested query boundary.
+
+    A windowed aggregate is not one itself, but its argument may hold one:
+    AVG(COUNT(x)) OVER () makes the block an aggregate query.
+    """
+    if _is_aggregate_like(expr) and not _is_window_aggregate(expr):
+        return True
     if isinstance(expr, (exp.Select, exp.Subquery)):
         return False
     return any(

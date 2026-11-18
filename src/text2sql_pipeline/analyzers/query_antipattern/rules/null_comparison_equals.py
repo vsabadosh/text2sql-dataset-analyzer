@@ -15,6 +15,13 @@ from ..antipattern_registry import AntipatternPattern
 from ..context import SchemaContext
 from ..ast_utils import _is_null_literal
 
+def _is_assignment(node: exp.EQ) -> bool:
+    parent = node.parent
+    if isinstance(parent, (exp.Update, exp.OnConflict)):
+        return node.arg_key == "expressions"
+    return isinstance(parent, exp.SetItem)
+
+
 class NullComparisonEqualsRule:
     """
     Detect suspicious comparisons against NULL using standard comparison operators.
@@ -56,6 +63,11 @@ class NullComparisonEqualsRule:
 
         for node_type in comparison_nodes:
             for node in ast.find_all(node_type):
+                # SET x = NULL in UPDATE, in an upsert (ON CONFLICT DO UPDATE,
+                # ON DUPLICATE KEY UPDATE) and SET @v = NULL are assignments,
+                # not comparisons.
+                if isinstance(node, exp.EQ) and _is_assignment(node):
+                    continue
                 if _is_null_literal(node.left) or _is_null_literal(node.right):
                     antipatterns.append(
                         AntipatternInstance(
